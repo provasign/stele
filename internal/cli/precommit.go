@@ -69,7 +69,9 @@ func cmdPrecommit(args []string, out io.Writer) int {
 	next := nextCommand(cfg, root)
 	reg, err := ir.LoadDir(cfg.RegistryDir())
 	if err != nil || len(reg.Rules) == 0 {
-		if touchesSpecs {
+		// With no requirements yet (a Shale project before its first
+		// request), there is nothing to adopt.
+		if touchesSpecs && hasRequirements(cfg, root) {
 			fmt.Fprintf(out, "Stele: this project's specs are not adopted yet, so this commit is not checked.\nNext: run `stele adopt --json`. It reads every requirement once and checks them against each other; then ask the owner its questions and record the answers, as for `stele change`.\n")
 		}
 		return 0
@@ -259,4 +261,14 @@ func splitNUL(s string) []string {
 		}
 	}
 	return out
+}
+
+// hasRequirements reports whether the project's specs hold any requirement;
+// when they cannot be read, it says yes, so the adopt step is still shown.
+func hasRequirements(cfg *config.Config, root string) bool {
+	if cfg.Specs == nil {
+		return true
+	}
+	stmts, err := importSpecs(root, cfg.Specs)
+	return err != nil || len(stmts) > 0
 }

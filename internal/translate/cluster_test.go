@@ -90,8 +90,8 @@ func TestClusteringFindsAmbiguity(t *testing.T) {
 		t.Errorf("rules.yaml has no draft rule:\n%s", rules)
 	}
 	q, err := os.ReadFile(filepath.Join(out, "questions.md"))
-	if err != nil || !strings.Contains(string(q), "S1") || !strings.Contains(string(q), "They differ when workspace: stop runs, node: vm exists, workspace: status is running; after the step, node: vm exists.") || strings.Contains(string(q), "S2") {
-		t.Errorf("questions.md = %q (%v), want one question, about S1, with a situation", q, err)
+	if err != nil || !strings.Contains(string(q), "S1") || !strings.Contains(string(q), "They differ when workspace: stop runs, node: vm exists, workspace: status is ") || !strings.Contains(string(q), "; after the step, node: vm exists.") || strings.Contains(string(q), "S2") {
+		t.Errorf("questions.md = %q (%v), want one question, about S1, with a situation (any status: the solver picks the example)", q, err)
 	}
 }
 
