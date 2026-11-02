@@ -1,0 +1,82 @@
+{
+  "enabledMcpjsonServers": [
+    "prism"
+  ],
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "command -v shale \u003e/dev/null 2\u003e\u00261 \u0026\u0026 shale capture claude-code || true",
+            "type": "command"
+          }
+        ],
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash"
+      },
+      {
+        "hooks": [
+          {
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/stele-hook.js\"",
+            "timeout": 12,
+            "type": "command"
+          }
+        ],
+        "matcher": "Write|Edit|MultiEdit|Bash"
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "command": "command -v shale \u003e/dev/null 2\u003e\u00261 \u0026\u0026 shale capture claude-code || true",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "command -v shale \u003e/dev/null 2\u003e\u00261 \u0026\u0026 shale capture claude-code || true",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "command": "command -v shale \u003e/dev/null 2\u003e\u00261 \u0026\u0026 shale capture claude-code || true",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "command": "command -v shale \u003e/dev/null 2\u003e\u00261 \u0026\u0026 shale capture claude-code || true",
+            "type": "command"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/stele-hook.js\"",
+            "timeout": 6,
+            "type": "command"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "mcp__prism"
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+# Stele settings. See docs/04-data-model.md for the registry layout.
+# translate.drafts: drafts per requirement. 1 is cheapest. Above 1, readings are
+# compared by the solver and disagreements become questions for the spec author.
+formatVersion: 1
+registry: .stele/registry
+translate:
+    llm: claude
+    drafts: 1
+specs:
+    root: .
+    format: shale
+    snapshot: .stele/accepted-statements.yaml
+harnesses:
+    - claude
+    - codex
+    - opencode
