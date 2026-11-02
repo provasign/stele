@@ -107,6 +107,19 @@ func TestPrecommitNotAdopted(t *testing.T) {
 	}
 }
 
+// TestPrecommitNoRequirements: a Shale project before its first request
+// has nothing to adopt, so committing its setup says nothing.
+func TestPrecommitNoRequirements(t *testing.T) {
+	dir := doorProject(t, false)
+	cfg, _ := json.Marshal(map[string]any{"formatVersion": 1, "registry": "registry", "translate": map[string]any{"llm": "claude", "drafts": 1}, "specs": map[string]any{"root": ".", "format": "shale", "snapshot": "statements.yaml"}})
+	os.WriteFile(filepath.Join(dir, "stele.yaml"), cfg, 0o644)
+	os.MkdirAll(filepath.Join(dir, ".shale"), 0o755)
+	os.WriteFile(filepath.Join(dir, ".shale/config.yaml"), []byte("version: 1\n"), 0o644)
+	if code, out := precommit(t, dir, "stele.yaml", ".shale/config.yaml"); code != 0 || out != "" {
+		t.Errorf("%d %q", code, out)
+	}
+}
+
 // TestInstallGitHook: init writes the pre-commit hook once, and leaves a
 // hook it did not write alone, saying the line to add.
 func TestInstallGitHook(t *testing.T) {

@@ -6,6 +6,7 @@
 - **Code touches.** `stele touches` lists the approved requirements the branch's code touches, from Grove's parse of the changed files: a function named like a rule's step, or code that is, reads or writes an attribute the rule reads. The post-edit hook says so when that set changes.
 - **PR card.** `stele change`, the owner's answers and the pre-commit hook keep `.stele/cards/<change>.json` current: status, requirements added, changed and retired, the owner's decisions, and the approved requirements the code touches. Shale renders it on the PR.
 - The watch hook's message names the command that checks pending statements.
+- The pre-commit hook no longer asks to run `stele adopt` when there is nothing to adopt, such as a Shale project before its first request.
 
 ## v0.1.0
 
