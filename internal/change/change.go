@@ -28,6 +28,7 @@ import (
 	"github.com/provasign/stele/internal/adopt"
 	"github.com/provasign/stele/internal/formalize"
 	"github.com/provasign/stele/internal/gate"
+	"github.com/provasign/stele/internal/importer"
 	"github.com/provasign/stele/internal/ir"
 	"github.com/provasign/stele/internal/lesson"
 	"github.com/provasign/stele/internal/llm"
@@ -774,6 +775,19 @@ func knownUses(reg *ir.Registry, prose map[string]string) map[string][]string {
 func Fingerprint(roots ...string) (string, error) {
 	h := sha256.New()
 	for _, root := range roots {
+		// Shale appends every command an agent runs to the open session's
+		// file, so its folder changes between the check and the approval.
+		// What the check read is the requests: fingerprint those.
+		if filepath.Base(root) == ".shale" {
+			stmts, err := importer.Shale(filepath.Dir(root))
+			if err != nil {
+				return "", err
+			}
+			for _, s := range stmts {
+				fmt.Fprintf(h, "%s\x00%d\x00%s", s.ID, len(s.Prose), s.Prose)
+			}
+			continue
+		}
 		err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() {
 				return err

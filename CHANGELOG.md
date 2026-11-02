@@ -7,6 +7,7 @@
 - **PR card.** `stele change`, the owner's answers and the pre-commit hook keep `.stele/cards/<change>.json` current: status, requirements added, changed and retired, the owner's decisions, and the approved requirements the code touches. Shale renders it on the PR.
 - The watch hook's message names the command that checks pending statements.
 - The pre-commit hook no longer asks to run `stele adopt` when there is nothing to adopt, such as a Shale project before its first request.
+- Approving a Shale request no longer fails with "changed since the check": Shale records each command into the open session, so the check now fingerprints the declared requests rather than Shale's files.
 
 ## v0.1.0
 
