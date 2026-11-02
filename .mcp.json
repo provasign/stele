@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "prism": {
+      "args": [
+        "mcp",
+        "--compact"
+      ],
+      "command": "/opt/homebrew/bin/prism"
+    }
+  }
+}

@@ -1,0 +1,4 @@
+# The first context. Add entities, operations and rules beside it (docs/04).
+context: main
+formatVersion: 1
+owner: ""

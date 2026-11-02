@@ -1,0 +1,14 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "prism": {
+      "command": [
+        "/opt/homebrew/bin/prism",
+        "mcp",
+        "--compact"
+      ],
+      "enabled": true,
+      "type": "local"
+    }
+  }
+}
