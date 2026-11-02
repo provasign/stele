@@ -1,0 +1,25 @@
+{
+  "name": "stele-spec-sync",
+  "displayName": "Stele Spec Sync",
+  "description": "Saved-spec drift diagnostics from the Stele language server.",
+  "publisher": "provasign",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Linters"],
+  "preview": true,
+  "main": "./extension.js",
+  "extensionKind": ["workspace"],
+  "activationEvents": ["workspaceContains:stele.yaml", "onCommand:stele.sync", "onCommand:stele.restart"],
+  "capabilities": { "untrustedWorkspaces": { "supported": false }, "virtualWorkspaces": false },
+  "contributes": {
+    "commands": [
+      { "command": "stele.sync", "title": "Stele: Check Saved Specs" },
+      { "command": "stele.restart", "title": "Stele: Restart Spec Sync" }
+    ],
+    "configuration": {
+      "title": "Stele",
+      "properties": { "stele.serverPath": { "type": "string", "default": "stele", "description": "Path to the Stele executable." } }
+    }
+  }
+}

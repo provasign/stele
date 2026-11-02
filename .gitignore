@@ -1,0 +1,21 @@
+# Research lives in the private provasign/stele-research repository; locally,
+# research may be a symlink to its checkout (ln -s ../stele-research/research research).
+/research
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS
+.DS_Store
+
+# Go
+/bin/
+/dist/
+*.test
+coverage.out
+
+# Local code indexes (Grove)
+.grove/

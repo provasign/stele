@@ -1,0 +1,35 @@
+name: CI
+# Every push and pull request: vet, the Go tests against a pinned Z3, and the
+# agent and editor integration tests against the built binary.
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+env:
+  GO_VERSION: "1.26.3"
+  Z3_VERSION: "5.3.1"
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - name: Install Z3
+        run: |
+          curl -fsSL -o z3.zip "https://github.com/Z3Prover/z3/releases/download/z3-${Z3_VERSION}/z3-${Z3_VERSION}-x64-glibc-2.39.zip"
+          unzip -q z3.zip -d "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/z3-${Z3_VERSION}-x64-glibc-2.39/bin" >> "$GITHUB_PATH"
+      - run: z3 --version
+      - run: go vet ./...
+      - run: go test -count=1 ./...
+      - name: Integration tests
+        run: |
+          go build -o bin/stele-sync ./cmd/stele
+          node --test $(git ls-files 'integrations/**/*.test.js')

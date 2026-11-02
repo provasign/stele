@@ -1,0 +1,162 @@
+# Rules for the invented workspace-hosting service (see domain.yaml). Each
+# statement's prose is in statements.yaml; the specs it cites are invented.
+# `status: active` reflects the specs as written: none is marked superseded.
+
+id: PA-021-FR014
+kind: invariant
+on: Workspace.handleAgentCompletion
+when: request.pushSucceeded
+assert: self.status = destroyed
+owner: platform-team
+status: active
+source:
+  doc: specs/021-tasks/spec.md#L40
+  prose: "When an agent session finishes cleanly, the workspace MUST be torn down and the task marked completed."
+  created: 2025-06-10
+---
+id: PA-022-FR026
+kind: permission
+effect: allow
+operation: ChatSession.sendFollowUp
+when: self.minutesSinceAgentCompletion < config.sessionIdleTimeoutMinutes
+owner: platform-team
+status: active
+source:
+  doc: specs/022-chat/spec.md#L52
+  prose: "After an agent finishes, while its workspace is still up (inside the idle window), further messages to the same session MUST still be accepted; each one restarts the idle timer."
+  created: 2025-06-11
+---
+id: PA-022-FR028
+kind: precondition
+operation: ChatSession.sendFollowUp
+when: self.workspace.status = running
+owner: platform-team
+status: active
+source:
+  doc: specs/022-chat/spec.md#L54
+  prose: "A session whose workspace is gone MUST ask the user to open a new chat instead of sending to it."
+---
+id: PA-022-FR017
+kind: derivation
+assert: config.sessionIdleTimeoutMinutes.default = 15
+owner: platform-team
+status: active
+source:
+  doc: specs/022-chat/spec.md#L60
+  prose: "The session idle window MUST be set by an environment variable and default to 15 minutes."
+---
+id: PA-003-FR023
+kind: invariant
+on: Workspace.idleSweep
+when: self.minutesSinceActivity >= config.workspaceIdleTimeoutMinutes
+assert: self.autoStoppedForIdle
+owner: platform-team
+status: active
+source:
+  doc: specs/003-hosting/spec.md#L30
+  prose: "Workspaces MUST stop on their own once idle for a configurable time (30 minutes by default)."
+  created: 2025-03-02
+---
+id: PA-003-FR023-default
+kind: derivation
+assert: config.workspaceIdleTimeoutMinutes.default = 30
+owner: platform-team
+status: active
+source:
+  doc: specs/003-hosting/spec.md#L30
+---
+id: PA-014-FR009c
+kind: invariant
+assert: not self.autoStoppedForIdle
+owner: platform-team
+status: active
+source:
+  doc: specs/014-shared-hosts/spec.md#L22
+  prose: "Hosts and workspaces MUST NOT be stopped automatically because they look idle; only explicit user or system actions change their lifecycle."
+  created: 2025-05-01
+---
+id: PA-004-FR020
+kind: invariant
+on: Workspace.idleSweep
+when: self.minutesToShutdownDeadline <= 5
+assert: self.idleCountdownShown
+owner: platform-team
+status: active
+source:
+  doc: specs/004-hardening/spec.md#L18
+  prose: "A warning MUST appear once the shutdown deadline is 5 minutes away or less."
+  created: 2025-03-20
+---
+id: PA-014-FR009d
+kind: invariant
+assert: not self.idleCountdownShown
+owner: platform-team
+status: active
+source:
+  doc: specs/014-shared-hosts/spec.md#L23
+  prose: "Workspace and host screens MUST NOT show any countdown or warning about an idle shutdown."
+---
+id: PA-003-FR025
+kind: invariant
+on: Workspace.stop
+assert: not self.node.vmExists
+owner: platform-team
+status: active
+source:
+  doc: specs/003-hosting/spec.md#L32
+  prose: "Stopping or deleting a workspace MUST release its cloud machine."
+  created: 2025-03-02
+---
+id: PA-014-FR009a
+kind: invariant
+on: Workspace.stop
+assert: self.filesPreserved
+owner: platform-team
+status: active
+source:
+  doc: specs/014-shared-hosts/spec.md#L20
+  prose: "Stopping a workspace MUST keep its files and settings and end the processes and agent sessions running in it."
+---
+id: PA-014-FR009
+kind: invariant
+on: Workspace.stop
+assert: not self.node.otherWorkspacesDisrupted
+owner: platform-team
+status: active
+source:
+  doc: specs/014-shared-hosts/spec.md#L19
+  prose: "Users MUST be able to stop, restart or delete one workspace without affecting the other workspaces on its host."
+---
+id: PA-SESSION-SYNC
+kind: invariant
+when: self.status in {stopped, destroyed}
+assert: self.chatSession.status != active
+owner: platform-team
+status: active
+source:
+  doc: specs/014-shared-hosts/spec.md#L30
+  also: specs/022-chat/spec.md#L53
+  prose: "Once a workspace is stopped or restarted, its earlier sessions MUST show as stopped and accept no attachment."
+---
+id: PA-021-DM-MAXLIFE
+kind: invariant
+on: Node.ageCheck
+when: self.ageHours >= 4
+assert: self.destroyed
+owner: platform-team
+status: active
+source:
+  doc: specs/021-tasks/data-model.md#L88
+  also: specs/021-tasks/data-model.md#L70
+  prose: "An automatically created host lives at most 4 hours, whatever its state."
+---
+id: PA-021-FR015
+kind: invariant
+subject: Workspace
+when: task.outcome in {failed, cancelled}
+assert: self.status != destroyed
+owner: platform-team
+status: active
+source:
+  doc: specs/021-tasks/spec.md#L41
+  prose: "When an agent fails, crashes or is cancelled, the workspace MUST stay up for inspection and the task end as failed or cancelled."

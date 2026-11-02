@@ -1,0 +1,44 @@
+# Decision records for the invented service: how its owner settled each
+# contradiction, by what the (invented) code does.
+
+id: D-PA-1
+resolves: [PA-022-FR026@1, PA-021-FR014@1]
+supersede:
+  winner: PA-022-FR026
+  loser: PA-021-FR014
+  when: chatSession.minutesSinceAgentCompletion < config.sessionIdleTimeoutMinutes
+rationale: >
+  Spec 022 allowed follow-ups after completion one day after spec 021 required
+  immediate teardown. The code follows 022: completion schedules an idle cleanup
+  instead of tearing the workspace down.
+evidence: docs/lifecycle.md, "Completion"
+---
+id: D-PA-2
+retire: [PA-014-FR009c@1, PA-014-FR009d@1]
+rationale: >
+  Both rules were scope cuts for spec 014, not product rules. Idle auto-stop came
+  back later with no spec change.
+followUp: >
+  The owner must also pick one workspace idle default: spec 003 says 30 minutes
+  and the code ships 120. Either bump PA-003-FR023-default to version 2 = 120,
+  or change the code.
+---
+id: D-PA-3
+retire: [PA-003-FR025@1]
+rationale: >
+  Written when one workspace ran on one machine. Spec 014 made hosts carry many
+  workspaces, so releasing the machine on stop would take down siblings and the
+  stopped workspace's files. Releasing the machine is now a host operation.
+---
+id: D-PA-4
+resolves: [PA-021-FR015@1, PA-021-DM-MAXLIFE@1]
+supersede:
+  winner: PA-021-FR015
+  loser: PA-021-DM-MAXLIFE
+  when: task.outcome in {failed, cancelled}
+rationale: >
+  The 4-hour ceiling destroyed hosts with live workspaces; the code later added
+  an activity check and then removed the ceiling, without updating spec 021.
+---
+# Not a conflict: PA-SESSION-SYNC is consistent with every other rule; it is a
+# candidate for generated tests.

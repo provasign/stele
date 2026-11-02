@@ -1,0 +1,262 @@
+package cli
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
+	"strings"
+
+	"github.com/provasign/stele/internal/config"
+	"github.com/provasign/stele/internal/gate"
+	"github.com/provasign/stele/internal/ir"
+	"github.com/provasign/stele/internal/solver"
+	"github.com/provasign/stele/internal/specsync"
+)
+
+// cmdPrecommit is the git pre-commit hook `stele init` installs. It is
+// silent unless the commit stages spec or registry files. It blocks (exit 1)
+// only on what an approval clears: approved rules whose statement text has
+// changed or disappeared, and a staged registry the gate refuses (conflicts,
+// unapproved rules, errors), checked as CI checks it. A new requirement
+// without rules gets the command that checks it, without blocking: some
+// statements are deliberately informal. Every message ends with the command
+// to run, for the coding agent to act on.
+func cmdPrecommit(args []string, out io.Writer) int {
+	cfg, err := config.Find(".")
+	if err != nil || cfg == nil {
+		return 0 // not a Stele project, or one Stele cannot read: never block on that
+	}
+	root, err := git("rev-parse", "--show-toplevel")
+	if err != nil {
+		return 0
+	}
+	root = strings.TrimSpace(root)
+	if reg, err := ir.LoadDir(cfg.RegistryDir()); err == nil {
+		refreshCards(root, reg) // before the staged list is read: a refreshed card is staged
+	}
+	staged, err := git("diff", "--cached", "--name-only", "-z", "--diff-filter=ACMRD")
+	if err != nil {
+		return 0
+	}
+	files := splitNUL(staged)
+	rel := func(p string) string {
+		r, err := filepath.Rel(root, p)
+		if err != nil {
+			return p
+		}
+		return filepath.ToSlash(r)
+	}
+	regRel := rel(cfg.RegistryDir())
+	under := func(dir string) bool {
+		return slices.ContainsFunc(files, func(f string) bool { return f == dir || strings.HasPrefix(f, dir+"/") })
+	}
+	specDirs := specDirsOf(cfg, root, rel)
+	touchesReg := under(regRel)
+	touchesSpecs := false
+	for _, d := range specDirs {
+		touchesSpecs = touchesSpecs || slices.ContainsFunc(files, func(f string) bool {
+			return strings.HasPrefix(f, d+"/") && !strings.HasPrefix(f, regRel+"/")
+		})
+	}
+	if !touchesReg && !touchesSpecs {
+		return 0
+	}
+	next := nextCommand(cfg, root)
+	reg, err := ir.LoadDir(cfg.RegistryDir())
+	if err != nil || len(reg.Rules) == 0 {
+		if touchesSpecs {
+			fmt.Fprintf(out, "Stele: this project's specs are not adopted yet, so this commit is not checked.\nNext: run `stele adopt --json`. It reads every requirement once and checks them against each other; then ask the owner its questions and record the answers, as for `stele change`.\n")
+		}
+		return 0
+	}
+
+	var blocks, notes []string
+	if touchesSpecs && cfg.Specs != nil {
+		if r, err := evaluateSpecs(cfg); err == nil {
+			for _, id := range r.StaleRules {
+				blocks = append(blocks, fmt.Sprintf("approved rule %s was approved for text that has since changed", id))
+			}
+			for _, id := range r.OrphanRules {
+				blocks = append(blocks, fmt.Sprintf("approved rule %s belongs to a requirement that is gone", id))
+			}
+			ruled := map[string]bool{}
+			for _, x := range reg.Rules {
+				ruled[x.StatementID] = true
+			}
+			for _, s := range r.Pending {
+				if !ruled[s.ID] {
+					notes = append(notes, fmt.Sprintf("new requirement %s is not checked yet: %s", s.ID, oneLine(s.Prose, 100)))
+				}
+			}
+		}
+	} else if touchesSpecs && !touchesReg {
+		notes = append(notes, "spec files changed but the approved registry did not")
+	}
+	if touchesReg {
+		res, skipped, err := gateStaged(root, regRel)
+		switch {
+		case err != nil:
+			fmt.Fprintf(out, "Stele: could not check the staged registry (%v); CI's stele gate still will.\n", err)
+		case skipped:
+			// The registry's first commit (adoption): nothing approved to compare with.
+		default:
+			for _, e := range res.Errors {
+				blocks = append(blocks, "registry error: "+e)
+			}
+			for _, id := range res.Unapproved {
+				blocks = append(blocks, fmt.Sprintf("rule %s is not approved by the owner for its current text", id))
+			}
+			if res.Check != nil {
+				for _, c := range res.Check.Conflicts {
+					blocks = append(blocks, "requirements conflict: "+strings.Join(c.Rules, " + "))
+				}
+				for _, d := range res.Check.Dead {
+					blocks = append(blocks, fmt.Sprintf("%s can never happen: %s", d.Response, strings.Join(d.Rules, " + ")))
+				}
+			}
+		}
+	}
+	if len(blocks) == 0 {
+		if len(notes) > 0 {
+			fmt.Fprintf(out, "Stele: %s.\nNext: run `%s` and put its questions to the owner before this change merges.\n", strings.Join(notes, "; "), next)
+		}
+		return 0
+	}
+	fmt.Fprintln(out, "Stele blocked this commit: the specs and the approved requirements disagree.")
+	for _, b := range append(blocks, notes...) {
+		fmt.Fprintf(out, "- %s\n", b)
+	}
+	fmt.Fprintf(out, "Next: run `%s`, ask the owner the questions it marks for them, record their answers as it says, then commit again. Do not bypass this check with --no-verify.\n", next)
+	return 1
+}
+
+// specDirsOf names, relative to the repository root, where the project's
+// spec files live: the configured root, else the standard folders of each
+// format that exist.
+func specDirsOf(cfg *config.Config, root string, rel func(string) string) []string {
+	if cfg.Specs != nil {
+		d := rel(cfg.SpecsDir())
+		switch cfg.Specs.Format {
+		case "openspec":
+			return []string{strings.TrimPrefix(d+"/openspec", "./")}
+		case "speckit":
+			return []string{strings.TrimPrefix(d+"/specs", "./")}
+		case "kiro":
+			return []string{strings.TrimPrefix(d+"/.kiro/specs", "./")}
+		case "shale":
+			return []string{strings.TrimPrefix(d+"/.shale", "./")}
+		}
+		return []string{d}
+	}
+	var out []string
+	for _, d := range []string{"openspec", "specs", ".kiro/specs"} {
+		if fi, err := os.Stat(filepath.Join(root, d)); err == nil && fi.IsDir() {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// nextCommand is the command that checks this project's spec change.
+func nextCommand(cfg *config.Config, root string) string {
+	format := ""
+	if cfg.Specs != nil {
+		format = cfg.Specs.Format
+	} else {
+		for _, f := range []struct{ dir, format string }{{"openspec", "openspec"}, {".kiro/specs", "kiro"}, {".specify", "speckit"}} {
+			if _, err := os.Stat(filepath.Join(root, f.dir)); err == nil {
+				format = f.format
+				break
+			}
+		}
+	}
+	switch format {
+	case "openspec":
+		return "stele change openspec . <change-id> --json` (list the changes with `stele change openspec . --list"
+	case "speckit", "kiro", "shale":
+		return "stele change " + format + " . --base " + baseBranch() + " --json"
+	}
+	return "stele watch --once --json"
+}
+
+// baseBranch is the branch changes merge into: origin's default, else main.
+func baseBranch() string {
+	if ref, err := git("symbolic-ref", "--short", "refs/remotes/origin/HEAD"); err == nil {
+		return strings.TrimPrefix(strings.TrimSpace(ref), "origin/")
+	}
+	return "main"
+}
+
+func evaluateSpecs(cfg *config.Config) (*specsync.Result, error) {
+	o := specsync.Options{Registry: cfg.RegistryDir(), Root: cfg.SpecsDir(), Snapshot: cfg.SnapshotFile(), Format: cfg.Specs.Format, AnyCase: cfg.Specs.AnyCase}
+	if err := o.Validate(); err != nil {
+		return nil, err
+	}
+	return specsync.Evaluate(o)
+}
+
+// gateStaged gates the registry as staged against the one in HEAD. skipped
+// is true when HEAD has no registry yet.
+func gateStaged(root, regRel string) (*gate.Result, bool, error) {
+	tmp, err := os.MkdirTemp("", "stele-precommit-")
+	if err != nil {
+		return nil, false, err
+	}
+	defer os.RemoveAll(tmp)
+	base, head := filepath.Join(tmp, "base"), filepath.Join(tmp, "head")
+	if _, err := git("cat-file", "-e", "HEAD:"+regRel); err != nil {
+		return nil, true, nil
+	}
+	archive := exec.Command("git", "archive", "--format=tar", "HEAD", "--", regRel)
+	archive.Dir = root
+	tarball, err := archive.Output()
+	if err != nil {
+		return nil, false, fmt.Errorf("git archive: %w", err)
+	}
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		return nil, false, err
+	}
+	untar := exec.Command("tar", "-x", "-C", base)
+	untar.Stdin = bytes.NewReader(tarball)
+	if out, err := untar.CombinedOutput(); err != nil {
+		return nil, false, fmt.Errorf("tar: %v: %s", err, out)
+	}
+	listed, err := git("ls-files", "-z", "--", regRel)
+	if err != nil {
+		return nil, false, err
+	}
+	paths := splitNUL(listed)
+	if len(paths) == 0 {
+		return &gate.Result{Accepted: true}, false, nil
+	}
+	export := exec.Command("git", append([]string{"checkout-index", "--prefix=" + head + "/", "--"}, paths...)...)
+	export.Dir = root
+	if out, err := export.CombinedOutput(); err != nil {
+		return nil, false, fmt.Errorf("git checkout-index: %v: %s", err, out)
+	}
+	res, err := gate.Dirs(context.Background(), &solver.Z3{}, filepath.Join(base, regRel), filepath.Join(head, regRel))
+	if err != nil {
+		return nil, false, err
+	}
+	return res, false, nil
+}
+
+func git(args ...string) (string, error) {
+	out, err := exec.Command("git", args...).Output()
+	return string(out), err
+}
+
+func splitNUL(s string) []string {
+	var out []string
+	for _, f := range strings.Split(s, "\x00") {
+		if f != "" {
+			out = append(out, f)
+		}
+	}
+	return out
+}

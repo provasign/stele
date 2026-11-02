@@ -1,0 +1,150 @@
+# Test fixture: an invented workspace-hosting service, lifecycle slice only.
+# Its specs grew over time and contradict each other in the ways real spec
+# corpora do (Project A in the docs); every name and statement here is invented.
+
+context: compute
+formatVersion: 1
+owner: platform-team
+approvers: [lead]
+owns: [Node, Workspace]
+exports:
+  read: [Workspace.status, Node.otherRunningWorkspaces, Node.ageHours]
+  operations: [Workspace.stop, Workspace.destroy]
+  constrain: [Workspace.stop, Workspace.destroy, Node.destroy]
+imports: [platform.Actor, platform.Request, chat.ChatSession, tasks.Task]
+---
+context: chat
+formatVersion: 1
+owner: platform-team
+owns: [ChatSession]
+exports:
+  read: [ChatSession.status, ChatSession.minutesSinceAgentCompletion]
+  constrain: [ChatSession.sendFollowUp]
+---
+context: tasks
+formatVersion: 1
+owner: platform-team
+owns: [Task]
+exports:
+  read: [Task.outcome]
+---
+extend: platform.Actor
+context: compute
+attributes:
+  kind: { values: [human, hostAgent, cron, scheduler] }
+  role: { values: [user, admin, system] }
+---
+extend: platform.Request
+context: compute
+attributes:
+  pushSucceeded: { type: bool }
+---
+entity: Node
+context: compute
+attributes:
+  vmExists: { type: bool }
+  ageHours: { type: int, range: [0, 48] }
+  otherRunningWorkspaces: { type: int, range: [0, 10] }
+  destroyed: { type: bool }
+  otherWorkspacesDisrupted: { type: bool }
+relations:
+  workspaces: { to: Workspace, inverse: node, bound: 10 }
+---
+entity: Workspace
+context: compute
+attributes:
+  status: { type: enum, values: [running, stopped, destroyed], initial: running }
+  filesPreserved: { type: bool }
+  autoStoppedForIdle: { type: bool }
+  idleCountdownShown: { type: bool }
+  minutesSinceActivity: { type: int, range: [0, 1440] }
+  minutesToShutdownDeadline: { type: int, range: [0, 1440] }
+relations:
+  chatSession: { to: ChatSession, inverse: workspace, bound: 1 }
+stateMachine:
+  field: status
+  terminal: [destroyed]
+  transitions:
+    - { from: running, to: stopped, via: stop }
+    - { from: stopped, to: running, via: restart }
+    - { from: [running, stopped], to: destroyed, via: destroy }
+---
+entity: ChatSession
+context: chat
+attributes:
+  status: { type: enum, values: [active, idle, stopped, terminated] }
+  minutesSinceAgentCompletion: { type: int, range: [0, 1440] }
+---
+# Operations: each is one step that an actor invokes. The events the service handles
+# (an agent finishing, the idle sweep, the node age check) are operations too,
+# invoked by the agent or a scheduler. An attribute an operation does not write
+# keeps its value across the step (D-042).
+operation: Workspace.stop
+context: compute
+default: allow
+writes: [Workspace.filesPreserved, Node.vmExists, Node.otherWorkspacesDisrupted, ChatSession.status]
+---
+operation: Workspace.restart
+context: compute
+default: allow
+writes: [ChatSession.status]
+---
+operation: Workspace.destroy
+context: compute
+default: allow
+writes: [Node.vmExists, ChatSession.status]
+---
+operation: Workspace.handleAgentCompletion
+context: compute
+default: allow
+writes: [Workspace.status, ChatSession.status]
+---
+operation: Workspace.idleSweep
+context: compute
+default: allow
+writes: [Workspace.autoStoppedForIdle, Workspace.idleCountdownShown]
+---
+operation: Node.ageCheck
+context: compute
+default: allow
+writes: [Node.destroyed, Workspace.status, ChatSession.status]
+---
+operation: ChatSession.sendFollowUp
+context: chat
+default: deny
+writes: []
+---
+entity: Task
+context: tasks
+attributes:
+  outcome: { type: enum, values: [running, completed, failed, cancelled] }
+---
+# Configuration is part of the model, so declared defaults can be checked for drift.
+entity: Config
+context: compute
+attributes:
+  workspaceIdleTimeoutMinutes:
+    type: int
+    range: [1, 1440]
+  sessionIdleTimeoutMinutes:
+    type: int
+    range: [1, 240]
+---
+# World facts the compute context asserts. The checker treats them as invariants.
+id: AX1
+kind: invariant
+assert: self.filesPreserved implies self.node.vmExists
+owner: platform-team
+prose: "A workspace's files live on its node's VM disk."
+---
+id: AX2
+kind: invariant
+assert: (not self.node.vmExists and self.node.otherRunningWorkspaces > 0) implies self.node.otherWorkspacesDisrupted
+owner: platform-team
+prose: "Deleting a VM disrupts every workspace on it."
+---
+id: AX4
+kind: invariant
+assert: self.node.destroyed implies self.status = destroyed
+owner: platform-team
+prose: "Destroying a node destroys its workspaces."

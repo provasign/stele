@@ -1,0 +1,60 @@
+# Stage 1 input: the invented service's requirements behind the hand-written
+# registry. `reference` names the hand-written rules each statement should
+# translate to (registry/rules.yaml). The translator never sees `reference`.
+
+- id: PA-021-FR014
+  source: specs/021-tasks/spec.md#L40
+  prose: "FR-014: When an agent session finishes cleanly, the workspace MUST be torn down and the task marked completed."
+  reference: [PA-021-FR014]
+- id: PA-021-FR015
+  source: specs/021-tasks/spec.md#L41
+  prose: "FR-015: When an agent fails, crashes or is cancelled, the workspace MUST stay up for inspection and the task end as failed or cancelled."
+  reference: [PA-021-FR015]
+- id: PA-022-FR026
+  source: specs/022-chat/spec.md#L52
+  prose: "FR-026: After an agent finishes, while its workspace is still up (inside the idle window), further messages to the same session MUST still be accepted; each one restarts the idle timer."
+  reference: [PA-022-FR026]
+- id: PA-022-FR028
+  source: specs/022-chat/spec.md#L54
+  prose: "FR-028: A session whose workspace is gone MUST ask the user to open a new chat instead of sending to it."
+  reference: [PA-022-FR028]
+- id: PA-022-FR017
+  source: specs/022-chat/spec.md#L60
+  prose: "FR-017: The session idle window MUST be set by an environment variable and default to 15 minutes."
+  reference: [PA-022-FR017]
+- id: PA-003-FR023
+  source: specs/003-hosting/spec.md#L30
+  prose: "FR-023: Workspaces MUST stop on their own once idle for a configurable time (30 minutes by default)."
+  reference: [PA-003-FR023, PA-003-FR023-default]
+- id: PA-003-FR025
+  source: specs/003-hosting/spec.md#L32
+  prose: "FR-025: Stopping or deleting a workspace MUST release its cloud machine."
+  reference: [PA-003-FR025]
+- id: PA-014-FR009
+  source: specs/014-shared-hosts/spec.md#L19
+  prose: "FR-009: Users MUST be able to stop, restart or delete one workspace without affecting the other workspaces on its host."
+  reference: [PA-014-FR009]
+- id: PA-014-FR009a
+  source: specs/014-shared-hosts/spec.md#L20
+  prose: "FR-009a: Stopping a workspace MUST keep its files and settings and end the processes and agent sessions running in it."
+  reference: [PA-014-FR009a]
+- id: PA-014-FR009c
+  source: specs/014-shared-hosts/spec.md#L22
+  prose: "FR-009c: Hosts and workspaces MUST NOT be stopped automatically because they look idle; only explicit user or system actions change their lifecycle."
+  reference: [PA-014-FR009c]
+- id: PA-014-FR009d
+  source: specs/014-shared-hosts/spec.md#L23
+  prose: "FR-009d: Workspace and host screens MUST NOT show any countdown or warning about an idle shutdown."
+  reference: [PA-014-FR009d]
+- id: PA-004-FR020
+  source: specs/004-hardening/spec.md#L18
+  prose: "FR-020: A warning MUST appear once the shutdown deadline is 5 minutes away or less."
+  reference: [PA-004-FR020]
+- id: PA-SESSION-SYNC
+  source: specs/014-shared-hosts/spec.md#L30, specs/022-chat/spec.md#L53
+  prose: "014 FR-014a: Agent sessions MAY be attached only while running inside a running workspace; once a workspace is stopped or restarted, its earlier sessions MUST show as stopped and accept no attachment. 022 FR-027: Sessions MUST become read-only once their workspace is cleaned up; they keep their message history but take no new input."
+  reference: [PA-SESSION-SYNC]
+- id: PA-021-DM-MAXLIFE
+  source: specs/021-tasks/data-model.md#L70, #L88
+  prose: "data-model.md, configuration table: `MAX_HOST_LIFETIME_MS` = `14400000`, longest life of an automatically created host (4 hours). Host lifecycle notes: the limit applies whatever the host's state."
+  reference: [PA-021-DM-MAXLIFE]
