@@ -117,6 +117,15 @@ func cmdChangeAnswer(args []string, out io.Writer) int {
 	if err := change.SaveAnswer(*outDir, a); err != nil {
 		return failf("change answer", err)
 	}
+	if res.Format == "shale" && q.Kind == "task" && choice == "task" {
+		var set []importer.RetiredIntent
+		for _, id := range q.Statements {
+			set = append(set, importer.RetiredIntent{ID: id, By: *by, At: time.Now().UTC().Format("2006-01-02"), Why: "not a requirement"})
+		}
+		if err := importer.RetireIntents(res.Repo, set); err != nil {
+			return failf("change answer", err)
+		}
+	}
 	if res.Format == "shale" && (choice == "update_old" || choice == "exception") {
 		// Shale's evidence is append-only: the older requests are retired
 		// in Stele's own file, and the next check removes their rules. For

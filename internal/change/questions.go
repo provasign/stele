@@ -170,6 +170,8 @@ func answered(as []Answer, q Question) bool {
 			return a.Choice == "intended"
 		case "renamed":
 			return true // "same" turns the pair into a rename; "different" leaves it a removal and an addition
+		case "task":
+			return true // "task" sets the request aside; "requirement" keeps it, unchecked
 		}
 	}
 	return false
@@ -528,6 +530,28 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 		}
 		if !answered(as, q) {
 			qs = append(qs, q)
+		}
+	}
+
+	// A request that gives Stele nothing to check is often a one-off task,
+	// not something the product must keep ("write the review", "set up the
+	// tracker"): approving it would record a requirement that protects
+	// nothing (a developer trial, 2026-11-02). The owner says which.
+	if res.Format == "shale" {
+		for _, id := range append(append([]string{}, res.Added...), res.Modified...) {
+			if _, failed := res.Failed[id]; failed || len(res.Rules[id]) > 0 || !strings.HasPrefix(id, "intent/") {
+				continue
+			}
+			q := Question{ID: qid("task", id, translate.TextHash(res.Statements[id])), Kind: "task", AskOwner: true,
+				Requirements: []Requirement{req(id)}, Statements: []string{id}}
+			q.Text = fmt.Sprintf("Stele found nothing to check in the request %q. Is it a requirement the product must keep, or a one-off task?", req(id).Title)
+			q.Options = []Option{
+				{Choice: "task", Label: "A one-off task, not a requirement", Then: "Stele sets the request aside in .stele/retired-intents.yaml and it leaves the change; run `stele change` again"},
+				{Choice: "requirement", Label: "A requirement, though Stele cannot check it", Then: "it goes to the approval as a requirement Stele records but does not check; run `stele change` again"},
+			}
+			if !answered(as, q) {
+				qs = append(qs, q)
+			}
 		}
 	}
 

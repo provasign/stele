@@ -31,6 +31,9 @@ type RetiredIntent struct {
 	// For is the statement whose conflict the owner settled by retiring
 	// this one.
 	For string `yaml:"for,omitempty"`
+	// Why is set when the owner retired the request for another reason
+	// than a later one replacing it: "not a requirement", a one-off task.
+	Why string `yaml:"why,omitempty"`
 }
 
 // Shale reads the requests a project's coding agents declared with
@@ -230,7 +233,7 @@ func RetireIntents(repo string, add []RetiredIntent) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	head := "# Requests the owner said a later one replaces (stele change answer ... update_old).\n"
+	head := "# Requests the owner set aside: replaced by a later one (stele change answer ... update_old), or not a requirement (... task).\n"
 	return os.WriteFile(path, append([]byte(head), src...), 0o644)
 }
 

@@ -90,6 +90,9 @@ func (f fake) Complete(_ context.Context, req llm.Request) (*llm.Reply, error) {
 				if x["kind"] == "permission" {
 					y = map[string]any{"statement_id": alias, "kind": "permission", "operation": "", "effect": "", "when": "", "overrides": []string{}}
 				}
+				if x["kind"] == "informal" {
+					y = map[string]any{"statement_id": alias}
+				}
 				for k, v := range x {
 					y[k] = v
 				}
@@ -1000,5 +1003,72 @@ func TestFailedTranslationIsNotClean(t *testing.T) {
 	opt.Clients = []llm.Client{one("locked", map[string]any{"kind": "permission", "operation": "Resource.delete", "effect": "deny", "when": "self.holds > 0"})}
 	if res, err = Run(context.Background(), opt); err != nil || len(res.Failed) != 0 || len(res.Reused) != 0 {
 		t.Fatalf("after the backend recovered: failed %v, reused %v, %v", res.Failed, res.Reused, err)
+	}
+}
+
+// A request with nothing to check is put to the owner: a requirement the
+// product must keep, or a one-off task. Kept, it is not asked again; set
+// aside, it leaves the change.
+func TestShaleTaskIsSetAside(t *testing.T) {
+	for _, tool := range []string{"git", "z3"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skip(tool + " not on PATH")
+		}
+	}
+	repo, registry := t.TempDir(), t.TempDir()
+	write := func(p, src string) {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(repo, ".shale/config.yaml"), "privacy: redacted\n")
+	for _, args := range [][]string{{"init", "-q", "-b", "main"}, {"add", "."}, {"commit", "-q", "-m", "base"}} {
+		cmd := exec.Command("git", append([]string{"-C", repo, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	write(filepath.Join(repo, ".shale/local/s1.jsonl"), `{"kind":"intent","at":"2026-10-01T10:00:00Z","title":"Write the quarterly review","body":"Summarise the quarter's incidents in a document."}`+"\n")
+	write(filepath.Join(registry, "vocabulary.yaml"), vocabYAML)
+	client := fake{readings: map[string]reading{"quarterly": {rules: []map[string]any{{"kind": "informal", "rationale": "a one-off documentation task with nothing the system must do"}}}}}
+	out := t.TempDir()
+	opt := Options{Repo: repo, Change: "review", Registry: registry, Out: out, Base: "main", Format: "shale", Clients: []llm.Client{client}}
+	res, err := Run(context.Background(), opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var task *Question
+	for i := range res.Questions {
+		if res.Questions[i].Kind == "task" {
+			task = &res.Questions[i]
+		}
+	}
+	if task == nil || !strings.Contains(task.Text, `"Write the quarterly review"`) || len(task.Options) != 2 {
+		t.Fatalf("questions = %+v; want the task question (added %v rules %v unchecked %v failed %v format %q)", res.Questions, res.Added, res.Rules, res.Unchecked, res.Failed, res.Format)
+	}
+
+	// Kept as a requirement: not asked again.
+	if err := SaveAnswer(out, Answer{Question: task.ID, Kind: "task", Choice: "requirement"}); err != nil {
+		t.Fatal(err)
+	}
+	if res, err = Run(context.Background(), opt); err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range res.Questions {
+		if q.Kind == "task" {
+			t.Fatalf("asked again after the owner kept it: %+v", q)
+		}
+	}
+
+	// Set aside as a task (what `stele change answer ... task` writes): it
+	// leaves the change.
+	if err := importer.RetireIntents(repo, []importer.RetiredIntent{{ID: "intent/s1", By: "owner", Why: "not a requirement"}}); err != nil {
+		t.Fatal(err)
+	}
+	if res, err = Run(context.Background(), opt); err != nil || len(res.Added) != 0 {
+		t.Fatalf("after setting it aside: added %v, %v", res.Added, err)
 	}
 }

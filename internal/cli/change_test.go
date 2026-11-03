@@ -226,3 +226,21 @@ func TestChangeHangingModelAnswersInJSON(t *testing.T) {
 		}
 	}
 }
+
+// Answering a request is a one-off task sets it aside in Stele's own file,
+// with why: Shale's evidence is never edited.
+func TestAnswerTaskSetsRequestAside(t *testing.T) {
+	repo, out := t.TempDir(), t.TempDir()
+	q := change.Question{ID: "task-1", Kind: "task", AskOwner: true, Statements: []string{"intent/s1"},
+		Options: []change.Option{{Choice: "task", Label: "A one-off task, not a requirement"}, {Choice: "requirement", Label: "A requirement"}}}
+	js, _ := json.Marshal(change.Result{Change: "c1", Format: "shale", Repo: repo, Questions: []change.Question{q}, Gate: &gate.Result{}})
+	os.WriteFile(filepath.Join(out, "result.json"), js, 0o644)
+	var buf bytes.Buffer
+	if code := cmdChangeAnswer([]string{"c1", "task-1", "task", "--out", out, "--by", "owner"}, &buf); code != 0 {
+		t.Fatalf("exit %d: %s", code, buf.String())
+	}
+	src, _ := os.ReadFile(filepath.Join(repo, ".stele", "retired-intents.yaml"))
+	if !strings.Contains(string(src), "id: intent/s1") || !strings.Contains(string(src), "why: not a requirement") {
+		t.Fatalf("retired-intents.yaml:\n%s", src)
+	}
+}

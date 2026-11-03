@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **A one-off task is not a requirement.** With Shale requests as the specs, a request Stele finds nothing to check in ("write the review", "set up the tracker") comes back as a question for the owner: a requirement the product must keep, or a one-off task. A task is set aside in `.stele/retired-intents.yaml`, marked "not a requirement", and leaves the change instead of being approved as a requirement that protects nothing.
+
 ## v0.1.2 - 2026-11-03
 
 Found by the developer trial in Codex, continued.
