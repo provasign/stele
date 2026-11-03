@@ -807,6 +807,19 @@ func BuildWith(reg *ir.Registry, withDecisions, assumeDefaults bool) (*Model, er
 				return nil, err
 			}
 			invs = append(invs, stateInv{x, pf, pc.reads})
+			// As the checker assumes it: over the other instances too
+			// (ISSUES 81), before the step only, since a step never writes
+			// another instance.
+			if lifted := m.reg.ForOtherInstances(x); lifted != nil {
+				lc := &ctx{op: op, reads: map[int]bool{}}
+				lf, err := compileRule(lifted, lc)
+				if err != nil {
+					return nil, err
+				}
+				u.assumed = append(u.assumed, lf)
+				u.assumedID = append(u.assumedID, lifted.ID)
+				add(lc.reads)
+			}
 		}
 		drop := m.unrelatedContradictions(op, invs, sit, resp)
 		for k, v := range invs {

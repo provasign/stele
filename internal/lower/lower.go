@@ -247,6 +247,9 @@ type lowerer struct {
 	// before holds state invariants lowered over the state before a step,
 	// which read the same in every step (preInvariant).
 	before map[string]*Formula
+	// lifted holds state invariants restated over the other instances of
+	// their entity (forOtherInstances), nil where one cannot be.
+	lifted map[string]*ir.Rule
 
 	// per unit
 	vars   map[string]*Var
@@ -258,7 +261,7 @@ type lowerer struct {
 
 // Lower lowers reg. It returns an error listing every type error found.
 func Lower(reg *ir.Registry, opt Options) (*Program, error) {
-	lw := &lowerer{reg: reg, opt: opt, sorts: map[*ir.Attr]string{}, prog: &Program{}, before: map[string]*Formula{}}
+	lw := &lowerer{reg: reg, opt: opt, sorts: map[*ir.Attr]string{}, prog: &Program{}, before: map[string]*Formula{}, lifted: map[string]*ir.Rule{}}
 	lw.prog.Warnings = append(lw.prog.Warnings, reg.Notes...)
 
 	retired := map[string]string{}
@@ -498,6 +501,16 @@ func (lw *lowerer) stepUnit(op *ir.Operation, live []*ir.Rule, superseded map[st
 			continue
 		}
 		pre = append(pre, pf)
+		if lifted := lw.forOtherInstances(x); lifted != nil {
+			// The other instances a rule ranges over were in no state the
+			// invariants describe: "every tool's id is positive" held for
+			// the tool the step acts on and not for the tools a uniqueness
+			// or overdue rule counts, so a step could be shown failing in a
+			// state the approved rules rule out (ISSUES 81).
+			if lf := lw.preInvariant(lifted, superseded); lf != nil {
+				pre = append(pre, lf)
+			}
+		}
 		touches := false
 		for _, v := range pf.Vars {
 			touches = touches || (v.Attr != nil && written[v.Attr])
@@ -2111,4 +2124,14 @@ func orTrue(set string) string {
 		return "true"
 	}
 	return set
+}
+
+// forOtherInstances is reg.ForOtherInstances, made once per rule.
+func (lw *lowerer) forOtherInstances(x *ir.Rule) *ir.Rule {
+	r, ok := lw.lifted[x.ID]
+	if !ok {
+		r = lw.reg.ForOtherInstances(x)
+		lw.lifted[x.ID] = r
+	}
+	return r
 }

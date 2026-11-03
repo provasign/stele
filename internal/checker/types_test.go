@@ -713,6 +713,31 @@ on: Tool.lend
 assert: self.borrower = old(self.borrower)
 `, map[string][][]string{}},
 
+		// A state invariant holds for the other instances a rule ranges
+		// over too (ISSUES 81): every id is positive, so no step finds one
+		// that is not.
+		{"invariants hold for other instances", `
+entity: Tool
+context: c
+attributes:
+  id: { type: int, range: [-1, 2] }
+  lent: { type: bool }
+---
+operation: Tool.check
+context: c
+default: allow
+writes: []
+---
+id: POS
+kind: invariant
+assert: self.id > 0
+---
+id: ALL
+kind: invariant
+on: Tool.check
+assert: 'all(t in instances(Tool): t.id > 0)'
+`, map[string][][]string{}},
+
 		// D-064: a step's result is its own response, with no frame and
 		// nothing the world chooses. Bounding attempts by 7 alone is met.
 		{"step outputs", `
