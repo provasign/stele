@@ -120,8 +120,10 @@ func TestPrecommitNoRequirements(t *testing.T) {
 	}
 }
 
-// TestInstallGitHook: init writes the pre-commit hook once, and leaves a
-// hook it did not write alone, saying the line to add.
+// TestInstallGitHook: init writes the pre-commit hook once; into a hook
+// another tool wrote (Shale's, a linter's) it adds its line after the
+// shebang, keeping the rest; and a hook that runs Stele already is never
+// rewritten.
 func TestInstallGitHook(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH")
@@ -140,12 +142,18 @@ func TestInstallGitHook(t *testing.T) {
 	if again, note, err := installGitHook(dir); again != "" || note != "" || err != nil {
 		t.Errorf("second install changed something: %q %q %v", again, note, err)
 	}
-	os.WriteFile(path, []byte("#!/bin/sh\nmake lint\n"), 0o755)
-	if p, note, err := installGitHook(dir); p != "" || err != nil || !strings.Contains(note, "stele precommit || exit 1") {
+	shale := "#!/bin/sh\n# shale pre-commit hook (managed by 'shale init')\ncommand -v shale >/dev/null 2>&1 && shale precommit\nexit 0\n"
+	os.WriteFile(path, []byte(shale), 0o755)
+	if p, note, err := installGitHook(dir); p == "" || err != nil || !strings.Contains(note, "added Stele's check") {
 		t.Errorf("foreign hook: %q %q %v", p, note, err)
 	}
-	if b, _ := os.ReadFile(path); string(b) != "#!/bin/sh\nmake lint\n" {
-		t.Errorf("foreign hook was changed: %s", b)
+	b, _ := os.ReadFile(path)
+	if want := "#!/bin/sh\n" + gitHookLine + "\n" + strings.TrimPrefix(shale, "#!/bin/sh\n"); string(b) != want {
+		t.Errorf("hook =\n%s\nwant\n%s", b, want)
+	}
+	// Run again, with Shale's line added after Stele's: nothing is rewritten.
+	if p, note, err := installGitHook(dir); p != "" || note != "" || err != nil {
+		t.Errorf("re-run changed the hook: %q %q %v", p, note, err)
 	}
 }
 

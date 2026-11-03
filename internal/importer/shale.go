@@ -122,7 +122,10 @@ func shale(repo string, retiredOnly bool) ([]translate.Statement, error) {
 		if err != nil {
 			return nil, err
 		}
-		done, finalizedAlready := finalized[session]
+		// Shale's log holds only what it has not folded yet: a task still
+		// open when a commit recorded the closed ones stays, and may be
+		// older than their files.
+		_, finalizedAlready := finalized[session]
 		// Shale writes one file per task, <session>.yaml and then the first
 		// continuation names free; each task takes its name here as there,
 		// so a request keeps its ID when the session is finalized.
@@ -139,8 +142,8 @@ func shale(repo string, retiredOnly bool) ([]translate.Statement, error) {
 				id = next()
 			}
 			finalized[id] = time.Time{} // taken, for the tasks after it
-			if strings.TrimSpace(t.title) == "" || finalizedAlready && !t.at.After(done) {
-				continue // no request, or one the evidence file already holds
+			if strings.TrimSpace(t.title) == "" {
+				continue // no request
 			}
 			// The source is where the evidence lands when the session ends,
 			// so the rule's provenance does not move then.
@@ -207,7 +210,8 @@ func logTasks(path string) ([]logTask, error) {
 			continue // a torn or foreign line says nothing about the request
 		}
 		switch ev.Kind {
-		case "completion":
+		case "completion", "session_close":
+			// shale done, or the agent's session ending for good.
 			closed = true
 		case "intent":
 			if closed {

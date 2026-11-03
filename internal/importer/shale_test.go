@@ -39,8 +39,6 @@ intent:
 not json
 {"kind":"intent","at":"2026-10-03T10:02:00Z","title":"Summer reading program","body":"During it, members can have up to 10 books on loan."}
 `)
-	// A finalized session's log is older than its evidence file.
-	write(".shale/local/s1.jsonl", `{"kind":"intent","at":"2026-10-01T09:00:00Z","title":"stale"}`+"\n")
 
 	got, err := Shale(repo)
 	if err != nil {
@@ -172,5 +170,35 @@ func TestShaleTasksInOneSession(t *testing.T) {
 	}
 	if len(got) != 3 || got[0].ID != "intent/s1" || got[1].ID != "intent/s1-c2" || got[2].ID != "intent/s1-c3" {
 		t.Fatalf("after finalizing: %+v", got)
+	}
+}
+
+// A commit recorded the closed task while the next one was open: the open
+// request, older than that record, is still read; and the agent's session
+// ending for good closes a task as shale done does.
+func TestShaleOpenTaskAfterCommitTimeRecord(t *testing.T) {
+	repo := t.TempDir()
+	write := func(p, s string) {
+		t.Helper()
+		p = filepath.Join(repo, p)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(s), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(".shale/s1.yaml", "id: s1\nfinalized_at: 2026-11-03T10:30:00Z\nintent:\n    title: Create tasks\n    declared_at: 2026-11-03T10:00:00Z\n")
+	write(".shale/local/s1.jsonl", `{"kind":"session_meta","at":"2026-11-03T10:00:00Z","tool":"codex"}
+{"kind":"intent","at":"2026-11-03T10:10:00Z","title":"List tasks"}
+{"kind":"session_close","at":"2026-11-03T10:40:00Z"}
+{"kind":"intent","at":"2026-11-03T11:00:00Z","title":"Complete a task"}
+`)
+	got, err := Shale(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 || got[0].ID != "intent/s1" || got[1].ID != "intent/s1-c2" || got[1].Prose != "List tasks" || got[2].ID != "intent/s1-c3" || got[2].Prose != "Complete a task" {
+		t.Fatalf("got %+v", got)
 	}
 }

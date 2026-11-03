@@ -261,6 +261,10 @@ command -v stele >/dev/null 2>&1 || exit 0
 exec stele precommit
 `
 
+// gitHookLine is what init adds to a pre-commit hook another tool wrote:
+// the same check, which still blocks the commit when it fails.
+const gitHookLine = "if command -v stele >/dev/null 2>&1; then stele precommit || exit 1; fi # stele (stele init)"
+
 // installGitHook writes the pre-commit hook into the repository's hooks
 // directory (core.hooksPath when set). It never replaces a hook it did not
 // write: it returns a note saying the line to add instead. Outside a git
@@ -278,12 +282,23 @@ func installGitHook(dir string) (path, note string, err error) {
 	}
 	path = filepath.Join(hooks, "pre-commit")
 	if old, err := os.ReadFile(path); err == nil {
-		if string(old) == gitHookScript {
-			return "", "", nil
+		if strings.Contains(string(old), "stele precommit") {
+			return "", "", nil // Stele's, or a hook that runs it already: never rewritten
 		}
-		if !strings.Contains(string(old), "stele precommit") {
-			return "", fmt.Sprintf("%s already exists and is not Stele's: add the line `stele precommit || exit 1` to it to check spec changes at commit.", path), nil
+		// Another tool's hook (Shale's, a linter's): Stele's line goes right
+		// after the shebang, so it runs before anything there that could end
+		// the script, and the hook keeps doing what it did.
+		lines := strings.SplitAfter(string(old), "\n")
+		at := 0
+		if len(lines) > 0 && strings.HasPrefix(lines[0], "#!") {
+			at = 1
 		}
+		head := strings.Join(lines[:at], "")
+		if at == 1 && !strings.HasSuffix(head, "\n") {
+			head += "\n"
+		}
+		src := head + gitHookLine + "\n" + strings.Join(lines[at:], "")
+		return path, fmt.Sprintf("added Stele's check to the existing pre-commit hook %s", path), os.WriteFile(path, []byte(src), 0o755)
 	}
 	if err := os.MkdirAll(hooks, 0o755); err != nil {
 		return "", "", err

@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- **Shale's evidence rides the code commit.** The agent instructions say to run `shale done` before committing, so the commit carries the request's evidence with the code (Shale 0.2.3 stages it). A Shale session that ends for good closes its request as `shale done` does, and a request still open when a commit recorded the closed ones is read as its own.
+- `stele init` adds its check to an existing pre-commit hook (Shale's, a linter's) instead of skipping it, and never rewrites a hook that already runs Stele.
+
 ## v0.1.3 - 2026-11-03
 
 - **Each task of a session is its own request.** An agent working through several features in one conversation recorded them in one Shale session, and only the latest request counted: the next feature read as an edit of the approved one before. A completion (`shale done`) now closes a request, and the next one is `intent/<session>-c<n>`, the name Shale 0.2.2 gives its file; a request declared again before the completion still restates it.
