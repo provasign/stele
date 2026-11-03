@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -219,6 +220,38 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 				if !slices.Contains(res.Modified, a.Existing) {
 					res.Modified = append(res.Modified, a.Existing)
 				}
+			}
+		}
+	}
+	// A request the owner retired for the one that restates it (an
+	// exception or update_old answer) is that request, edited: asking
+	// "the same requirement?" after the owner said so was one more turn on
+	// every restatement (a developer trial, 2026-11-03).
+	if opt.Format == "shale" {
+		rs, _ := importer.RetiredIntents(opt.Repo)
+		for _, r := range rs {
+			if r.For == "" || renamed[r.ID] != "" || !slices.Contains(res.Removed, r.ID) {
+				continue
+			}
+			var to []string
+			for _, f := range strings.Split(r.For, ", ") {
+				// Restated, it reads alike; a different requirement that
+				// replaced it is not the same one.
+				if slices.Contains(res.Added, f) && !slices.Contains(slices.Collect(maps.Values(renamed)), f) &&
+					adopt.Similarity(res.Statements[r.ID], res.Statements[f]) >= renameGuessThreshold {
+					to = append(to, f)
+				}
+			}
+			if len(to) != 1 || slices.ContainsFunc(answers, func(a Answer) bool {
+				return a.Kind == "renamed" && a.Term == r.ID && a.Existing == to[0] && a.Choice == "different"
+			}) {
+				continue
+			}
+			renamed[r.ID] = to[0]
+			res.Removed = slices.DeleteFunc(res.Removed, func(id string) bool { return id == r.ID })
+			if i := slices.Index(res.Added, to[0]); i >= 0 {
+				res.Added = slices.Delete(res.Added, i, i+1)
+				res.Modified = append(res.Modified, to[0])
 			}
 		}
 	}

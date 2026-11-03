@@ -51,6 +51,15 @@ function main() {
     notes.push(`Stele could not check saved specs: ${result.error?.message || result.stderr || result.stdout}. Do not treat the specs as synchronized.`);
   } else {
     const status = JSON.parse(result.stdout);
+    // A request declared with shale intent that the owner has not approved:
+    // the code written for it waits on that approval. Said once per set of
+    // waiting requests; an agent once built a feature and asked after.
+    const waiting = (status.pending || []).map(s => ({ id: String(s.ID ?? s.id), prose: String(s.Prose ?? s.prose ?? '') })).filter(s => s.id.startsWith('intent/'));
+    if (waiting.length > 0 && changed('-requests', waiting.map(s => s.id).join('\n')).now) {
+      notes.push(`Stele: ${waiting.length === 1 ? 'this request is' : 'these requests are'} not approved by the owner yet: ` +
+        waiting.map(s => `"${s.prose.split('\n')[0].slice(0, 120)}"`).join('; ') +
+        `. Before more edits for ${waiting.length === 1 ? 'it' : 'them'}, run ${status.next ? '`' + status.next + '`' : 'Stele\'s change check'} and put its questions, and the approval, to the owner.`);
+    }
     const seen = changed('', result.stdout);
     if (seen.now && status.in_sync) {
       if (seen.before) notes.push('Stele: saved-spec drift cleared; tracked rule provenance matches again.');

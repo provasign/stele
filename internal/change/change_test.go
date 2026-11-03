@@ -1278,3 +1278,51 @@ func TestApprovalWhenOnlyUndecided(t *testing.T) {
 		t.Fatalf("questions = %+v; want the approval naming the undecided step", qs)
 	}
 }
+
+// A request the owner retired for its restatement is that request, edited:
+// no "the same requirement?" question, and its rules take a new version.
+func TestRestatementIsTheSameRequirement(t *testing.T) {
+	for _, tool := range []string{"git", "z3"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skip(tool + " not on PATH")
+		}
+	}
+	repo, registry := t.TempDir(), t.TempDir()
+	write := func(p, src string) {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old := "Protect held resources: the system must not delete a resource with holds"
+	write(filepath.Join(repo, ".shale/s1.yaml"), "id: s1\nintent:\n    title: '"+old+"'\n")
+	write(filepath.Join(repo, ".shale/s2.yaml"), "id: s2\nintent:\n    title: 'Protect held resources: the system must not delete a resource with holds, unless an erasure request asks'\n")
+	if out, err := exec.Command("git", "-C", repo, "init", "-q", "-b", "main").CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	write(filepath.Join(repo, ".stele/retired-intents.yaml"), "- id: intent/s1\n  by: owner\n  for: intent/s2\n")
+	write(filepath.Join(registry, "vocabulary.yaml"), vocabYAML)
+	write(filepath.Join(registry, "rules.yaml"), "id: intent/s1\nkind: permission\neffect: deny\noperation: Resource.delete\nwhen: self.holds > 0\nsource:\n  statementId: intent/s1\n  doc: .shale/s1.yaml\n  prose: '"+old+"'\n  textHash: "+translate.TextHash(old)+"\n")
+	reg, err := ir.LoadDir(registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := adopt.ApproveRules(reg, []string{"intent/s1"}, "owner"); err != nil {
+		t.Fatal(err)
+	}
+	client := one("Protect held", map[string]any{"kind": "permission", "operation": "Resource.delete", "effect": "deny", "when": "self.holds > 0 and request.kind != erasure"})
+	res, err := Run(context.Background(), Options{Repo: repo, Change: "main", Registry: registry, Out: t.TempDir(), Base: "main", Format: "shale", Clients: []llm.Client{client}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Renamed["intent/s1"] != "intent/s2" || len(res.Removed) != 0 || strings.Join(res.Modified, ",") != "intent/s2" {
+		t.Fatalf("renamed %v removed %v modified %v", res.Renamed, res.Removed, res.Modified)
+	}
+	for _, q := range res.Questions {
+		if q.Kind == "renamed" {
+			t.Fatalf("asked %q", q.Text)
+		}
+	}
+}

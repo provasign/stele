@@ -70,3 +70,26 @@ test('Claude post-edit hook names the approved requirements a code edit touches,
   assert.match(output.hookSpecificOutput.additionalContext, /reads or writes locked|is locked/);
   assert.equal(invoke(), null, 'the same touched requirements spammed the context');
 });
+
+test('Claude post-edit hook reminds the agent of a request the owner has not approved, once', t => {
+  const f = fixture(); t.after(() => f.dispose());
+  const binary = process.env.STELE_TEST_BIN || path.resolve(__dirname, '../../bin/stele-sync');
+  const cache = path.join(f.project, 'cache'); fs.mkdirSync(cache);
+  fs.writeFileSync(path.join(f.project, 'stele.yaml'), JSON.stringify({ formatVersion: 1, registry: 'registry', translate: { llm: 'claude', drafts: 1 }, specs: { root: '.', format: 'shale', snapshot: 'statements.yaml' } }));
+  fs.writeFileSync(path.join(f.project, 'statements.yaml'), '[]');
+  fs.writeFileSync(path.join(f.project, 'registry', 'rules.yaml'), '');
+  fs.mkdirSync(path.join(f.project, '.shale'));
+  fs.writeFileSync(path.join(f.project, '.shale', 's1.yaml'), 'id: s1\nintent:\n    title: Lock the door at night\n');
+  const invoke = () => {
+    const result = spawnSync(process.execPath, [path.join(__dirname, 'stele-hook.js')], {
+      input: JSON.stringify({ hook_event_name: 'PostToolUse', cwd: f.project, session_id: 'request-test' }),
+      env: { ...process.env, STELE_BIN: binary, STELE_HOOK_CACHE: cache }, encoding: 'utf8', timeout: 10000
+    });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim() ? JSON.parse(result.stdout) : null;
+  };
+  const output = invoke();
+  assert.match(output.hookSpecificOutput.additionalContext, /not approved by the owner yet: "Lock the door at night"/);
+  const again = invoke();
+  assert.ok(!again || !/not approved by the owner/.test(again.hookSpecificOutput.additionalContext), 'the reminder repeated');
+});
