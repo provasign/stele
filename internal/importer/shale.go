@@ -195,24 +195,43 @@ func logTasks(path string) ([]logTask, error) {
 		return nil, err
 	}
 	defer f.Close()
-	tasks := []logTask{{}}
-	closed := false
+	type event struct {
+		Kind  string    `json:"kind"`
+		At    time.Time `json:"at"`
+		Title string    `json:"title"`
+		Body  string    `json:"body"`
+	}
+	var events []event
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	for sc.Scan() {
-		var ev struct {
-			Kind  string    `json:"kind"`
-			At    time.Time `json:"at"`
-			Title string    `json:"title"`
-			Body  string    `json:"body"`
-		}
+		var ev event
 		if json.Unmarshal(sc.Bytes(), &ev) != nil {
 			continue // a torn or foreign line says nothing about the request
 		}
+		events = append(events, ev)
+	}
+	// A close followed by more of the session's events ended nothing: the
+	// conversation was resumed (claude --resume; each turn of claude -p
+	// --resume), and the request declared before it is still the task's.
+	resumed := func(i int) bool {
+		for _, ev := range events[i+1:] {
+			if ev.Kind != "session_end" && ev.Kind != "session_close" {
+				return true
+			}
+		}
+		return false
+	}
+	tasks := []logTask{{}}
+	closed := false
+	for i, ev := range events {
 		switch ev.Kind {
-		case "completion", "session_close":
-			// shale done, or the agent's session ending for good.
-			closed = true
+		case "completion":
+			closed = true // shale done
+		case "session_close":
+			if !resumed(i) {
+				closed = true // the agent's session ending for good
+			}
 		case "intent":
 			if closed {
 				tasks, closed = append(tasks, logTask{}), false

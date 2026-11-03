@@ -192,13 +192,39 @@ func TestShaleOpenTaskAfterCommitTimeRecord(t *testing.T) {
 	write(".shale/local/s1.jsonl", `{"kind":"session_meta","at":"2026-11-03T10:00:00Z","tool":"codex"}
 {"kind":"intent","at":"2026-11-03T10:10:00Z","title":"List tasks"}
 {"kind":"session_close","at":"2026-11-03T10:40:00Z"}
-{"kind":"intent","at":"2026-11-03T11:00:00Z","title":"Complete a task"}
 `)
 	got, err := Shale(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 3 || got[0].ID != "intent/s1" || got[1].ID != "intent/s1-c2" || got[1].Prose != "List tasks" || got[2].ID != "intent/s1-c3" || got[2].Prose != "Complete a task" {
+	if len(got) != 2 || got[0].ID != "intent/s1" || got[1].ID != "intent/s1-c2" || got[1].Prose != "List tasks" {
 		t.Fatalf("got %+v", got)
+	}
+}
+
+// A conversation exited and resumed closes and reopens the same session, as
+// each turn of claude -p --resume does: the request declared again after it
+// restates the task, as Shale folds it, and is not a second request.
+func TestShaleResumedSessionRestates(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".shale", "local"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	log := `{"kind":"intent","at":"2026-11-03T03:23:17Z","title":"Limit loans to 3"}
+{"kind":"session_end","at":"2026-11-03T03:24:00Z"}
+{"kind":"session_close","at":"2026-11-03T03:24:00Z"}
+{"kind":"session_meta","at":"2026-11-03T03:30:00Z"}
+{"kind":"intent","at":"2026-11-03T03:31:00Z","title":"Limit loans to 3 at a time"}
+{"kind":"session_close","at":"2026-11-03T03:32:00Z"}
+`
+	if err := os.WriteFile(filepath.Join(repo, ".shale", "local", "s1.jsonl"), []byte(log), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Shale(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "intent/s1" || got[0].Prose != "Limit loans to 3 at a time" {
+		t.Fatalf("got %+v; want the restated request alone", got)
 	}
 }
