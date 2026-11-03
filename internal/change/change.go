@@ -418,7 +418,7 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 	}
 	// The registry files this change writes; an adoption's are the
 	// project's founding requirements, not a change.
-	prefix := "change-" + safe(opt.Change)
+	prefix := RegistryPrefix(opt.Change)
 	if opt.Adopt != nil {
 		prefix = "adopted"
 	}
@@ -958,6 +958,10 @@ func copyTree(from, to string) error {
 		return os.WriteFile(dst, src, 0o644)
 	})
 }
+
+// RegistryPrefix names the registry files a change writes when it is
+// approved: <prefix>.yaml, <prefix>.vocabulary.yaml and the like.
+func RegistryPrefix(change string) string { return "change-" + safe(change) }
 
 func safe(s string) string {
 	return strings.Map(func(r rune) rune {

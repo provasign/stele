@@ -6,6 +6,9 @@
 - **Code touches.** `stele touches` lists the approved requirements the branch's code touches, from Grove's parse of the changed files: a function named like a rule's step, or code that is, reads or writes an attribute the rule reads. The post-edit hook says so when that set changes.
 - **PR card.** `stele change`, the owner's answers and the pre-commit hook keep `.stele/cards/<change>.json` current: status, requirements added, changed and retired, the owner's decisions, and the approved requirements the code touches. Shale renders it on the PR.
 - The watch hook's message names the command that checks pending statements.
+- **A new request in the same conversation is its own requirement.** A request declared after the session's evidence was finalized reads as `intent/<session>-c2` (Shale's continuation file), so it is checked against the first one instead of being missed.
+- Retiring a request that was approved earlier on the same branch now removes its rules in the same change; before, the conflict was asked again.
+- A second change on a branch whose first change is approved is named `<branch>-2`, so it no longer writes over the approved change's registry files, answers and card.
 
 ## v0.1.0
 

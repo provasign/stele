@@ -79,6 +79,50 @@ not json
 	if len(got) != 2 || got[0].ID != "intent/s3" {
 		t.Fatalf("after retiring s1: %+v", got)
 	}
+	gone, err := ShaleRetired(repo)
+	if err != nil || len(gone) != 1 || gone[0].ID != "intent/s1" || gone[0].Prose != "Limit loans to 5 books\nA member may never have more than 5 books on loan." {
+		t.Fatalf("retired statements = %+v, %v; want s1 as it reads", gone, err)
+	}
+}
+
+// TestShaleContinuation: a request declared in a session whose evidence was
+// already finalized is a request of its own, named as Shale names its
+// continuation file.
+func TestShaleContinuation(t *testing.T) {
+	repo := t.TempDir()
+	write := func(p, s string) {
+		t.Helper()
+		p = filepath.Join(repo, p)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(s), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(".shale/s1.yaml", "id: s1\nfinalized_at: 2026-10-01T10:05:00Z\nintent:\n    title: Orders ship within 2 days\n    declared_at: 2026-10-01T10:00:00Z\n")
+	write(".shale/local/s1.jsonl", `{"kind":"prompt","at":"2026-10-01T11:00:00Z","text":"..."}
+{"kind":"intent","at":"2026-10-01T11:00:05Z","title":"Orders ship within 3 days"}
+`)
+	got, err := Shale(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].ID != "intent/s1" || got[1].ID != "intent/s1-c2" || got[1].Source != ".shale/s1-c2.yaml" || got[1].Prose != "Orders ship within 3 days" {
+		t.Fatalf("got %+v; want s1, then s1-c2 with the new request", got)
+	}
+
+	// Once finalized, the continuation reads the same; a third request
+	// takes the next name.
+	write(".shale/s1-c2.yaml", "id: s1-c2\nfinalized_at: 2026-10-01T11:10:00Z\nintent:\n    title: Orders ship within 3 days\n    declared_at: 2026-10-01T11:00:05Z\n")
+	write(".shale/local/s1.jsonl", `{"kind":"intent","at":"2026-10-01T12:00:00Z","title":"Orders ship the same day"}`+"\n")
+	got, err = Shale(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 || got[1].ID != "intent/s1-c2" || got[2].ID != "intent/s1-c3" {
+		t.Fatalf("got %+v; want s1, s1-c2, s1-c3", got)
+	}
 }
 
 func TestShaleWithoutEvidence(t *testing.T) {

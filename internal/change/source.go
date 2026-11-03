@@ -119,8 +119,14 @@ func branchChange(opt Options, res *Result) (truth, after []translate.Statement,
 		// A request approved on an earlier branch whose session is still
 		// open is in the registry before its evidence reaches the base: it
 		// is not new here.
+		// So is one approved on this branch that the owner has since
+		// retired: this change removes it, and its rules with it.
+		gone, err := importer.ShaleRetired(opt.Repo)
+		if err != nil && !errors.Is(err, importer.ErrNoSpecs) {
+			return nil, nil, err
+		}
 		if reg, err := ir.LoadDir(opt.Registry); err == nil {
-			for _, s := range now {
+			for _, s := range append(append([]translate.Statement{}, now...), gone...) {
 				if _, ok := before[s.ID]; !ok && approvedAlready(reg, map[string]string{s.ID: s.Prose}) {
 					before[s.ID] = s.Prose
 					atBase = append(atBase, s)

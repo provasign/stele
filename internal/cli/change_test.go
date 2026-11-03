@@ -157,3 +157,29 @@ func TestChangeAnswerLoop(t *testing.T) {
 		t.Fatalf("gate after approval: %d\n%s", code, out.String())
 	}
 }
+
+// TestBranchChangeName: a change takes its branch's name until the owner
+// approved a change of that name; the next change on the branch takes the
+// next free one, so it never writes over the approved change's files.
+func TestBranchChangeName(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+	repo, registry := t.TempDir(), t.TempDir()
+	for _, args := range [][]string{{"init", "-q", "-b", "feature/orders"}, {"-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "x"}} {
+		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	if got := branchChangeName(repo, registry); got != "feature-orders" {
+		t.Fatalf("first change = %q", got)
+	}
+	os.WriteFile(filepath.Join(registry, "change-feature-orders.yaml"), nil, 0o644)
+	if got := branchChangeName(repo, registry); got != "feature-orders-2" {
+		t.Fatalf("after an approved change = %q", got)
+	}
+	os.WriteFile(filepath.Join(registry, "change-feature-orders-2.vocabulary.yaml"), nil, 0o644)
+	if got := branchChangeName(repo, registry); got != "feature-orders-3" {
+		t.Fatalf("after two = %q", got)
+	}
+}
