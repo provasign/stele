@@ -79,7 +79,12 @@ func recordDecision(repo, id string, q change.Question, label, by string) error 
 	if err != nil || c == nil {
 		return err
 	}
+	// The PR's readers need which requirements clashed and what the owner
+	// decided; the solver's example situation is for the agent explaining it.
 	text := q.Text
+	if q.Example != "" {
+		text = strings.NewReplacer(", for example when "+q.Example, "", " (when "+q.Example+")", "").Replace(text)
+	}
 	if q.Kind == "approve" {
 		text = "Approve the change's rules?"
 	}

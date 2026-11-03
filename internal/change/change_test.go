@@ -698,8 +698,9 @@ func TestBaseWithoutRegistryIsRefused(t *testing.T) {
 	git("checkout", "-q", "-b", "main")
 	git("add", ".")
 	git("commit", "-q", "-m", "registry")
-	if err := baseHoldsRegistry(opt); err == nil || !strings.Contains(err.Error(), "no approved registry at .stele/registry") {
-		t.Fatalf("base master: %v", err)
+	start, _ := exec.Command("git", "-C", repo, "rev-parse", "--short", "HEAD").Output()
+	if err := baseHoldsRegistry(opt); err == nil || !strings.Contains(err.Error(), "no approved registry at .stele/registry") || !strings.Contains(err.Error(), "--base "+strings.TrimSpace(string(start))) {
+		t.Fatalf("base master: %v; want the commit that added the registry named", err)
 	}
 	opt.Base = "main"
 	if err := baseHoldsRegistry(opt); err != nil {
@@ -828,6 +829,51 @@ func TestApprovalShowsFindings(t *testing.T) {
 	if q.Recommended != "show" || !strings.Contains(q.Text, "may say less or more") {
 		t.Fatalf("question = %+v", q)
 	}
+	if !strings.Contains(q.Text, "agree with the approved spec") {
+		t.Fatalf("question = %q; want it measured against the approved spec", q.Text)
+	}
+}
+
+// The first change, into a registry with nothing approved, is not said to
+// agree with an approved spec.
+func TestFirstApproval(t *testing.T) {
+	for _, tool := range []string{"git", "z3"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skip(tool + " not on PATH")
+		}
+	}
+	repo, registry := t.TempDir(), t.TempDir()
+	write := func(p, src string) {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(repo, ".shale/config.yaml"), "privacy: redacted\n")
+	for _, args := range [][]string{{"init", "-q", "-b", "main"}, {"add", "."}, {"commit", "-q", "-m", "base"}} {
+		cmd := exec.Command("git", append([]string{"-C", repo, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	write(filepath.Join(repo, ".shale/local/s1.jsonl"), `{"kind":"intent","at":"2026-10-01T10:00:00Z","title":"Protect held resources","body":"The system must not delete a resource with holds."}`+"\n")
+	write(filepath.Join(registry, "vocabulary.yaml"), vocabYAML)
+	client := one("Protect held", map[string]any{"kind": "permission", "operation": "Resource.delete", "effect": "deny", "when": "self.holds > 0"})
+	res, err := Run(context.Background(), Options{Repo: repo, Change: "first", Registry: registry, Out: t.TempDir(), Base: "main", Format: "shale", Clients: []llm.Client{client}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range res.Questions {
+		if q.Kind == "approve" {
+			if strings.Contains(q.Text, "approved spec") || !strings.Contains(q.Text, "nothing is approved yet") {
+				t.Fatalf("question = %q", q.Text)
+			}
+			return
+		}
+	}
+	t.Fatalf("no approval question: %+v", res.Questions)
 }
 
 // The owner's answer becomes a lesson in the head registry, approval

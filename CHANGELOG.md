@@ -11,6 +11,9 @@
 - **A new request in the same conversation is its own requirement.** A request declared after the session's evidence was finalized reads as `intent/<session>-c2` (Shale's continuation file), so it is checked against the first one instead of being missed.
 - Retiring a request that was approved earlier on the same branch now removes its rules in the same change; before, the conflict was asked again.
 - A second change on a branch whose first change is approved is named `<branch>-2`, so it no longer writes over the approved change's registry files, answers and card.
+- When the base branch predates the approved registry (Stele was set up on this branch), the refusal names the commit that added the registry, to compare with until it reaches the base.
+- A PR card records a conflict decision without the solver's example situation, which is for the agent explaining it.
+- The first change's approval question no longer says it agrees with an approved spec when nothing is approved yet.
 
 ## v0.1.0
 

@@ -140,6 +140,8 @@ type Result struct {
 	// narrow maps a pair of conflicting statements to the one whose
 	// condition lies inside the other's.
 	narrow map[string]string
+	// first: the registry held no approved rule before this change.
+	first bool
 }
 
 // Run checks the change.
@@ -189,6 +191,7 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 		return res, nil
 	}
 	opt.lessons = base.Lessons
+	res.first = !slices.ContainsFunc(base.Rules, func(x *ir.Rule) bool { return x.Live() && x.Approved() })
 	answers, err := LoadAnswers(opt.Out)
 	if err != nil {
 		return nil, err

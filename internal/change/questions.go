@@ -555,7 +555,12 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 			}
 			q.Requirements = append(q.Requirements, r)
 		}
-		q.Text = fmt.Sprintf("%d requirement(s) in this change are checked and agree with the approved spec", len(checked))
+		if !res.first {
+			q.Text = fmt.Sprintf("%d requirement(s) in this change are checked and agree with the approved spec", len(checked))
+		} else {
+			// The first change: there is nothing approved to agree with yet.
+			q.Text = fmt.Sprintf("%d requirement(s) in this change are checked and agree with each other; nothing is approved yet, so these are the first", len(checked))
+		}
 		if flagged > 0 {
 			q.Text += fmt.Sprintf("; Stele's reading of %d may say less or more than the text (see findings)", flagged)
 			q.Recommended, q.Why = "show", "look at the flagged readings before approving them"

@@ -184,9 +184,31 @@ func baseHoldsRegistry(opt Options) error {
 		return exec.Command("git", "-C", opt.Repo, "cat-file", "-e", ref+":./"+rel).Run() == nil
 	}
 	if has("HEAD") && !has(opt.Base) {
+		if c := registryStart(opt.Repo, opt.Base, has); c != "" {
+			return fmt.Errorf("base %s has no approved registry at %s: it was added in %s on this branch. Compare with the branch that holds it, or with that commit until it reaches %s (--base %s)", opt.Base, rel, c, opt.Base, c)
+		}
 		return fmt.Errorf("base %s has no approved registry at %s; compare with the branch that holds it (--base)", opt.Base, rel)
 	}
 	return nil
+}
+
+// registryStart is the first commit after base that has the registry, as
+// a short hash and subject, or "".
+func registryStart(repo, base string, has func(string) bool) string {
+	out, err := exec.Command("git", "-C", repo, "rev-list", "--reverse", base+"..HEAD").Output()
+	if err != nil {
+		return ""
+	}
+	for _, c := range strings.Fields(string(out)) {
+		if has(c) {
+			short, err := exec.Command("git", "-C", repo, "rev-parse", "--short", c).Output()
+			if err != nil {
+				return ""
+			}
+			return strings.TrimSpace(string(short))
+		}
+	}
+	return ""
 }
 
 func extract(repo, ref, path, dir string) error {
