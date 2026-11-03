@@ -73,10 +73,5 @@
         ]
       }
     ]
-  },
-  "permissions": {
-    "allow": [
-      "mcp__prism"
-    ]
   }
 }
