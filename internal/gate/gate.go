@@ -46,6 +46,9 @@ func (r *Result) OnlyUndecided() bool {
 // Result is the gate's decision.
 type Result struct {
 	Accepted bool `json:"accepted"`
+	// Unchecked are the undecided steps accepted because the owner approved
+	// them unchecked (ir.UncheckedStep).
+	Unchecked []string `json:"unchecked,omitempty"`
 	// Errors block the merge: compile errors, deleted rules, edits without a
 	// version bump. When there are errors the check is not run.
 	Errors []string        `json:"errors,omitempty"`
@@ -114,6 +117,13 @@ func Registries(ctx context.Context, z *solver.Z3, base, head *ir.Registry) (*Re
 	res.Pinned = Pinned(res.Check, head)
 	res.Open = Ratchet(res.Check, head)
 	res.Accepted = res.Check.Verdict == checker.Pass
+	if !res.Accepted && res.OnlyUndecided() && !slices.ContainsFunc(res.Check.Undecided, func(u string) bool { return head.Unchecked[u] == nil }) {
+		// Every step left undecided is one the owner approved knowing it
+		// stays unchecked: refusing it would hold the merge on a solver
+		// limit nobody can act on.
+		res.Accepted = true
+		res.Unchecked = res.Check.Undecided
+	}
 	return res, nil
 }
 

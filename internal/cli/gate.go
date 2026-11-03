@@ -62,6 +62,12 @@ func cmdGate(args []string, out io.Writer) int {
 				fmt.Fprintf(out, "[DEAD] %s can never happen: %s\n", d.Response, strings.Join(d.Rules, " + "))
 			}
 		}
+		for _, u := range res.Unchecked {
+			fmt.Fprintf(out, "[UNCHECKED] %s: the solver could not decide it; the owner approved its rules knowing it is not checked\n", u)
+		}
+		if res.Check != nil && !res.Accepted && res.OnlyUndecided() {
+			fmt.Fprintf(out, "[UNDECIDED] %s: the solver could not decide it, and no approval accepts it unchecked\n", strings.Join(res.Check.Undecided, ", "))
+		}
 		printOpen(out, res.Open)
 		if res.Accepted {
 			fmt.Fprintln(out, "gate: pass")

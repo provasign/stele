@@ -114,6 +114,9 @@ type rawDoc struct {
 	By         string            `yaml:"by"`
 	At         string            `yaml:"at"`
 
+	// Unchecked is a step the owner accepted unchecked (UncheckedStep).
+	Unchecked string `yaml:"unchecked"`
+
 	Rules          []string `yaml:"rules"` // an open conflict's pinned set
 	Response       string   `yaml:"response"`
 	Situation      string   `yaml:"situation"`
@@ -258,6 +261,11 @@ func (l *loader) doc(d *rawDoc, where string) {
 	switch {
 	case d.Lesson != "":
 		l.lesson(d, where)
+	case d.Unchecked != "":
+		if l.reg.Unchecked == nil {
+			l.reg.Unchecked = map[string]*UncheckedStep{}
+		}
+		l.reg.Unchecked[d.Unchecked] = &UncheckedStep{Step: d.Unchecked, By: d.By, At: d.At, File: where}
 	case d.ID != "" && (d.Supersede != nil || len(d.Retire) > 0):
 		l.decision(d, where)
 	case d.ID != "" && (len(d.Rules) > 0 || d.Response != ""):

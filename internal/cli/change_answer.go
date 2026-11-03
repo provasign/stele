@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -181,6 +182,11 @@ func approveChange(res *change.Result, by string, out io.Writer) error {
 	if err := adopt.ApproveRules(reg, g.Unapproved, by); err != nil {
 		return err
 	}
+	if g.OnlyUndecided() {
+		if err := recordUnchecked(res.Registry, reg, g.Check.Undecided, by); err != nil {
+			return err
+		}
+	}
 	if res.Change == adoptChange {
 		// The adopted specs are where saved-spec sync starts from.
 		if cfg, err := config.Find(res.Repo); err == nil && cfg != nil && cfg.Specs != nil {
@@ -260,4 +266,29 @@ func cmdChangeReread(args []string, out io.Writer) int {
 	}
 	fmt.Fprintf(out, "Recorded: Stele reads %s again with the note. Next: run `stele change` again.\n", found[0])
 	return 0
+}
+
+// recordUnchecked writes, for each undecided step not yet recorded, that
+// the owner approved it knowing it stays unchecked, so CI's gate accepts
+// what the owner accepted here.
+func recordUnchecked(dir string, reg *ir.Registry, steps []string, by string) error {
+	var b strings.Builder
+	for _, step := range steps {
+		if reg.Unchecked[step] != nil {
+			continue
+		}
+		fmt.Fprintf(&b, "---\n# The owner approved rules on this step though the solver could not decide it: it is not checked.\nunchecked: %s\nby: %s\nat: %q\n", step, strconv.Quote(by), time.Now().UTC().Format("2006-01-02"))
+	}
+	if b.Len() == 0 {
+		return nil
+	}
+	f, err := os.OpenFile(filepath.Join(dir, "unchecked.yaml"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := f.WriteString(b.String()); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
 }

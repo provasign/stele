@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/provasign/stele/internal/solver"
 )
@@ -229,5 +230,61 @@ assert: self.tenant = default
 	}
 	if res := gate(t, "", cluster+"---\nextend: Cluster\ncontext: c\ncreatedBy: [Cluster.nope]\n"); !hasError(res, "no such operation") {
 		t.Fatalf("unknown creator: %+v", res.Errors)
+	}
+}
+
+// A check the solver leaves undecided is refused, unless the owner approved
+// every undecided step knowing it stays unchecked.
+func TestUncheckedStepsAccepted(t *testing.T) {
+	if _, err := exec.LookPath("z3"); err != nil {
+		t.Skip("z3 not on PATH")
+	}
+	z := &solver.Z3{Timeout: time.Second}
+	// A whole number of days between two times, stated exactly: the solver
+	// cannot settle it (ISSUES 80).
+	d := dir(t, `context: c
+formatVersion: 1
+---
+entity: Tool
+context: c
+attributes:
+  lentAt: { type: time }
+  daysOverdue: { type: int }
+---
+extend: platform.Result
+context: c
+attributes:
+  names: { type: list, of: string }
+---
+operation: Tool.overdue
+context: c
+default: allow
+writes: [Tool.daysOverdue]
+---
+id: D
+kind: invariant
+on: Tool.overdue
+when: now > self.lentAt + 14d
+assert: self.lentAt + 14d + days(self.daysOverdue) <= now and now < self.lentAt + 14d + days(self.daysOverdue + 1) and contains(result.names, "x")
+`)
+	res, err := Dirs(context.Background(), z, "", d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Accepted || !res.OnlyUndecided() {
+		t.Fatalf("accepted %v, verdict %v; want the step undecided", res.Accepted, res.Check.Verdict)
+	}
+	var docs string
+	for _, u := range res.Check.Undecided {
+		docs += "---\nunchecked: " + u + "\nby: owner\nat: \"2026-11-03\"\n"
+	}
+	if err := os.WriteFile(filepath.Join(d, "unchecked.yaml"), []byte(docs), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if res, err = Dirs(context.Background(), z, "", d); err != nil {
+		t.Fatal(err)
+	}
+	if !res.Accepted || len(res.Unchecked) == 0 {
+		t.Fatalf("accepted %v unchecked %v; want accepted, naming the unchecked steps", res.Accepted, res.Unchecked)
 	}
 }

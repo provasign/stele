@@ -31,6 +31,9 @@ type Registry struct {
 	// Lessons are what the owner taught Stele about this project, read by
 	// every translation and coverage check (D-063).
 	Lessons []*Lesson
+	// Unchecked are the steps the solver could not decide that the owner
+	// approved changes to knowing they stay unchecked, by step.
+	Unchecked map[string]*UncheckedStep
 }
 
 // Lesson kinds.
@@ -783,4 +786,14 @@ func (r *Registry) refIn(p *Path, subject *Entity, bound map[string]*Entity) (Re
 		return r.ResolveRef(&Path{Segs: append([]string{"self"}, p.Segs[1:]...)}, e)
 	}
 	return r.ResolveRef(p, subject)
+}
+
+// UncheckedStep records that the owner approved rules on a step the solver
+// could not decide, knowing that step is not checked: the gate accepts a
+// check left undecided only there.
+type UncheckedStep struct {
+	Step string
+	By   string
+	At   string
+	File string
 }
