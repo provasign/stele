@@ -38,6 +38,7 @@ func cmdChange(args []string, out io.Writer) int {
 	asJSON := fs.Bool("json", false, "print the questions and status as JSON, for a coding agent (D-058)")
 	apply := fs.Bool("apply", false, "when the check finds no conflict, write the change's rules into the registry (still to be approved)")
 	timeout := fs.Duration("timeout", 30*time.Minute, "limit for the run")
+	requestTimeout := fs.Duration("request-timeout", 3*time.Minute, "limit per model call: a call that stalls fails and is retried, and a requirement whose calls keep failing is reported under failed")
 	base := fs.String("base", "", "compare the specs at this git ref with the working tree (a feature branch); required for speckit, kiro and shale")
 	noCode := fs.Bool("no-code", false, "do not ask what the code does for each conflict (D-062)")
 	graph := fs.Bool("graph", false, "also find definitions in Grove's code graph (no gain measured on 2026-10-29)")
@@ -143,7 +144,7 @@ func cmdChange(args []string, out io.Writer) int {
 	if *outDir == "" {
 		*outDir = filepath.Join(".stele", "change", id)
 	}
-	opt := change.Options{Repo: repo, Change: id, Registry: *registry, Out: *outDir, Z3: &solver.Z3{}, Log: os.Stderr, Base: *base, Format: format, NoCode: *noCode, Graph: *graph, Adopt: adoptStmts, SpecsDir: adoptDir, MaxCost: *maxCost}
+	opt := change.Options{Repo: repo, Change: id, Registry: *registry, Out: *outDir, Z3: &solver.Z3{}, Log: os.Stderr, Base: *base, Format: format, NoCode: *noCode, Graph: *graph, Adopt: adoptStmts, SpecsDir: adoptDir, MaxCost: *maxCost, RequestTimeout: *requestTimeout}
 	if *stmtsPath != "" {
 		stmts, err := translate.LoadStatements(*stmtsPath)
 		if err != nil {
@@ -163,6 +164,14 @@ func cmdChange(args []string, out io.Writer) int {
 	defer cancel()
 	res, err := change.Run(ctx, opt)
 	if err != nil {
+		if *asJSON {
+			// An agent reads the JSON: a run that stopped must still say so
+			// there, not only on stderr.
+			js, _ := json.MarshalIndent(changeSummary{Change: id, Status: "failed", Error: err.Error(), Questions: []change.Question{},
+				Next: "the check stopped before it finished (see error); nothing new was checked. Fix what the error names, or raise --timeout, and run the same check again: translations already done are kept"}, "", "  ")
+			fmt.Fprintln(out, string(js))
+			return 1
+		}
 		return failf("change", err)
 	}
 	if res.Approved {
@@ -230,6 +239,7 @@ type changeSummary struct {
 	Removed   []string          `json:"removed,omitempty"`
 	Unchecked map[string]string `json:"unchecked,omitempty"`
 	Failed    map[string]string `json:"failed,omitempty"`
+	Error     string            `json:"error,omitempty"`
 	NewTerms  []string          `json:"new_terms,omitempty"`
 	Reused    int               `json:"reused_translations"`
 	CostUSD   float64           `json:"cost_usd"`

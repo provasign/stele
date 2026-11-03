@@ -25,7 +25,13 @@ func run(ctx context.Context, name string, args []string, stdin string) (string,
 	cmd.Stdin = strings.NewReader(stdin)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	if err := cmd.Run(); err != nil {
+	err = cmd.Start()
+	if err == nil {
+		untrack := track(cmd)
+		err = cmd.Wait()
+		untrack()
+	}
+	if err != nil {
 		return stdout.String(), stderr.String(), fmt.Errorf("%s: %w\n%s", name, err, tail(stderr.String()+stdout.String()))
 	}
 	return stdout.String(), stderr.String(), nil

@@ -71,6 +71,9 @@ type Options struct {
 	// MaxCost caps the translation's model calls, in dollars as the backend
 	// reports them (formalize.Options.MaxCost); 0 is unlimited.
 	MaxCost float64
+	// RequestTimeout limits each model call (formalize.Options); a call
+	// that stalls fails and is retried, instead of using up the whole run.
+	RequestTimeout time.Duration
 
 	rounds  int          // times the glossary's definitions added facts this run
 	lessons []*ir.Lesson // the registry's lessons, for the coverage judge
@@ -133,15 +136,15 @@ type Result struct {
 	Fingerprint string `json:"fingerprint"`
 	// Approved: the registry already holds the owner's approval of every
 	// requirement the change adds or edits, as it now reads.
-	Approved bool     `json:"approved,omitempty"`
+	Approved bool `json:"approved,omitempty"`
 	// Failed are the requirements the model could not translate (a backend
 	// error, or no valid reading after the repairs), with why. Nothing was
 	// checked for them, so the change can be neither clean nor approved
 	// until a later check translates them; failures are never cached.
-	Failed map[string]string `json:"failed,omitempty"`
-	Watched  []string `json:"watched"` // the roots the fingerprint covers
-	Repo     string   `json:"repo"`
-	Registry string   `json:"registry"`
+	Failed   map[string]string `json:"failed,omitempty"`
+	Watched  []string          `json:"watched"` // the roots the fingerprint covers
+	Repo     string            `json:"repo"`
+	Registry string            `json:"registry"`
 	// narrow maps a pair of conflicting statements to the one whose
 	// condition lies inside the other's.
 	narrow map[string]string
@@ -578,6 +581,14 @@ func (c *cache) translate(ctx context.Context, opt Options, todo []translate.Sta
 	finished := false
 	if src, err := os.ReadFile(filepath.Join(dir, formalize.StateFile)); err == nil {
 		finished = bytes.Contains(src, []byte(`"stage": "done"`))
+		if bytes.Contains(src, []byte(`"compact_deferred"`)) {
+			// A run an earlier release finished with failures recorded as
+			// settled: start it again, so the failures are retried now.
+			if err := os.RemoveAll(dir); err != nil {
+				return err
+			}
+			finished = false
+		}
 	}
 	var ks []vocab.Used
 	for name, ids := range known {
@@ -603,7 +614,8 @@ func (c *cache) translate(ctx context.Context, opt Options, todo []translate.Sta
 	}
 	sort.Slice(others, func(i, j int) bool { return others[i].ID < others[j].ID })
 	fr, err := formalize.Run(ctx, opt.Clients[0], todo, dir, formalize.Options{VocabFiles: files, Context: newIn, Compact: true,
-		Batch: 20, Parallel: 4, MaxRepairs: 2, Known: ks, Others: others, Lessons: opt.lessons, Log: log, MaxCost: opt.MaxCost})
+		Batch: 20, Parallel: 4, MaxRepairs: 2, Known: ks, Others: others, Lessons: opt.lessons, Log: log, MaxCost: opt.MaxCost,
+		RequestTimeout: opt.RequestTimeout})
 	if err != nil {
 		return fmt.Errorf("translate: %w", err)
 	}

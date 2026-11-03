@@ -375,6 +375,9 @@ func (p *parser) atom() (Expr, error) {
 	if t != "" && t[0] == '"' {
 		v, err := strconv.Unquote(t)
 		if err != nil {
+			v, err = unquoteRegex(t)
+		}
+		if err != nil {
 			return nil, fmt.Errorf("bad string %s: %v", t, err)
 		}
 		return &StrLit{V: v}, nil
@@ -630,4 +633,31 @@ func lexNumber(rs []rune, i int) int {
 		}
 	}
 	return j
+}
+
+// unquoteRegex reads a string literal whose escapes Go does not know, such
+// as a regular expression's \s, \d or \w written with one backslash (a
+// model wrote matches(request.title, "\s*") and the rule failed to compile,
+// 2026-11-02). Known escapes keep their meaning; an unknown one keeps its
+// backslash, which is what the regular expression means by it.
+func unquoteRegex(t string) (string, error) {
+	if len(t) < 2 || t[0] != '"' || t[len(t)-1] != '"' {
+		return "", fmt.Errorf("not a quoted string")
+	}
+	var b strings.Builder
+	body := t[1 : len(t)-1]
+	for i := 0; i < len(body); i++ {
+		c := body[i]
+		if c != '\\' || i+1 == len(body) {
+			b.WriteByte(c)
+			continue
+		}
+		if v, _, tail, err := strconv.UnquoteChar(body[i:], '"'); err == nil {
+			b.WriteRune(v)
+			i = len(body) - len(tail) - 1
+			continue
+		}
+		b.WriteByte('\\') // unknown escape: the backslash stays
+	}
+	return b.String(), nil
 }

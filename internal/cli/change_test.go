@@ -198,3 +198,31 @@ func TestChangeFailedStatusAndHelp(t *testing.T) {
 		t.Fatalf("help: %d\n%s", code, out.String())
 	}
 }
+
+// A model that hangs is cut off per call and reported as failed, and a run
+// that hits its overall deadline still answers in JSON: the agent reads the
+// JSON, and a check that printed none left it stuck (2026-11-02).
+func TestChangeHangingModelAnswersInJSON(t *testing.T) {
+	dir := doorProject(t, false)
+	// The door project with the requests declared in Shale as its specs.
+	cfg, _ := json.Marshal(map[string]any{"formatVersion": 1, "registry": "registry", "translate": map[string]any{"llm": "claude", "drafts": 1}, "specs": map[string]any{"root": ".", "format": "shale", "snapshot": "statements.yaml"}})
+	os.WriteFile(filepath.Join(dir, "stele.yaml"), cfg, 0o644)
+	os.MkdirAll(filepath.Join(dir, ".shale", "local"), 0o755)
+	for _, args := range [][]string{{"add", "-A"}, {"commit", "-qm", "shale"}} {
+		if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	os.WriteFile(filepath.Join(dir, ".shale", "local", "s1.jsonl"), []byte(`{"kind":"intent","at":"2026-11-02T10:00:00Z","title":"Close the door at night"}`+"\n"), 0o644)
+	wd, _ := os.Getwd()
+	defer os.Chdir(wd)
+	os.Chdir(dir)
+	for _, limit := range []string{"--request-timeout=200ms", "--timeout=500ms"} {
+		var out bytes.Buffer
+		code := cmdChange([]string{"shale", ".", "--base", "HEAD", "--json", "--llm", "cmd", "--llm-cmd", "sleep 30", "--out", t.TempDir(), limit}, &out)
+		var s changeSummary
+		if err := json.Unmarshal(out.Bytes(), &s); err != nil || code != 1 || s.Status != "failed" {
+			t.Fatalf("%s: exit %d, %v\n%s", limit, code, err, out.String())
+		}
+	}
+}

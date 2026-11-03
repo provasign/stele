@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+Found by the developer trial in Codex, continued.
+
+- **A model call that stalls no longer stalls the check.** `stele change` and `stele adopt` limit each model call (`--request-timeout`, 3 minutes by default, as `stele formalize` does); a call that stalls fails and is retried, and a requirement whose calls keep failing is reported under `failed`. A run that still hits its overall `--timeout` prints its JSON with status `failed` and the error, instead of none.
+- **Stopping Stele stops the model CLI it runs.** The CLI runs in its own process group, which a SIGTERM or ^C to Stele did not reach; it was left running. Stele now kills it first.
+- **Regular expressions in rules compile.** A string such as `"\s*"`, written with one backslash, failed with "bad string"; an escape Go does not know now keeps its backslash, as the regular expression means.
+- **The coverage judge knows what `instances(E)` means:** every other instance, never `self`. It had flagged the uniqueness rule `all(t in instances(Task): t.id != self.id)` as forbidding every task.
+- A translation run an earlier release finished with failures recorded is started again, so the first check after upgrading retries them.
+
 ## v0.1.1 - 2026-11-03
 
 Found by using Stele with Shale on its own repository, and by a developer trial in Codex.
