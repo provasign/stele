@@ -30,7 +30,8 @@ type Card struct {
 	Base    string `json:"base,omitempty"`
 	// Status is the latest check's: approved, ready (only the owner's
 	// approval is left), questions (decisions are open), clean (nothing to
-	// decide), or broken (the rules do not compile together).
+	// decide), broken (the rules do not compile together), or failed (the
+	// model could not translate requirements, so nothing was checked).
 	Status string `json:"status"`
 	// Checked is how many approved requirements the change was checked
 	// against.

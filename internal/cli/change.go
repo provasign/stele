@@ -54,6 +54,14 @@ func cmdChange(args []string, out io.Writer) int {
 		"       stele change shale <repo> [<name>] --base REF [--json] ...   (the requests declared with `shale intent` on this branch)\n" +
 		"       stele change answer <change-id> <question-id> <choice> [--note TEXT] [--by NAME]\n" +
 		"       stele change reread <change-id> <requirement> --note TEXT   (the owner says Stele misread it)\n"
+	// `stele change shale --help` read --help as the repository and then
+	// asked for --base.
+	if slices.ContainsFunc(args, func(a string) bool { return a == "-h" || a == "-help" || a == "--help" }) {
+		fmt.Fprint(out, usage+"\nflags:\n")
+		fs.SetOutput(out)
+		fs.PrintDefaults()
+		return 0
+	}
 	if len(args) < 2 || !slices.Contains([]string{"openspec", "speckit", "kiro", "shale", adoptChange}, args[0]) {
 		fmt.Fprint(os.Stderr, usage)
 		return 2
@@ -179,7 +187,7 @@ func cmdChange(args []string, out io.Writer) int {
 	if err := writeCard(res, head, summarize(res, *outDir).Status, *base); err != nil {
 		fmt.Fprintf(os.Stderr, "stele change: could not write the PR card: %v\n", err)
 	}
-	blocked := len(res.Gate.Errors) > 0 || res.Gate.Check == nil || !res.Gate.Accepted
+	blocked := len(res.Gate.Errors) > 0 || res.Gate.Check == nil || !res.Gate.Accepted || len(res.Failed) > 0
 	if *asJSON {
 		js, _ := json.MarshalIndent(summarize(res, *outDir), "", "  ")
 		fmt.Fprintln(out, string(js))
@@ -221,6 +229,7 @@ type changeSummary struct {
 	Modified  []string          `json:"modified,omitempty"`
 	Removed   []string          `json:"removed,omitempty"`
 	Unchecked map[string]string `json:"unchecked,omitempty"`
+	Failed    map[string]string `json:"failed,omitempty"`
 	NewTerms  []string          `json:"new_terms,omitempty"`
 	Reused    int               `json:"reused_translations"`
 	CostUSD   float64           `json:"cost_usd"`
@@ -229,7 +238,7 @@ type changeSummary struct {
 
 func summarize(res *change.Result, outDir string) changeSummary {
 	s := changeSummary{Change: res.Change, Questions: res.Questions, Errors: res.Gate.Errors, Added: res.Added, Modified: res.Modified, Removed: res.Removed,
-		Unchecked: res.Unchecked, NewTerms: res.NewTerms, Reused: len(res.Reused), CostUSD: res.Usage.CostUSD, Report: filepath.Join(outDir, "report.md")}
+		Unchecked: res.Unchecked, Failed: res.Failed, NewTerms: res.NewTerms, Reused: len(res.Reused), CostUSD: res.Usage.CostUSD, Report: filepath.Join(outDir, "report.md")}
 	if s.Questions == nil {
 		s.Questions = []change.Question{}
 	}
@@ -237,6 +246,8 @@ func summarize(res *change.Result, outDir string) changeSummary {
 	switch {
 	case len(res.Gate.Errors) > 0:
 		s.Status, s.Next = "broken", "the registry after this change does not compile; see errors"
+	case len(res.Failed) > 0:
+		s.Status, s.Next = "failed", fmt.Sprintf("the model could not translate %d requirement(s), so nothing was checked for them (see failed); fix what the error names (the model command, its login or sandbox) and run the same check again: it retries them", len(res.Failed))
 	case approve:
 		s.Status, s.Next = "ready", "ask the owner the approval question; answer with `stele change answer`"
 	case len(res.Questions) > 0:
@@ -394,6 +405,13 @@ func changeReport(res *change.Result, head *ir.Registry) string {
 		}
 		b.WriteString("\n")
 	}
+	if len(res.Failed) > 0 {
+		b.WriteString("## Not translated\n\nThe model could not translate these requirements, so nothing was checked for them and the change cannot be approved yet. Fix what the error names and run the same check again; it retries them:\n\n")
+		for _, id := range sortedKeys(res.Failed) {
+			fmt.Fprintf(&b, "- %s: %s\n", id, oneLine(res.Failed[id], 200))
+		}
+		b.WriteString("\n")
+	}
 	if len(res.Unchecked) > 0 {
 		b.WriteString("## Not checked\n\nThese requirements became no checked rule, so the check says nothing about them:\n\n")
 		for _, id := range sortedKeys(res.Unchecked) {
@@ -410,7 +428,7 @@ func changeReport(res *change.Result, head *ir.Registry) string {
 				checked = append(checked, id)
 			}
 		}
-		b.WriteString("## Rules to approve\n\nRead each rule as a reading of its requirement. Approve with `stele approve` once the change is applied.\n\n")
+		b.WriteString("## Rules to approve\n\nRead each rule as a reading of its requirement. The owner approves them by answering the check's approval question (`stele change answer <change> <approve question> approve`), which applies the change and records the approval.\n\n")
 		byStmt := map[string][]string{}
 		var stmts []string
 		for _, id := range checked {

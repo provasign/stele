@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/provasign/stele/internal/change"
+	"github.com/provasign/stele/internal/gate"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -181,5 +183,18 @@ func TestBranchChangeName(t *testing.T) {
 	os.WriteFile(filepath.Join(registry, "change-feature-orders-2.vocabulary.yaml"), nil, 0o644)
 	if got := branchChangeName(repo, registry); got != "feature-orders-3" {
 		t.Fatalf("after two = %q", got)
+	}
+}
+
+// A change whose translation failed is reported as failed, never clean, and
+// `--help` after a format prints the help instead of asking for --base.
+func TestChangeFailedStatusAndHelp(t *testing.T) {
+	res := &change.Result{Change: "c1", Gate: &gate.Result{Accepted: true}, Failed: map[string]string{"intent/a": "backend: Not logged in"}}
+	if s := summarize(res, t.TempDir()); s.Status != "failed" || len(s.Failed) != 1 || !strings.Contains(s.Next, "run the same check again") {
+		t.Fatalf("summary = %+v", s)
+	}
+	var out bytes.Buffer
+	if code := cmdChange([]string{"shale", "--help"}, &out); code != 0 || !strings.Contains(out.String(), "--base REF") || !strings.Contains(out.String(), "-max-cost") {
+		t.Fatalf("help: %d\n%s", code, out.String())
 	}
 }

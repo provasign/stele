@@ -14,6 +14,9 @@
 - When the base branch predates the approved registry (Stele was set up on this branch), the refusal names the commit that added the registry, to compare with until it reaches the base.
 - A PR card records a conflict decision without the solver's example situation, which is for the agent explaining it.
 - The first change's approval question no longer says it agrees with an approved spec when nothing is approved yet.
+- **A translation that fails is a failure, not a clean check.** When the model backend fails (not logged in, blocked by a sandbox, no network) or gives no valid reading after its repairs, `stele change` and `stele adopt` report status `failed`, list the requirements under `failed` with the error, exit 1, and offer no approval. Before, the check said `clean` and exited 0, and the failure was cached so that a retry never called the model again; a failure is now never cached, also one an earlier release cached.
+- The change report tells the owner to approve by answering the approval question, as the skill does, instead of with `stele approve`.
+- `stele change shale --help` prints the help; it used to ask for `--base`.
 - **`stele check` in a project,** with no registry named, checks every approved requirement on the branch against every other and reports each contradiction as the requirements it involves, their sources and who approved them. Run it after a merge or pull: changes approved on different branches can contradict each other once they meet.
 
 ## v0.1.0

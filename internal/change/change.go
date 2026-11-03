@@ -134,6 +134,11 @@ type Result struct {
 	// Approved: the registry already holds the owner's approval of every
 	// requirement the change adds or edits, as it now reads.
 	Approved bool     `json:"approved,omitempty"`
+	// Failed are the requirements the model could not translate (a backend
+	// error, or no valid reading after the repairs), with why. Nothing was
+	// checked for them, so the change can be neither clean nor approved
+	// until a later check translates them; failures are never cached.
+	Failed map[string]string `json:"failed,omitempty"`
 	Watched  []string `json:"watched"` // the roots the fingerprint covers
 	Repo     string   `json:"repo"`
 	Registry string   `json:"registry"`
@@ -283,7 +288,8 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 	if len(pending) > 0 {
 		var todo []translate.Statement
 		for _, s := range pending {
-			if e, ok := c.Entries[s.ID]; ok && e.Key == key(s) {
+			// An entry with no reading is a failure an earlier release cached.
+			if e, ok := c.Entries[s.ID]; ok && e.Key == key(s) && len(e.Cands) > 0 {
 				res.Reused = append(res.Reused, s.ID)
 			} else {
 				todo = append(todo, s)
@@ -622,7 +628,21 @@ func (c *cache) translate(ctx context.Context, opt Options, todo []translate.Sta
 		}
 	}
 	for _, s := range todo {
+		if why, ok := fr.Deferred[s.ID]; ok && len(byStmt[s.ID]) == 0 {
+			if res.Failed == nil {
+				res.Failed = map[string]string{}
+			}
+			res.Failed[s.ID] = strings.TrimSpace(why)
+			continue // not cached: the next check translates it again
+		}
 		c.Entries[s.ID] = entry{Key: key(s), Cands: byStmt[s.ID], Findings: findings[s.ID]}
+	}
+	if len(fr.Deferred) > 0 {
+		// The run's state records the failures as settled; a rerun with the
+		// same statements must call the model again, not read them back.
+		if err := os.RemoveAll(dir); err != nil {
+			return err
+		}
 	}
 	n := len(c.Links)
 	for _, l := range fr.LinkCands {
@@ -922,7 +942,7 @@ func readDocs(path string) ([]*yaml.Node, error) {
 
 func writeDocs(path string, docs []*yaml.Node) error {
 	var b bytes.Buffer
-	b.WriteString("# Rules translated for an OpenSpec change by `stele change`; see `stele approve`.\n")
+	b.WriteString("# Rules translated for an OpenSpec change by `stele change`; approved by answering the check's approval question (`stele change answer`).\n")
 	enc := yaml.NewEncoder(&b)
 	enc.SetIndent(2)
 	for _, d := range docs {

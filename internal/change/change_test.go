@@ -3,6 +3,7 @@ package change
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -957,5 +958,47 @@ func TestOneLineCutsBetweenWords(t *testing.T) {
 	}
 	if got := oneLine("short  text", 80); got != "short text" {
 		t.Errorf("oneLine = %q", got)
+	}
+}
+
+// down is a model backend that is not reachable: every call fails, as a CLI
+// that is not logged in or is blocked by a sandbox does.
+type down struct{ calls *int }
+
+func (d down) Name() string { return "down" }
+func (d down) Complete(context.Context, llm.Request) (*llm.Reply, error) {
+	*d.calls++
+	return nil, fmt.Errorf("Not logged in")
+}
+
+// A requirement the model could not translate is a failure, never a clean
+// check, and it is not cached: the next check calls the model again and
+// then reads it.
+func TestFailedTranslationIsNotClean(t *testing.T) {
+	repo, registry := setup(t, "## ADDED Requirements\n\n### Requirement: Locks\nThe system MUST NOT delete a locked resource.\n")
+	calls := 0
+	out := t.TempDir()
+	opt := Options{Repo: repo, Change: "c1", Registry: registry, Out: out, Clients: []llm.Client{down{&calls}}}
+	res, err := Run(context.Background(), opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Failed) != 1 || calls == 0 || !strings.Contains(fmt.Sprint(res.Failed), "Not logged in") {
+		t.Fatalf("failed = %v after %d call(s); want the requirement and the backend's error", res.Failed, calls)
+	}
+	for _, q := range res.Questions {
+		if q.Kind == "approve" {
+			t.Fatalf("approval offered for a change that was not translated: %+v", q)
+		}
+	}
+	before := calls
+	if res, err = Run(context.Background(), opt); err != nil || len(res.Failed) != 1 || calls == before {
+		t.Fatalf("rerun: failed %v, %d new call(s), %v; want the model asked again", res.Failed, calls-before, err)
+	}
+
+	// The model is back: the same check translates it.
+	opt.Clients = []llm.Client{one("locked", map[string]any{"kind": "permission", "operation": "Resource.delete", "effect": "deny", "when": "self.holds > 0"})}
+	if res, err = Run(context.Background(), opt); err != nil || len(res.Failed) != 0 || len(res.Reused) != 0 {
+		t.Fatalf("after the backend recovered: failed %v, reused %v, %v", res.Failed, res.Reused, err)
 	}
 }

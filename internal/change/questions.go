@@ -532,7 +532,7 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 	}
 
 	// The approval, once nothing else is open.
-	if g != nil && len(g.Errors) == 0 && g.Accepted && len(qs) == 0 && len(g.Unapproved) > 0 {
+	if g != nil && len(g.Errors) == 0 && g.Accepted && len(qs) == 0 && len(g.Unapproved) > 0 && len(res.Failed) == 0 {
 		var checked []string
 		for id := range inChange {
 			if len(res.Rules[id]) > 0 {
