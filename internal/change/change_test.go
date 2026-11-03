@@ -13,10 +13,13 @@ import (
 	"unicode/utf8"
 
 	"github.com/provasign/stele/internal/adopt"
+	"github.com/provasign/stele/internal/checker"
+	"github.com/provasign/stele/internal/gate"
 	"github.com/provasign/stele/internal/importer"
 	"github.com/provasign/stele/internal/ir"
 	"github.com/provasign/stele/internal/llm"
 	"github.com/provasign/stele/internal/translate"
+	"github.com/provasign/stele/internal/vocab"
 )
 
 const vocabYAML = `context: res
@@ -1224,5 +1227,54 @@ func TestWrongApprovedFactIsRetired(t *testing.T) {
 		if q.Kind == "conflict" {
 			t.Fatalf("the conflict came back: %+v", q)
 		}
+	}
+}
+
+// What the owner says cannot happen reaches the world-fact reading, once,
+// whether it comes from this change's answer or the lesson it left; the
+// agent's own answers do not.
+func TestOwnerFacts(t *testing.T) {
+	as := []Answer{
+		{Kind: "conflict", Choice: "impossible", Note: "no tool is lent to a stranger"},
+		{Kind: "conflict", Choice: "impossible", Note: "agent guess", By: "agent"},
+	}
+	head := &ir.Registry{Lessons: []*ir.Lesson{{Kind: ir.LessonFact, Says: "This situation cannot happen in this project: no tool is lent to a stranger"}}}
+	got := ownerFacts(as, head)
+	if len(got) != 1 || got[0] != "The owner says: This situation cannot happen in this project: no tool is lent to a stranger" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+// A state invariant tying a proposed attribute to state a step changes:
+// the step writes the new attribute, so it can keep the invariant.
+func TestStateInvariantWrites(t *testing.T) {
+	dir := t.TempDir()
+	src := "context: c\nformatVersion: 1\n---\nentity: Tool\ncontext: c\nattributes:\n  status: { type: enum, values: [available, lent] }\n  lentAt: { type: optional<time> }\n  dueAt: { type: optional<time> }\n---\noperation: Tool.lend\ncontext: c\ndefault: allow\nwrites: [Tool.status, Tool.lentAt]\n---\noperation: Tool.rename\ncontext: c\ndefault: allow\nwrites: []\n"
+	if err := os.WriteFile(filepath.Join(dir, "v.yaml"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reg, err := ir.LoadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := vocab.Proposal{Extensions: []vocab.Entity{{Name: "Tool", Attributes: []vocab.Attribute{{Name: "dueAt"}}}}}
+	cands := []translate.Candidate{{Outcome: "rule", Kind: ir.Invariant, Subject: "Tool", RuleID: "r1", When: "self.status = lent", Assert: "isSet(self.lentAt) and self.dueAt = self.lentAt + 14d"}}
+	got := inferWrites(reg, p, cands)
+	if strings.Join(got["Tool.lend"], ",") != "Tool.dueAt" || len(got["Tool.rename"]) != 0 {
+		t.Fatalf("writes = %v; want Tool.lend to write Tool.dueAt", got)
+	}
+}
+
+// When the check finds nothing wrong and only cannot decide a step, the
+// owner is asked for the approval, told which step stays unchecked, instead
+// of every later change touching that step being stuck.
+func TestApprovalWhenOnlyUndecided(t *testing.T) {
+	head := &ir.Registry{}
+	res := &Result{Rules: map[string][]string{}, Statements: map[string]string{"intent/s1": "Lend tools"}, Sources: map[string]string{}, Added: []string{"intent/s1"},
+		Gate: &gate.Result{Check: &checker.Result{Verdict: checker.Unknown, Undecided: []string{"Tool.lend"}}, Unapproved: []string{"intent/s1"}}}
+	qs := questions(res, head, &cache{}, nil, nil)
+	i := slices.IndexFunc(qs, func(q Question) bool { return q.Kind == "approve" })
+	if i < 0 || !strings.Contains(qs[i].Text, "could not decide what Tool.lend must do") {
+		t.Fatalf("questions = %+v; want the approval naming the undecided step", qs)
 	}
 }

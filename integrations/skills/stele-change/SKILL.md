@@ -53,6 +53,7 @@ It reads every requirement once and checks them against each other. Its JSON is 
    - `approved`: the owner already approved this change as it reads. Do not check it again; commit the registry with the change.
    - `broken`: the change's rules do not compile together (`errors`). This is Stele's problem, not the owner's: report it briefly and stop.
    - `failed`: the model could not translate the requirements under `failed`, so nothing was checked for them; the error says why (not logged in, a sandbox that blocks the model command, no network). Never report this as checked. Tell the owner the error in one line and what would fix it, and run the same command again once it is fixed: the failures are retried, not reused.
+   - `undecided`: the solver could not settle what a step must do, and other questions are open. Answer them first. The approval then says which step it leaves unchecked: tell the owner, and offer a simpler wording of the requirement behind it if they would rather have it checked.
    - `questions`: go to step 4.
    - `ready`: only the approval question is left. Go to step 6.
 4. For each question, in order:

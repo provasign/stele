@@ -52,10 +52,62 @@ func inferWrites(reg *ir.Registry, p vocab.Proposal, cands []translate.Candidate
 			}
 		}
 	}
+	stateInvariantWrites(reg, p, cands, out)
 	for k := range out {
 		sort.Strings(out[k])
 	}
 	return out
+}
+
+// stateInvariantWrites: a state invariant that ties an attribute this
+// change proposes to state existing steps change ("a lent tool is due 14
+// days after it was lent") is kept by those steps, so each writes the new
+// attribute. Unwritten, the step that lends could not set the due date, and
+// the new rule read as clashing with lending (a developer trial,
+// 2026-11-03). Only proposed attributes: an existing one a step leaves alone
+// is the step's to leave.
+func stateInvariantWrites(reg *ir.Registry, p vocab.Proposal, cands []translate.Candidate, out map[string][]string) {
+	proposed := map[string]bool{}
+	for _, e := range append(append([]vocab.Entity{}, p.Entities...), p.Extensions...) {
+		for _, a := range e.Attributes {
+			proposed[e.Name+"."+a.Name] = true
+		}
+	}
+	for _, c := range cands {
+		if c.Outcome != "rule" || c.Error != "" || c.On != "" || c.Kind != ir.Invariant || c.Assert == "" {
+			continue
+		}
+		subject, err := reg.SubjectOf(&ir.Rule{ID: c.RuleID, Subject: c.Subject, Kind: c.Kind})
+		if err != nil {
+			continue
+		}
+		var fresh, known []*ir.Attr
+		for _, src := range []string{c.When, c.Assert} {
+			e, err := ir.ParseExpr(src)
+			if src == "" || err != nil {
+				continue
+			}
+			for _, a := range reg.Reads(e, subject) {
+				switch {
+				case a == nil || a.WorldSet || a.Entity == nil:
+				case proposed[a.QName()]:
+					fresh = append(fresh, a)
+				default:
+					known = append(known, a)
+				}
+			}
+		}
+		for _, op := range reg.Operations {
+			if !slices.ContainsFunc(known, func(a *ir.Attr) bool { return a.Entity == op.Entity && op.WritesAttr(a) }) {
+				continue
+			}
+			for _, a := range fresh {
+				if a.Entity == op.Entity && !op.WritesAttr(a) && !slices.Contains(out[op.Name], a.Path()) {
+					out[op.Name] = append(out[op.Name], a.Path())
+				}
+			}
+		}
+	}
 }
 
 // withoutOld replaces every old(...) by a constant: values before the step

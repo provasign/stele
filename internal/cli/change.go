@@ -264,6 +264,12 @@ func summarize(res *change.Result, outDir string) changeSummary {
 		s.Status, s.Next = "questions", "answer the questions with ask_owner false yourself; ask the owner the others in their words; record each with `stele change answer`, act on its result, then run `stele change` again"
 	case res.Gate.Accepted:
 		s.Status, s.Next = "clean", "nothing to decide or approve"
+	case res.Gate.Check != nil && len(res.Gate.Check.Undecided) > 0:
+		// Not broken: the rules compile, and the solver could not settle
+		// what one step must do (a developer trial reported it as broken,
+		// with nothing to act on).
+		s.Status = "undecided"
+		s.Next = fmt.Sprintf("the solver could not decide what %s must do; answer the questions, then the approval says which rules it leaves unchecked. A simpler wording of the requirement behind that step (an exact formula for a computed value, such as a count of days, is the usual cause) may let Stele check it", strings.Join(res.Gate.Check.Undecided, ", "))
 	default:
 		s.Status, s.Next = "broken", "the check did not finish; see the report"
 	}

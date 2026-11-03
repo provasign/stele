@@ -161,7 +161,7 @@ func cmdChangeAnswer(args []string, out io.Writer) int {
 // owner's approval of every rule it adds or edits, if the check is current.
 func approveChange(res *change.Result, by string, out io.Writer) error {
 	g := res.Gate
-	if g == nil || len(g.Errors) > 0 || !g.Accepted {
+	if g == nil || len(g.Errors) > 0 || !g.Accepted && !g.OnlyUndecided() {
 		return fmt.Errorf("the check found problems; it cannot be approved")
 	}
 	now, err := change.Fingerprint(res.Watched...)

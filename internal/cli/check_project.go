@@ -133,7 +133,7 @@ func checkProject(cfg *config.Config, jsonOut bool, z3Path string, timeout time.
 			fmt.Fprintln(out, verb+".")
 		}
 		if n := len(res.Undecided); n > 0 {
-			fmt.Fprintf(out, "\n%d part(s) could not be decided in time; run again with a longer --timeout.\n", n)
+			fmt.Fprintf(out, "\n%d part(s) could not be decided (%s), so contradictions there would not be found; a longer --timeout sometimes settles them, and a simpler wording of the requirements on those steps more often does.\n", n, strings.Join(res.Undecided, ", "))
 		}
 		if next != "" {
 			fmt.Fprintf(out, "\nNext: %s.\n", next)

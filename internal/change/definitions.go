@@ -49,6 +49,15 @@ func definitions(ctx context.Context, opt Options, res *Result, head *ir.Registr
 				}
 			}
 		}
+		// What the owner said cannot happen, as a fact the check can use:
+		// as a note to the translation alone it changed no rule, and the
+		// same clash came back with another example (a developer trial,
+		// 2026-11-03).
+		for _, e := range ownerFacts(as, head) {
+			if !slices.Contains(entries, e) {
+				entries = append(entries, e)
+			}
+		}
 		if len(entries) == 0 {
 			continue
 		}
@@ -105,6 +114,30 @@ func definitions(ctx context.Context, opt Options, res *Result, head *ir.Registr
 	}
 	return added
 }
+
+// ownerFacts are what the owner said about the project: situations that
+// cannot happen, from this change's answers and the project's lessons.
+func ownerFacts(as []Answer, head *ir.Registry) []string {
+	var out []string
+	add := func(says string) {
+		if says = strings.TrimSpace(says); says != "" && !slices.Contains(out, ownerSays+says) {
+			out = append(out, ownerSays+says)
+		}
+	}
+	for _, a := range as {
+		if a.Kind == "conflict" && a.Choice == "impossible" && a.By != "agent" {
+			add("This situation cannot happen in this project: " + a.Note) // as its lesson says it
+		}
+	}
+	for _, l := range head.Lessons {
+		if l.Kind == ir.LessonFact {
+			add(l.Says)
+		}
+	}
+	return out
+}
+
+const ownerSays = "The owner says: "
 
 // glossaryOf is the glossary entries an imported statement carries (the
 // Kiro importer appends them as "Glossary: Term: text | Term: text").
@@ -177,7 +210,7 @@ func define(ctx context.Context, m llm.Client, entries, rules []string, attrs ma
 		}
 		h := sha256.Sum256([]byte(f.On + "\x00" + f.When + "\x00" + f.Assert))
 		facts = append(facts, translate.Candidate{RuleID: "world-def-" + hex.EncodeToString(h[:4]), Outcome: "rule", Kind: ir.Invariant,
-			Effect: "none", On: f.On, Assume: f.On != "", When: f.When, Assert: f.Assert, Rationale: "the glossary defines " + f.Term + ": " + f.Assert})
+			Effect: "none", On: f.On, Assume: f.On != "", When: f.When, Assert: f.Assert, Rationale: factSource(f.Term) + f.Assert})
 	}
 	return facts, nil
 }
@@ -191,7 +224,9 @@ You get the glossary entries the clashing requirements cite, the rules, the situ
 - Use an equality (self.accountFieldChanged = (request.accountIdChanged or request.externalIdChanged)) only when the attributes cover every case the definition lists; when they cover some, write one implication per defining attribute (request.accountIdChanged implies self.accountFieldChanged).
 - "term" is the glossary term.
 
-Return only what a glossary entry states. Nothing a requirement wants, nothing you infer from the rules or the situation: a wrong fact invents or hides clashes. Most entries define nothing these attributes need; return no facts then.`
+An entry that starts "The owner says:" is a fact the owner states about this project, such as a situation that cannot happen ("tools are only lent to registered members"). Return it as an invariant over these attributes when they can express it, as for a definition; "term" is "owner".
+
+Return only what a glossary entry or the owner states. Nothing a requirement wants, nothing you infer from the rules or the situation: a wrong fact invents or hides clashes. Most entries define nothing these attributes need; return no facts then.`
 
 const defineSchema = `{
   "type": "object",
@@ -209,3 +244,11 @@ const defineSchema = `{
     }
   }
 }`
+
+// factSource says where a fact the definitions step read comes from.
+func factSource(term string) string {
+	if term == "owner" {
+		return "the owner says: "
+	}
+	return "the glossary defines " + term + ": "
+}

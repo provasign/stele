@@ -69,7 +69,7 @@ Element types of lists, sets and maps are scalar types; collections of collectio
 
 Semantics of the less familiar cases:
 
-- **Optional values.** An unset optional value, or a value reached through an unset optional relation, equals and compares with nothing: `self.owner = "bob"` is false while `self.owner` is unset, and `self.owner != "bob"` true ([D-052](design-decisions.md)). `isSet` and `= none` test presence.
+- **Optional values.** An unset optional value, or a value reached through an unset optional relation, equals and compares with nothing: `self.owner = "bob"` is false while `self.owner` is unset, and `self.owner != "bob"` true ([D-052](design-decisions.md)). `isSet` and `= none` test presence. Comparing a value with its own earlier value, `x = old(x)`, says the step keeps it: an optional value unset before and after is kept.
 - **Lists** are checked up to `maxLength`. A rule over a longer list is checked for lists up to that length only.
 - **Relations to many** denote `max` instances other than the single instance roots and `self` name, each with its own attributes. An operation acts on its own instance, so it never changes theirs; from an instance in the collection, the inverse relation (declared with `inverse:`) leads back to the instance that holds it. "Every other workspace on the node keeps running" is `all(w in self.node.workspaces: w.status = running)`.
 - **Strings** are decided by Z3's string solver. Equality, prefix, suffix and containment against literals and concatenation are decided; arbitrary combinations with lengths may come back `unknown`, which the checker reports as such.

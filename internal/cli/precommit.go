@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/provasign/stele/internal/config"
 	"github.com/provasign/stele/internal/gate"
+	"github.com/provasign/stele/internal/importer"
 	"github.com/provasign/stele/internal/ir"
 	"github.com/provasign/stele/internal/solver"
 	"github.com/provasign/stele/internal/specsync"
@@ -85,8 +87,28 @@ func cmdPrecommit(args []string, out io.Writer) int {
 			for _, id := range r.StaleRules {
 				blocks = append(blocks, fmt.Sprintf("approved rule %s was approved for text that has since changed", id))
 			}
+			// The owner retired a request (an update_old or exception answer)
+			// whose replacement is not approved yet: its rules retire with
+			// that approval. Blocked, the work could not be committed while
+			// the replacement waited (a developer trial, 2026-11-03).
+			retired := map[string]bool{}
+			if shale {
+				if rs, err := importer.RetiredIntents(root); err == nil {
+					for _, x := range rs {
+						retired[x.ID] = true
+					}
+				}
+			}
+			waiting := map[string]bool{}
 			for _, id := range r.OrphanRules {
+				if x := reg.Rule(id); x != nil && retired[x.StatementID] {
+					waiting[x.StatementID] = true
+					continue
+				}
 				blocks = append(blocks, fmt.Sprintf("approved rule %s belongs to a requirement that is gone", id))
+			}
+			for _, id := range slices.Sorted(maps.Keys(waiting)) {
+				notes = append(notes, fmt.Sprintf("the owner retired %s; its rules retire when the change that replaces it is approved", id))
 			}
 			ruled := map[string]bool{}
 			for _, x := range reg.Rules {

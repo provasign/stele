@@ -693,6 +693,26 @@ kind: invariant
 assert: len(theme.roles) = 4
 `, map[string][][]string{"assumptions": {{"R16", "R18"}}}},
 
+		// x = old(x) keeps x: unset before and after counts as kept, though
+		// an unset value equals nothing otherwise (D-052).
+		{"an optional value kept by a step", `
+entity: Tool
+context: c
+attributes:
+  borrower: { type: optional<int>, range: [0, 2] }
+  lent: { type: bool }
+---
+operation: Tool.lend
+context: c
+default: allow
+writes: [Tool.lent]
+---
+id: K
+kind: invariant
+on: Tool.lend
+assert: self.borrower = old(self.borrower)
+`, map[string][][]string{}},
+
 		// D-064: a step's result is its own response, with no frame and
 		// nothing the world chooses. Bounding attempts by 7 alone is met.
 		{"step outputs", `

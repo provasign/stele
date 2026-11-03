@@ -35,6 +35,14 @@ type Change struct {
 	Affected []string `json:"affected_rules,omitempty"`
 }
 
+// OnlyUndecided reports whether the check found nothing wrong and only
+// could not decide some steps: the owner may approve knowing those steps
+// are unchecked, rather than be stuck while the solver cannot settle them.
+func (r *Result) OnlyUndecided() bool {
+	return r != nil && len(r.Errors) == 0 && r.Check != nil && r.Check.Verdict == checker.Unknown &&
+		len(r.Check.Conflicts) == 0 && len(r.Check.Dead) == 0 && len(r.Check.Undecided) > 0
+}
+
 // Result is the gate's decision.
 type Result struct {
 	Accepted bool `json:"accepted"`

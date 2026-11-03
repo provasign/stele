@@ -2105,11 +2105,19 @@ func (m *Model) binary(e *ir.Binary, subject *ir.Entity, c *ctx) (cfn, error) {
 		return b(func(s []Value) bool { return l.f(s).B || r.f(s).B })
 	case "implies":
 		return b(func(s []Value) bool { return !l.f(s).B || r.f(s).B })
-	case "=":
-		return b(m.equalP(l, r))
-	case "!=":
+	case "=", "!=":
 		eq := m.equalP(l, r)
-		return b(func(s []Value) bool { return !eq(s) })
+		if keptValue(e.L, e.R) && (l.set != nil || r.set != nil) {
+			// x = old(x): kept, unset before and after included (the
+			// checker's reading; D-052 otherwise).
+			inner, ls, rs := eq, l.set, r.set
+			unset := func(f evalFn, s []Value) bool { return f != nil && !f(s).B }
+			eq = func(s []Value) bool { return inner(s) || unset(ls, s) && unset(rs, s) }
+		}
+		if e.Op == "!=" {
+			return b(func(s []Value) bool { return !eq(s) })
+		}
+		return b(eq)
 	case "<", "<=", ">", ">=":
 		cmp := compare(l, r)
 		op := e.Op
@@ -2248,4 +2256,13 @@ func literalFor(e ir.Expr, a *ir.Attr) (Value, error) {
 		}
 	}
 	return v, err
+}
+
+// keptValue reports whether one side of a comparison is old() of the other.
+func keptValue(a, b ir.Expr) bool {
+	isOld := func(c, x ir.Expr) bool {
+		call, ok := c.(*ir.Call)
+		return ok && call.Fn == "old" && len(call.Args) == 1 && call.Args[0].String() == x.String()
+	}
+	return isOld(a, b) || isOld(b, a)
 }

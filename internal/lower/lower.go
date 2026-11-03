@@ -1698,7 +1698,15 @@ func (lw *lowerer) binary(e *ir.Binary, subject *ir.Entity, where string) typed 
 		}
 		return typed{term: "(or " + strings.Join(eqs, " ") + ")", kind: ir.Bool}
 	case "=", "!=":
-		eq := lw.equal(lw.expr(e.L, subject, where), lw.expr(e.R, subject, where), e, where)
+		l, r := lw.expr(e.L, subject, where), lw.expr(e.R, subject, where)
+		eq := lw.equal(l, r, e, where)
+		if unchanged(e.L, e.R) && (l.set != "" || r.set != "") {
+			// x = old(x) says x is unchanged: unset before and after
+			// counts, though an unset value equals nothing otherwise
+			// (D-052). Read as equality, "a refused lend changes
+			// nothing" was impossible whenever the borrower was unset.
+			eq = fmt.Sprintf("(or %s (and (not %s) (not %s)))", eq, orTrue(l.set), orTrue(r.set))
+		}
 		if e.Op == "!=" {
 			eq = "(not " + eq + ")"
 		}
@@ -2086,4 +2094,21 @@ func numericKind(args []typed) (ir.Kind, bool) {
 		}
 	}
 	return k, true
+}
+
+// unchanged reports whether one side of a comparison is old() of the
+// other: the idiom for a value a step keeps.
+func unchanged(a, b ir.Expr) bool {
+	isOld := func(c, x ir.Expr) bool {
+		call, ok := c.(*ir.Call)
+		return ok && call.Fn == "old" && len(call.Args) == 1 && call.Args[0].String() == x.String()
+	}
+	return isOld(a, b) || isOld(b, a)
+}
+
+func orTrue(set string) string {
+	if set == "" {
+		return "true"
+	}
+	return set
 }

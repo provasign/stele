@@ -273,3 +273,33 @@ func TestSyncAfterArchive(t *testing.T) {
 		t.Errorf("not in sync after `stele sync --apply`: %v %+v\n%s", err, r, out.String())
 	}
 }
+
+// TestPrecommitRetiredWaitsForApproval: the owner retired a Shale request
+// whose replacement is not approved yet. Its approved rules retire with that
+// approval, so the commit passes with a note instead of blocking.
+func TestPrecommitRetiredWaitsForApproval(t *testing.T) {
+	dir := doorProject(t, false)
+	prose := "Lock the door at night"
+	sum := sha256.Sum256([]byte(prose))
+	hash := hex.EncodeToString(sum[:])[:16]
+	src, _ := json.Marshal(map[string]string{"statementId": "intent/s1", "doc": ".shale/s1.yaml", "textHash": hash, "statementHash": hash, "prose": prose, "approvedBy": "owner", "approvedHash": hash})
+	os.WriteFile(filepath.Join(dir, "registry/rules.yaml"), []byte("id: R1\nkind: invariant\nassert: door.locked\nsource: "+string(src)+"\n"), 0o644)
+	cfg, _ := json.Marshal(map[string]any{"formatVersion": 1, "registry": "registry", "translate": map[string]any{"llm": "claude", "drafts": 1}, "specs": map[string]any{"root": ".", "format": "shale", "snapshot": "statements.yaml"}})
+	os.WriteFile(filepath.Join(dir, "stele.yaml"), cfg, 0o644)
+	os.MkdirAll(filepath.Join(dir, ".shale"), 0o755)
+	os.WriteFile(filepath.Join(dir, ".shale/s1.yaml"), []byte("id: s1\nintent:\n    title: "+prose+"\n"), 0o644)
+	stmts, _ := json.Marshal([]map[string]any{{"id": "intent/s1", "source": ".shale/s1.yaml", "prose": prose, "reference": []string{}}})
+	os.WriteFile(filepath.Join(dir, "statements.yaml"), stmts, 0o644)
+	for _, args := range [][]string{{"add", "-A"}, {"commit", "-qm", "approved s1"}} {
+		if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	os.MkdirAll(filepath.Join(dir, ".stele"), 0o755)
+	os.WriteFile(filepath.Join(dir, ".stele/retired-intents.yaml"), []byte("- id: intent/s1\n  by: owner\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, ".shale/s2.yaml"), []byte("id: s2\nintent:\n    title: Lock the door at night unless a guest stays\n"), 0o644)
+	code, out := precommit(t, dir, ".stele/retired-intents.yaml", ".shale/s2.yaml")
+	if code != 0 || !strings.Contains(out, "the owner retired intent/s1") {
+		t.Errorf("%d\n%s", code, out)
+	}
+}

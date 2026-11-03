@@ -13,6 +13,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/provasign/stele/internal/adopt"
 	"github.com/provasign/stele/internal/checker"
 	"github.com/provasign/stele/internal/ir"
 	"github.com/provasign/stele/internal/translate"
@@ -191,6 +192,8 @@ func answered(as []Answer, q Question) bool {
 			return true // "same" turns the pair into a rename; "different" leaves it a removal and an addition
 		case "task":
 			return true // "task" sets the request aside; "requirement" keeps it, unchecked
+		case "restates":
+			return true // "update_old" retires the earlier request; "both" keeps it
 		}
 	}
 	return false
@@ -562,6 +565,45 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 		}
 	}
 
+	// A new request that reads much like an approved one still in force is
+	// usually that request restated with a change ("at most 2" for "at most
+	// 3"). Rules that only narrow each other do not conflict, so without
+	// asking, both would stay approved and the spec would say both (a
+	// developer trial, 2026-11-03).
+	if res.Format == "shale" {
+		changed := map[string]bool{}
+		for _, id := range append(append(append([]string{}, res.Added...), res.Modified...), res.Removed...) {
+			changed[id] = true
+		}
+		for _, id := range res.Added {
+			best, score := "", 0.0
+			for old, text := range res.Statements {
+				if changed[old] || !strings.HasPrefix(old, "intent/") {
+					continue
+				}
+				if s := adopt.Similarity(text, res.Statements[id]); s > score || s == score && old < best {
+					best, score = old, s
+				}
+			}
+			if best == "" || score < renameGuessThreshold {
+				continue
+			}
+			q := Question{ID: qid("restates", id, best, translate.TextHash(res.Statements[id])), Kind: "restates", AskOwner: true,
+				Requirements: []Requirement{req(id), req(best)}, Statements: []string{id},
+				Detail: fmt.Sprintf("%.0f%% of the words in common", score*100)}
+			q.Requirements[1].Where = "current spec"
+			q.Text = fmt.Sprintf("The new request %q reads much like the approved %q. Does it replace it?", req(id).Title, req(best).Title)
+			q.Recommended, q.Why = "update_old", "a request restated with a change replaces the earlier one; kept, the spec would say both"
+			q.Options = []Option{
+				{Choice: "update_old", Label: "It replaces the earlier request: retire it", Then: "Stele retires the earlier request and its rules (`.stele/retired-intents.yaml`, committed with the change); run `stele change` again"},
+				{Choice: "both", Label: "Both stand: they are different requirements", Then: "run `stele change` again"},
+			}
+			if !answered(as, q) {
+				qs = append(qs, q)
+			}
+		}
+	}
+
 	// A request that gives Stele nothing to check is often a one-off task,
 	// not something the product must keep ("write the review", "set up the
 	// tracker"): approving it would record a requirement that protects
@@ -585,7 +627,7 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 	}
 
 	// The approval, once nothing else is open.
-	if g != nil && len(g.Errors) == 0 && g.Accepted && len(qs) == 0 && len(g.Unapproved) > 0 && len(res.Failed) == 0 {
+	if g != nil && len(g.Errors) == 0 && (g.Accepted || g.OnlyUndecided()) && len(qs) == 0 && len(g.Unapproved) > 0 && len(res.Failed) == 0 {
 		var checked []string
 		for id := range inChange {
 			if len(res.Rules[id]) > 0 {
@@ -617,6 +659,12 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 		if flagged > 0 {
 			q.Text += fmt.Sprintf("; Stele's reading of %d may say less or more than the text (see findings)", flagged)
 			q.Recommended, q.Why = "show", "look at the flagged readings before approving them"
+		}
+		if g.OnlyUndecided() {
+			// One step the solver cannot settle no longer holds up every
+			// later change that touches it (a developer trial, 2026-11-03).
+			q.Text += fmt.Sprintf("; the solver could not decide what %s must do, so the rules there are approved unchecked: a contradiction in that step would not be found", strings.Join(g.Check.Undecided, ", "))
+			q.Recommended, q.Why = "show", "the rules of the step Stele could not decide are not checked"
 		}
 		if n := len(res.Unchecked); n > 0 {
 			var titles []string
