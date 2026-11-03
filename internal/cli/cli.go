@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/provasign/stele/internal/checker"
+	"github.com/provasign/stele/internal/config"
 	"github.com/provasign/stele/internal/gate"
 	"github.com/provasign/stele/internal/ir"
 	"github.com/provasign/stele/internal/lower"
@@ -27,7 +28,8 @@ const usage = `usage: stele <command> [flags]
 
 commands:
   init [dir]             create stele.yaml and an empty registry, and set up coding agents (--harness claude,codex,cursor,windsurf,vscode,gemini,opencode)
-  check <registry-dir>   find rules that no system response can satisfy together
+  check [registry-dir]   find rules that no system response can satisfy together; in a project with no
+                         directory, every approved requirement against every other (run after a merge or pull)
   gate --base DIR --head DIR   decide whether a registry change may merge (CI)
   formalize              build a whole registry from spec statements: vocabulary, translation, gaps closed
   refine                 review the rules in conflicts against their own statements; translate the unfaithful ones again
@@ -187,7 +189,16 @@ func checkCmd(args []string, out, errOut io.Writer) int {
 		dir = fs.Arg(0)
 	}
 	if dir == "" {
-		fmt.Fprint(errOut, "usage: stele check <registry-dir> [--json] [--ignore-decisions]\n")
+		// In a project: its registry, reported as requirements.
+		cfg, err := config.Find(".")
+		if err != nil {
+			fmt.Fprintf(errOut, "stele check: %v\n", err)
+			return 2
+		}
+		if cfg != nil {
+			return checkProject(cfg, *jsonOut, *z3Path, *timeout, out, errOut)
+		}
+		fmt.Fprint(errOut, "usage: stele check [<registry-dir>] [--json] [--ignore-decisions]\n")
 		return 2
 	}
 

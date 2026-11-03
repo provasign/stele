@@ -14,6 +14,7 @@
 - When the base branch predates the approved registry (Stele was set up on this branch), the refusal names the commit that added the registry, to compare with until it reaches the base.
 - A PR card records a conflict decision without the solver's example situation, which is for the agent explaining it.
 - The first change's approval question no longer says it agrees with an approved spec when nothing is approved yet.
+- **`stele check` in a project,** with no registry named, checks every approved requirement on the branch against every other and reports each contradiction as the requirements it involves, their sources and who approved them. Run it after a merge or pull: changes approved on different branches can contradict each other once they meet.
 
 ## v0.1.0
 
