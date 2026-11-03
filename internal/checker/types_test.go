@@ -1069,3 +1069,57 @@ assert: self.b
 		t.Fatalf("an edit to Doc.y should re-check only Doc.y: misses %d, conflicts %v", cache.Misses-misses, third.Conflicts)
 	}
 }
+
+// A list that declares no length holds every instance a count rule raised
+// the bound to: 4 tools, so "the overdue list holds every lent tool" fits.
+// At the default length of 3 it read as contradicting itself (a developer
+// trial, 2026-11-03).
+func TestListsFitInstancesACountRaised(t *testing.T) {
+	dir := writeRegistry(t, "context: c\nformatVersion: 1\n---\n"+`
+entity: Tool
+context: c
+attributes:
+  id: { type: int, range: [1, 4] }
+  lent: { type: bool }
+  ann: { type: bool }
+---
+extend: platform.Result
+context: c
+attributes:
+  overdue: { type: list, of: int, range: [1, 4] }
+---
+entity: Shed
+context: c
+attributes:
+  open: { type: bool }
+---
+operation: Shed.overdue
+context: c
+default: allow
+writes: []
+---
+id: LIMIT
+kind: invariant
+assert: 'count(t in instances(Tool): t.lent and t.ann) <= 3'
+---
+id: OD
+kind: invariant
+on: Shed.overdue
+assert: 'all(t in instances(Tool): t.lent implies contains(result.overdue, t.id))'
+`)
+	reg, err := ir.LoadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prog, err := lower.Lower(reg, lower.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := Check(context.Background(), &solver.Z3{}, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Conflicts) != 0 {
+		t.Fatalf("conflicts = %+v; want none", res.Conflicts)
+	}
+}

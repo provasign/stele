@@ -61,7 +61,7 @@ func Changes(ctx context.Context, repo, base string) ([]codegraph.Symbol, error)
 	var out []codegraph.Symbol
 	for _, f := range files {
 		before, _ := exec.Command("git", "-C", repo, "show", base+":"+f).Output() // a new file has none
-		after, _ := os.ReadFile(filepath.Join(repo, f)) // a deleted file has none
+		after, _ := os.ReadFile(filepath.Join(repo, f))                           // a deleted file has none
 		syms, err := g.Changed(f, before, after)
 		if err != nil {
 			continue // a file Grove cannot parse has no symbols to match

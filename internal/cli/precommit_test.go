@@ -118,6 +118,13 @@ func TestPrecommitNoRequirements(t *testing.T) {
 	if code, out := precommit(t, dir, "stele.yaml", ".shale/config.yaml"); code != 0 || out != "" {
 		t.Errorf("%d %q", code, out)
 	}
+	// Its first request is a new requirement waiting for the owner, as any
+	// later one: never "adopt".
+	os.WriteFile(filepath.Join(dir, ".shale/s1.yaml"), []byte("id: s1\nintent:\n    title: Lock the door at night\n"), 0o644)
+	code, out := precommit(t, dir, ".shale/s1.yaml")
+	if code != 0 || strings.Contains(out, "adopt") || !strings.Contains(out, "intent/s1 is not approved yet") || !strings.Contains(out, "stele change shale . --base") {
+		t.Errorf("first request: %d\n%s", code, out)
+	}
 }
 
 // TestInstallGitHook: init writes the pre-commit hook once; into a hook

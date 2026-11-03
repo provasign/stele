@@ -52,16 +52,10 @@ type RetiredIntent struct {
 // own: Shale folds it into a continuation, .shale/<id>-c2.yaml and on, and
 // it reads as `intent/<id>-c2`.
 func Shale(repo string) ([]translate.Statement, error) {
-	return shale(repo, false)
+	return shale(repo)
 }
 
-// ShaleRetired reads the requests listed in RetiredIntentsFile that are
-// still in the evidence, as Shale reads them otherwise.
-func ShaleRetired(repo string) ([]translate.Statement, error) {
-	return shale(repo, true)
-}
-
-func shale(repo string, retiredOnly bool) ([]translate.Statement, error) {
+func shale(repo string) ([]translate.Statement, error) {
 	dir := filepath.Join(repo, ".shale")
 	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
 		return nil, fmt.Errorf("no .shale/ under %s: %w", repo, ErrNoSpecs)
@@ -153,7 +147,7 @@ func shale(repo string, retiredOnly bool) ([]translate.Statement, error) {
 	var out []translate.Statement
 	for _, in := range found {
 		id := "intent/" + in.session
-		if retired[id] != retiredOnly {
+		if retired[id] {
 			continue
 		}
 		prose := strings.TrimSpace(in.title)

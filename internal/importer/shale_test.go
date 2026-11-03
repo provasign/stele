@@ -77,10 +77,6 @@ not json
 	if len(got) != 2 || got[0].ID != "intent/s3" {
 		t.Fatalf("after retiring s1: %+v", got)
 	}
-	gone, err := ShaleRetired(repo)
-	if err != nil || len(gone) != 1 || gone[0].ID != "intent/s1" || gone[0].Prose != "Limit loans to 5 books\nA member may never have more than 5 books on loan." {
-		t.Fatalf("retired statements = %+v, %v; want s1 as it reads", gone, err)
-	}
 }
 
 // TestShaleContinuation: a request declared in a session whose evidence was

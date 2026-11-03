@@ -280,7 +280,7 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 		case a.Kind == "same_term" && a.Choice == "same":
 			c.Proposal = dropAttr(c.Proposal, a.Term, a.Existing)
 		case a.Kind == "conflict" && a.Choice == "wrong_fact":
-			c.Links = slices.DeleteFunc(c.Links, func(l translate.Candidate) bool { return l.RuleID == a.Link })
+			c.Links = slices.DeleteFunc(c.Links, func(l translate.Candidate) bool { return rejectedFact([]Answer{a}, l.RuleID, candFactKey(l)) })
 		}
 	}
 	known := knownUses(base, res.Statements)
@@ -355,6 +355,9 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 		if reg, err := ir.LoadFiles(files...); err == nil {
 			res.InferredWrites = inferWrites(reg, p, all)
 		}
+		// A reading made after the owner's answer may propose a dropped
+		// fact again, under a new ID.
+		c.Links = slices.DeleteFunc(c.Links, func(l translate.Candidate) bool { return rejectedFact(answers, l.RuleID, candFactKey(l)) })
 		linkCands = append(linkCands, c.Links...)
 		translate.Revalidate(files, linkCands)
 		checkFiles = files
@@ -464,6 +467,15 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 			if !newIDs[id] {
 				retire[id] = true
 			}
+		}
+	}
+	// A world fact approved with an earlier change that the owner now says
+	// is wrong: the answer could only drop the change's own facts, so a
+	// conflict resting on an approved one came back however it was
+	// answered (a developer trial, 2026-11-03).
+	for _, x := range base.Rules {
+		if x.Live() && x.StatementID == "" && strings.HasPrefix(x.ID, "world-") && rejectedFact(answers, x.ID, ruleFactKey(x)) {
+			retire[x.ID] = true
 		}
 	}
 	for id := range retire {

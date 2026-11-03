@@ -462,7 +462,16 @@ func changeReport(res *change.Result, head *ir.Registry) string {
 			b.WriteString("\n")
 		}
 		if len(informal) > 0 {
-			fmt.Fprintf(&b, "\nRecorded as informal or obligation, so reviewed rather than checked: %s.\n", strings.Join(informal, ", "))
+			// Each with what it leaves unchecked: the IDs alone sent the
+			// agent guessing which clause they were (a developer trial).
+			b.WriteString("\nRecorded as informal or obligation, so reviewed rather than checked:\n\n")
+			for _, id := range informal {
+				if why := head.Rule(id).Rationale; why != "" {
+					fmt.Fprintf(&b, "- %s: %s\n", id, oneLine(why, 300))
+				} else {
+					fmt.Fprintf(&b, "- %s\n", id)
+				}
+			}
 		}
 		b.WriteString("\n")
 	}

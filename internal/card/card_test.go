@@ -34,7 +34,7 @@ func TestSaveLoad(t *testing.T) {
 func TestTitle(t *testing.T) {
 	for prose, want := range map[string]string{
 		"Requirement: Delete guard\nThe system MUST NOT ...": "Delete guard",
-		"":                        "x/1",
+		"":                       "x/1",
 		strings.Repeat("a", 120): strings.Repeat("a", 87) + "...",
 	} {
 		if got := Title(prose, "x/1"); got != want {

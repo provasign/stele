@@ -349,8 +349,10 @@ func ruleDoc(c *Candidate, prose map[string]Statement) map[string]any {
 	switch {
 	case c.Outcome == ir.Obligation:
 		d["kind"] = ir.Obligation
+		d["rationale"] = c.Rationale
 	case c.Outcome != "rule":
 		d["kind"] = ir.Informal
+		d["rationale"] = c.Rationale // which clause is left to review, and why
 	default:
 		d["kind"] = c.Kind
 		for k, v := range map[string]string{"subject": c.Subject, "on": c.On, "operation": c.Operation, "when": c.When, "assert": c.Assert} {

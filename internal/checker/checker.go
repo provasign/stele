@@ -778,7 +778,9 @@ func (c *q) impossible(ctx context.Context) ([]Conflict, bool, error) {
 		for i := range order {
 			order[i] = i
 		}
-		sort.SliceStable(order, func(x, y int) bool { return assumptionID(c.u.Assumptions[order[x]]) < assumptionID(c.u.Assumptions[order[y]]) })
+		sort.SliceStable(order, func(x, y int) bool {
+			return assumptionID(c.u.Assumptions[order[x]]) < assumptionID(c.u.Assumptions[order[y]])
+		})
 		for _, i := range order {
 			a := c.u.Assumptions[i]
 			asm[i] = true

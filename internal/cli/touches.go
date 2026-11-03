@@ -88,4 +88,3 @@ func forkPoint(dir string) string {
 
 // emptyTree is git's empty tree, the base of a repository with no commits.
 const emptyTree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
-

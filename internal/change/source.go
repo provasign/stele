@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/provasign/stele/internal/importer"
@@ -89,6 +90,9 @@ func branchChange(opt Options, res *Result) (truth, after []translate.Statement,
 	if err := baseHoldsRegistry(opt); err != nil {
 		return nil, nil, err
 	}
+	if opt.Format == "shale" {
+		return shaleChange(opt, res)
+	}
 	dir, err := os.MkdirTemp("", "stele-base-")
 	if err != nil {
 		return nil, nil, err
@@ -96,12 +100,6 @@ func branchChange(opt Options, res *Result) (truth, after []translate.Statement,
 	defer os.RemoveAll(dir)
 	if err := extract(opt.Repo, opt.Base, specRoot(opt.Format), dir); err != nil {
 		return nil, nil, err
-	}
-	if opt.Format == "shale" {
-		// Requests retired before the base stay retired there.
-		if err := extract(opt.Repo, opt.Base, importer.RetiredIntentsFile, dir); err != nil {
-			return nil, nil, err
-		}
 	}
 	atBase, err := importFormat(opt.Format, dir)
 	if err != nil {
@@ -114,25 +112,6 @@ func branchChange(opt Options, res *Result) (truth, after []translate.Statement,
 	before := map[string]string{}
 	for _, s := range atBase {
 		before[s.ID] = s.Prose
-	}
-	if opt.Format == "shale" {
-		// A request approved on an earlier branch whose session is still
-		// open is in the registry before its evidence reaches the base: it
-		// is not new here.
-		// So is one approved on this branch that the owner has since
-		// retired: this change removes it, and its rules with it.
-		gone, err := importer.ShaleRetired(opt.Repo)
-		if err != nil && !errors.Is(err, importer.ErrNoSpecs) {
-			return nil, nil, err
-		}
-		if reg, err := ir.LoadDir(opt.Registry); err == nil {
-			for _, s := range append(append([]translate.Statement{}, now...), gone...) {
-				if _, ok := before[s.ID]; !ok && approvedAlready(reg, map[string]string{s.ID: s.Prose}) {
-					before[s.ID] = s.Prose
-					atBase = append(atBase, s)
-				}
-			}
-		}
 	}
 	kept := map[string]bool{}
 	for _, s := range now {
@@ -167,6 +146,57 @@ func branchChange(opt Options, res *Result) (truth, after []translate.Statement,
 		}
 	}
 	return truth, after, nil
+}
+
+// shaleChange measures the requests declared with Shale against the
+// approved registry, not the specs at the base ref: a request is new until
+// the owner approves it, wherever its evidence is. Measured against the
+// base, a request committed before it was checked was already "at the
+// base" on the branch that is the base (main), so it was never asked
+// about; and an approved request whose evidence went missing was no
+// removal, so its rules blocked every commit with nothing to answer (a
+// developer trial, 2026-11-03). Requests the owner retired, and approved
+// ones that are gone, are removed with their rules.
+func shaleChange(opt Options, res *Result) (truth, after []translate.Statement, err error) {
+	now, err := importFormat(opt.Format, opt.Repo)
+	if err != nil {
+		return nil, nil, err
+	}
+	reg, err := ir.LoadDir(opt.Registry)
+	if err != nil {
+		return nil, nil, fmt.Errorf("registry %s: %w", opt.Registry, err)
+	}
+	held := map[string]translate.Statement{}
+	for _, x := range reg.Rules {
+		if _, ok := held[x.StatementID]; ok || x.StatementID == "" || !x.Live() {
+			continue
+		}
+		held[x.StatementID] = translate.Statement{ID: x.StatementID, Prose: x.Prose, Source: x.Source, Introduced: x.Introduced}
+	}
+	kept := map[string]bool{}
+	for _, s := range now {
+		kept[s.ID] = true
+		switch _, ok := held[s.ID]; {
+		case !ok:
+			res.Added = append(res.Added, s.ID)
+		case !approvedAlready(reg, map[string]string{s.ID: s.Prose}):
+			res.Modified = append(res.Modified, s.ID)
+		default:
+			held[s.ID] = s // as approved: the registry need not keep the text
+		}
+	}
+	for _, s := range held {
+		truth = append(truth, s)
+		if !kept[s.ID] {
+			res.Removed = append(res.Removed, s.ID)
+		}
+	}
+	slices.SortFunc(truth, func(a, b translate.Statement) int { return strings.Compare(a.ID, b.ID) })
+	slices.Sort(res.Removed)
+	if opt.Truth != nil {
+		truth = opt.Truth
+	}
+	return truth, now, nil
 }
 
 // extract writes the files under path at ref into dir. A path the ref does

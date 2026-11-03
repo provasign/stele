@@ -90,7 +90,7 @@ func definitions(ctx context.Context, opt Options, res *Result, head *ir.Registr
 			cached[key] = facts
 		}
 		for _, f := range facts {
-			rejected := slices.ContainsFunc(as, func(a Answer) bool { return a.Kind == "conflict" && a.Choice == "wrong_fact" && a.Link == f.RuleID })
+			rejected := rejectedFact(as, f.RuleID, candFactKey(f))
 			if rejected || slices.ContainsFunc(c.Links, func(k translate.Candidate) bool {
 				return k.When == f.When && k.Assert == f.Assert && k.On == f.On && k.Assume == f.Assume
 			}) {

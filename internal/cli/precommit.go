@@ -68,9 +68,11 @@ func cmdPrecommit(args []string, out io.Writer) int {
 	}
 	next := nextCommand(cfg, root)
 	reg, err := ir.LoadDir(cfg.RegistryDir())
-	if err != nil || len(reg.Rules) == 0 {
-		// With no requirements yet (a Shale project before its first
-		// request), there is nothing to adopt.
+	shale := cfg.Specs != nil && cfg.Specs.Format == "shale"
+	if err != nil || len(reg.Rules) == 0 && !shale {
+		// With no requirements yet, there is nothing to adopt. A Shale
+		// project's requests are checked one by one as they are declared,
+		// never adopted: its first ones are new requirements as any later.
 		if touchesSpecs && hasRequirements(cfg, root) {
 			fmt.Fprintf(out, "Stele: this project's specs are not adopted yet, so this commit is not checked.\nNext: run `stele adopt --json`. It reads every requirement once and checks them against each other; then ask the owner its questions and record the answers, as for `stele change`.\n")
 		}
@@ -92,7 +94,10 @@ func cmdPrecommit(args []string, out io.Writer) int {
 			}
 			for _, s := range r.Pending {
 				if !ruled[s.ID] {
-					notes = append(notes, fmt.Sprintf("new requirement %s is not checked yet: %s", s.ID, oneLine(s.Prose, 100)))
+					// Checked or not, it waits for the owner: "not checked
+					// yet" misled an agent whose check was waiting for the
+					// approval.
+					notes = append(notes, fmt.Sprintf("new requirement %s is not approved yet: %s", s.ID, oneLine(s.Prose, 100)))
 				}
 			}
 		}
@@ -125,7 +130,7 @@ func cmdPrecommit(args []string, out io.Writer) int {
 	}
 	if len(blocks) == 0 {
 		if len(notes) > 0 {
-			fmt.Fprintf(out, "Stele: %s.\nNext: run `%s` and put its questions to the owner before this change merges.\n", strings.Join(notes, "; "), next)
+			fmt.Fprintf(out, "Stele: %s.\nNext: run `%s` and put its questions to the owner and ask for the approval before this change merges.\n", strings.Join(notes, "; "), next)
 		}
 		return 0
 	}

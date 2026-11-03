@@ -336,6 +336,9 @@ type Rule struct {
 	Overrides     []string
 	StatementHash string // latest imported text, independent of the original translation's TextHash
 	Prose         string
+	// Rationale says, for an informal or obligation reading, which part of
+	// the statement it leaves to review and why.
+	Rationale string
 	// TextHash and Introduced identify the statement text the rule was
 	// translated from, for adoption sync (docs/08 W5).
 	TextHash   string

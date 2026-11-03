@@ -639,6 +639,7 @@ func (l *loader) rule(d *rawDoc, where string) {
 		Subject: d.Subject, Status: d.Status, Source: d.Source.Doc, Prose: d.Source.Prose,
 		StatementID: d.Source.StatementID, StatementHash: d.Source.StatementHash, TextHash: d.Source.TextHash, Introduced: d.Source.Introduced, File: where,
 		Overrides: d.Overrides, ApprovedBy: d.Source.ApprovedBy, ApprovedHash: d.Source.ApprovedHash, ApprovedReading: d.Source.ApprovedReading,
+		Rationale: strings.TrimSpace(d.Rationale),
 	}
 	if x.Version == 0 {
 		x.Version = 1
@@ -846,6 +847,7 @@ func (l *loader) finish() {
 			}
 		}
 	}
+	l.listsFitInstances() // after bounds raised the instances to fit counts
 	for _, o := range l.reg.Open {
 		for _, p := range o.Rules {
 			r := l.reg.Rule(p.Rule)
@@ -1118,6 +1120,30 @@ func (l *loader) operations() {
 				// give it (an id, then each of three keys, then three
 				// defaults), so it is checked longer than an input list.
 				a.MaxLen = ResponseMaxLen
+			}
+		}
+	}
+}
+
+// listsFitInstances checks a list that declares no maxLength at least as
+// long as the most instances any relation to many is checked over: "the
+// overdue list holds every overdue tool" needs room for every tool. A count
+// rule had raised the tools to 4 while the list stayed at 3, and the rule
+// read as contradicting itself however it was worded (a developer trial,
+// 2026-11-03).
+func (l *loader) listsFitInstances() {
+	most := 0
+	for _, e := range l.reg.Entities {
+		for _, r := range e.Relations {
+			if r.Many {
+				most = max(most, r.Max)
+			}
+		}
+	}
+	for _, e := range l.reg.Entities {
+		for _, a := range e.Attrs {
+			if (a.Kind == List || a.Bounded()) && !a.maxLenDeclared && a.MaxLen < most {
+				a.MaxLen = most
 			}
 		}
 	}

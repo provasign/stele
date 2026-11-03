@@ -83,7 +83,7 @@ func cmdChangeAnswer(args []string, out io.Writer) int {
 		return failf("change answer", fmt.Errorf("question %s takes one of: %s", qid, strings.Join(cs, ", ")))
 	}
 	opt := q.Options[k]
-	a := change.Answer{Question: q.ID, Kind: q.Kind, Choice: choice, Note: *note, By: *by, Term: q.Term, Existing: q.Existing, Link: q.Link, Statements: map[string]string{}}
+	a := change.Answer{Question: q.ID, Kind: q.Kind, Choice: choice, Note: *note, By: *by, Term: q.Term, Existing: q.Existing, Link: q.Link, Links: q.Links, Facts: q.Facts, Statements: map[string]string{}}
 	if opt.Note && strings.TrimSpace(a.Note) == "" {
 		return failf("change answer", fmt.Errorf("%q needs the owner's words: pass --note", opt.Label))
 	}

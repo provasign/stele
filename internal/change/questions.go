@@ -42,6 +42,11 @@ type Question struct {
 	Term     string `json:"term,omitempty"`
 	Existing string `json:"existing,omitempty"`
 	Link     string `json:"world_fact,omitempty"`
+	// Links are all the world facts the conflict rests on, Facts what each
+	// says (factKey): "that assumption is wrong" drops every one, and any
+	// later reading that proposes one of them again (ISSUES 78).
+	Links []string `json:"world_facts,omitempty"`
+	Facts []string `json:"fact_keys,omitempty"`
 	// Statements are the statements an answer applies to: the ones the
 	// change translates, which are read again with the answer as a note.
 	Statements []string `json:"statements,omitempty"`
@@ -88,6 +93,11 @@ type Answer struct {
 	Term     string `json:"term,omitempty"`
 	Existing string `json:"existing,omitempty"`
 	Link     string `json:"world_fact,omitempty"`
+	// Links are all the world facts the conflict rests on, Facts what each
+	// says (factKey): "that assumption is wrong" drops every one, and any
+	// later reading that proposes one of them again (ISSUES 78).
+	Links []string `json:"world_facts,omitempty"`
+	Facts []string `json:"fact_keys,omitempty"`
 	// Statements maps each statement the answer applies to to the hash of
 	// its text when answered: an edited statement no longer gets the note.
 	Statements map[string]string `json:"statements,omitempty"`
@@ -138,20 +148,29 @@ func notes(as []Answer, s translate.Statement) []string {
 	var out []string
 	h := translate.TextHash(s.Prose)
 	for _, a := range as {
-		if a.Statements[s.ID] != h {
+		was, ok := a.Statements[s.ID]
+		if !ok {
 			continue
+		}
+		// Said of an earlier wording, the note still says what the owner
+		// meant: dropped, the rewording that was meant to clear a misreading
+		// brought it back with every answer lost (a developer trial,
+		// 2026-11-03). The translation judges whether it still applies.
+		review := "review: "
+		if was != h {
+			review = "review (the owner said this of an earlier wording of this requirement; follow it where the current wording allows): "
 		}
 		switch {
 		case a.Kind == "same_term" && a.Choice == "same":
-			out = append(out, fmt.Sprintf("review: the owner says %s means the same as the existing %s; use %s and do not propose %s.", a.Term, a.Existing, a.Existing, a.Term))
+			out = append(out, review+fmt.Sprintf("the owner says %s means the same as the existing %s; use %s and do not propose %s.", a.Term, a.Existing, a.Existing, a.Term))
 		case a.Kind == "reread":
-			out = append(out, "review: the owner says an earlier reading of this requirement was wrong: "+a.Note)
+			out = append(out, review+"the owner says an earlier reading of this requirement was wrong: "+a.Note)
 		case a.Kind == "conflict" && a.Choice == "impossible":
-			out = append(out, "review: the owner says this situation cannot happen, so the requirements need not hold together in it: "+a.Note+". Where the requirement's own words allow, read its conditions so they exclude it.")
+			out = append(out, review+"the owner says this situation cannot happen, so the requirements need not hold together in it: "+a.Note+". Where the requirement's own words allow, read its conditions so they exclude it.")
 		case (a.Kind == "conflict" || a.Kind == "self_conflict") && a.Choice == "misread":
-			out = append(out, "review: the owner says an earlier reading of this requirement was wrong: "+a.Note)
+			out = append(out, review+"the owner says an earlier reading of this requirement was wrong: "+a.Note)
 		case a.Kind == "self_conflict" && a.Choice == "retranslate":
-			out = append(out, "review: an earlier reading of this requirement gave rules that cannot all hold together ("+a.Note+"). Read the requirement again so its rules agree with each other and with its text.")
+			out = append(out, review+"an earlier reading of this requirement gave rules that cannot all hold together ("+a.Note+"). Read the requirement again so its rules agree with each other and with its text.")
 		}
 	}
 	return out
@@ -425,9 +444,15 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 			}
 			switch {
 			case len(links) > 0 && len(titles) > 0:
-				x := head.Rule(links[0])
-				q.Link = links[0]
-				q.Text = fmt.Sprintf("%s cannot hold given what Stele assumed about the world: %s", strings.Join(titles, " and "), strings.TrimPrefix(x.Prose, "World fact: "))
+				q.Link, q.Links = links[0], links
+				var said []string
+				for _, l := range links {
+					if x := head.Rule(l); x != nil {
+						said = append(said, strings.TrimPrefix(x.Prose, "World fact: "))
+						q.Facts = append(q.Facts, ruleFactKey(x))
+					}
+				}
+				q.Text = fmt.Sprintf("%s cannot hold given what Stele assumed about the world: %s", strings.Join(titles, " and "), strings.Join(said, "; "))
 			default:
 				q.Text = strings.Join(titles, " and ") + " cannot both hold"
 			}
@@ -446,7 +471,11 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 				Option{Choice: "impossible", Label: "That situation cannot happen", Then: "Stele reads the requirements in this change again knowing that; run `stele change` again"},
 				Option{Choice: "misread", Label: "Stele misread a requirement", Then: "Stele reads the requirements in this change again with the owner's note; run `stele change` again", Note: true})
 			if len(links) > 0 && strings.HasPrefix(links[0], "world-") {
-				q.Options = append(q.Options, Option{Choice: "wrong_fact", Label: "That assumption about the world is wrong", Then: "Stele drops it; run `stele change` again"})
+				label := "That assumption about the world is wrong"
+				if len(links) > 1 {
+					label = "Those assumptions about the world are wrong"
+				}
+				q.Options = append(q.Options, Option{Choice: "wrong_fact", Label: label, Then: "Stele drops it, retiring it with the approval if it was approved earlier; run `stele change` again"})
 			}
 			if res.Format == "shale" {
 				shaleOptions(q.Options)
@@ -903,8 +932,11 @@ func shaleOptions(os []Option) {
 		case "exception":
 			// An earlier request cannot be edited to name its exception, so
 			// the new one states the whole rule and the earlier one retires.
-			os[i].Label = "One is an exception to the other: restate them as one request"
-			os[i].Then = "Stele retires the earlier request; declare this request again stating the whole rule with its exception (such as \"at most 5, or up to 10 during the program\") with `shale intent \"<title>\" --body \"...\"`, show the owner the wording, then run `stele change` again"
+			// Said plainly: an agent offered it as keeping both requests,
+			// and the owner nearly retired six approved rules unawares (a
+			// developer trial, 2026-11-03).
+			os[i].Label = "One is an exception to the other: retire the earlier request and restate both as one"
+			os[i].Then = "Stele retires the earlier request with all its rules, not only the clause in conflict; declare this request again stating the whole rule with its exception (such as \"at most 5, or up to 10 during the program\") and every other clause of the earlier request, with `shale intent \"<title>\" --body \"...\"`, show the owner the wording, then run `stele change` again"
 		}
 	}
 }
@@ -912,3 +944,36 @@ func shaleOptions(os []Option) {
 // Reading is how Stele reads a rule, in one line, as the approval question
 // shows it.
 func Reading(x *ir.Rule) string { return english(x) }
+
+// factKey is what a world fact says, as the parser prints it, so a fact
+// proposed again under another ID, or worded with other spacing, is the
+// same fact.
+func factKey(on, when, assert string) string {
+	norm := func(src string) string {
+		if e, err := ir.ParseExpr(src); err == nil && src != "" {
+			return e.String()
+		}
+		return strings.TrimSpace(src)
+	}
+	return on + "\x00" + norm(when) + "\x00" + norm(assert)
+}
+
+func ruleFactKey(x *ir.Rule) string {
+	str := func(e ir.Expr) string {
+		if e == nil {
+			return ""
+		}
+		return e.String()
+	}
+	return factKey(x.On, str(x.When), str(x.Assert))
+}
+
+// rejectedFact reports whether the owner said this world fact is wrong:
+// by its ID, or by what it says.
+func rejectedFact(as []Answer, id, key string) bool {
+	return slices.ContainsFunc(as, func(a Answer) bool {
+		return a.Kind == "conflict" && a.Choice == "wrong_fact" && (a.Link == id || slices.Contains(a.Links, id) || slices.Contains(a.Facts, key))
+	})
+}
+
+func candFactKey(c translate.Candidate) string { return factKey(c.On, c.When, c.Assert) }

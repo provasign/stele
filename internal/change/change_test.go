@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -1117,6 +1118,111 @@ func TestSkippedTranslationFails(t *testing.T) {
 	for _, q := range res.Questions {
 		if q.Kind == "task" || q.Kind == "approve" {
 			t.Fatalf("asked %s for a translation that did not happen: %+v", q.Kind, q)
+		}
+	}
+}
+
+// On the branch that is the base (trunk-based work on main), a request
+// committed before the owner approved it is still new, and an approved
+// request whose evidence is gone is removed with its rules, so the commit
+// it blocked has a question to answer.
+func TestShaleMeasuredAgainstTheRegistry(t *testing.T) {
+	for _, tool := range []string{"git", "z3"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skip(tool + " not on PATH")
+		}
+	}
+	repo, registry := t.TempDir(), t.TempDir()
+	write := func(p, src string) {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	git := func(args ...string) {
+		cmd := exec.Command("git", append([]string{"-C", repo, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	write(filepath.Join(repo, ".shale/s2.yaml"), "id: s2\nintent:\n    title: Honour erasure requests\n    body: Erasure requests always delete the resource.\n    declared_at: 2026-10-02T10:00:00Z\n")
+	git("init", "-q", "-b", "main")
+	git("add", ".")
+	git("commit", "-q", "-m", "committed before it was checked")
+	write(filepath.Join(registry, "vocabulary.yaml"), vocabYAML)
+	write(filepath.Join(registry, "rules.yaml"), "id: intent/s1\nkind: permission\neffect: deny\noperation: Resource.delete\nwhen: self.holds > 0\nsource:\n  statementId: intent/s1\n  doc: .shale/s1.yaml\n  prose: Protect held resources\n  textHash: "+translate.TextHash("Protect held resources")+"\n")
+	reg, err := ir.LoadDir(registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := adopt.ApproveRules(reg, []string{"intent/s1"}, "owner"); err != nil {
+		t.Fatal(err)
+	}
+	client := one("Erasure requests", map[string]any{"kind": "permission", "operation": "Resource.delete", "effect": "allow", "when": "request.kind = erasure"})
+	res, err := Run(context.Background(), Options{Repo: repo, Change: "main", Registry: registry, Out: t.TempDir(), Base: "main", Format: "shale", Clients: []llm.Client{client}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(res.Added, ",") != "intent/s2" || strings.Join(res.Removed, ",") != "intent/s1" || len(res.Modified) != 0 {
+		t.Fatalf("added %v modified %v removed %v; want s2 added and s1 removed", res.Added, res.Modified, res.Removed)
+	}
+}
+
+// A conflict that rests on a world fact approved with an earlier change:
+// the owner says the assumption is wrong, and the next check retires it, so
+// the conflict does not come back however often it is answered.
+func TestWrongApprovedFactIsRetired(t *testing.T) {
+	for _, tool := range []string{"git", "z3"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skip(tool + " not on PATH")
+		}
+	}
+	repo, registry, out := t.TempDir(), t.TempDir(), t.TempDir()
+	write := func(p, src string) {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(repo, ".shale/s2.yaml"), "id: s2\nintent:\n    title: Held resources exist\n    body: Every resource keeps a hold.\n")
+	if out, err := exec.Command("git", "-C", repo, "init", "-q", "-b", "main").CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	write(filepath.Join(registry, "vocabulary.yaml"), vocabYAML)
+	write(filepath.Join(registry, "world.yaml"), "id: world-old-1\nkind: invariant\nassert: resource.holds = 0\nsource:\n  inferredBy: stele change\n  prose: \"World fact: resources have no holds.\"\n")
+	reg, err := ir.LoadDir(registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := adopt.ApproveRules(reg, []string{"world-old-1"}, "owner"); err != nil {
+		t.Fatal(err)
+	}
+	client := one("Held resources", map[string]any{"kind": "invariant", "assert": "resource.holds > 0"})
+	opt := Options{Repo: repo, Change: "main", Registry: registry, Out: out, Base: "main", Format: "shale", Clients: []llm.Client{client}}
+	res, err := Run(context.Background(), opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := slices.IndexFunc(res.Questions, func(q Question) bool { return q.Kind == "conflict" && slices.Contains(q.Links, "world-old-1") })
+	if i < 0 {
+		t.Fatalf("questions = %+v; want a conflict resting on world-old-1", res.Questions)
+	}
+	q := res.Questions[i]
+	src, _ := json.Marshal([]Answer{{Question: q.ID, Kind: q.Kind, Choice: "wrong_fact", Link: q.Link, Links: q.Links, Facts: q.Facts}})
+	write(filepath.Join(out, answersFile), string(src))
+	if res, err = Run(context.Background(), opt); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(res.Retired, "world-old-1") {
+		t.Fatalf("retired %v; want the approved fact", res.Retired)
+	}
+	for _, q := range res.Questions {
+		if q.Kind == "conflict" {
+			t.Fatalf("the conflict came back: %+v", q)
 		}
 	}
 }
