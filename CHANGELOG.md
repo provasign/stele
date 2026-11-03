@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **A skipped translation is not a one-off task.** A model can answer with placeholders instead of rules ("The requested rule translation is not provided in this response"). The coverage judge now also reads a statement whose readings are all informal: when it finds a clause a rule can check, the statement is translated again, and if it still has no rule it is reported under `failed`, to be retried, instead of being asked about as a one-off task.
 - **Shale's evidence rides the code commit.** The agent instructions say to run `shale done` before committing, so the commit carries the request's evidence with the code (Shale 0.2.3 stages it). A Shale session that ends for good closes its request as `shale done` does, and a request still open when a commit recorded the closed ones is read as its own.
 - `stele init` adds its check to an existing pre-commit hook (Shale's, a linter's) instead of skipping it, and never rewrites a hook that already runs Stele.
 

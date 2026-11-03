@@ -122,6 +122,8 @@ How to judge coverage:
 - Read each rule as Stele's language defines it. instances(E) is every other instance of E, never self: all(t in instances(Task): t.id != self.id) says no two tasks share an ID, so it covers a uniqueness clause and forbids nothing the text allows.
 - A rule's condition or step is fine when it names where the clause naturally applies: a shipped order for its tracking number, a record checked when it is created, a value checked once it exists. Do not ask a rule to cover moments the text does not mention. A condition leaves the clause uncovered only when it excludes a case the text names (the text says "for every order" and the rule checks only paid ones).
 
+A statement may come with no rules, when the translator read it as having nothing checkable: then each clause is uncovered (the system can break it) or not_checkable, as above.
+
 3. Under broader, list each rule that forbids something the text allows: a limit, value or condition the text does not state ("recent" read as "within 24 hours"), something the text makes optional made mandatory, or a ban on an outcome for every cause where the text bans it for one cause ("never fail because of the item count" read as "never fail unless the payment fails"). Say in a few words what it forbids that the text allows. Leave the list empty when no rule goes beyond the text.
 
 Reply for every requested statement.`
@@ -302,14 +304,24 @@ func mapValues(m map[string]string) func(func(string) bool) {
 }
 
 // cover checks clause coverage and scope for every statement with a rule,
-// translates those with a finding once more, checks them again and records
-// the result in st.
+// and for every statement read as having nothing checkable at all, which
+// may be a translation the model skipped ("the requested rule translation
+// is not provided in this response", 2026-11-03); translates those with a
+// finding once more, checks them again and records the result in st.
 func cover(ctx context.Context, m llm.Client, stmts []translate.Statement, st *state, opt Options, dir string) error {
 	withRules := func(ids []string) []translate.Statement {
-		has := map[string]bool{}
+		has, other := map[string]bool{}, map[string]bool{}
 		for _, c := range st.Cands {
-			if c.Outcome == "rule" && c.Error == "" {
+			switch {
+			case c.Outcome == "rule" && c.Error == "":
 				has[c.StatementID] = true
+			case c.Outcome != Informal:
+				other[c.StatementID] = true
+			}
+		}
+		for _, c := range st.Cands {
+			if c.Outcome == Informal && !other[c.StatementID] {
+				has[c.StatementID] = true // every reading informal: judged too
 			}
 		}
 		var out []translate.Statement
@@ -322,7 +334,7 @@ func cover(ctx context.Context, m llm.Client, stmts []translate.Statement, st *s
 	}
 	first := withRules(nil)
 	st.CoverStats = CoverStats{Statements: len(first)}
-	fmt.Fprintf(opt.Log, "cover: checking the clauses and scope of %d statement(s) with rules ...\n", len(first))
+	fmt.Fprintf(opt.Log, "cover: checking the clauses and scope of %d statement(s) with rules or read as informal ...\n", len(first))
 	cov, err := checkCoverage(ctx, m, first, st, opt)
 	if err != nil {
 		return err

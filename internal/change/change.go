@@ -628,7 +628,9 @@ func (c *cache) translate(ctx context.Context, opt Options, todo []translate.Sta
 		byStmt[cd.StatementID] = append(byStmt[cd.StatementID], cd)
 	}
 	findings := map[string][]string{}
+	uncovered := map[string][]string{}
 	for _, e := range fr.Ends {
+		uncovered[e.ID] = e.Uncovered
 		for _, u := range e.Uncovered {
 			findings[e.ID] = append(findings[e.ID], fmt.Sprintf("no rule checks %q", u))
 		}
@@ -640,7 +642,14 @@ func (c *cache) translate(ctx context.Context, opt Options, todo []translate.Sta
 		}
 	}
 	for _, s := range todo {
-		if why, ok := fr.Deferred[s.ID]; ok && len(byStmt[s.ID]) == 0 {
+		why, failed := fr.Deferred[s.ID]
+		failed = failed && len(byStmt[s.ID]) == 0
+		if !failed && len(uncovered[s.ID]) > 0 && !slices.ContainsFunc(byStmt[s.ID], func(c translate.Candidate) bool { return c.Outcome == "rule" }) {
+			// Read as having nothing to check, yet the coverage judge finds
+			// clauses a rule can check: the model skipped the translation.
+			why, failed = "the model gave no rules, though the text has clauses a rule can check: "+strings.Join(uncovered[s.ID], "; "), true
+		}
+		if failed {
 			if res.Failed == nil {
 				res.Failed = map[string]string{}
 			}

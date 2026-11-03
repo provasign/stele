@@ -48,6 +48,9 @@ type fake struct {
 	calls    *[]string
 	// uncovered, when set, is a clause the coverage check finds no rule for.
 	uncovered string
+	// nothingCheckable: the coverage check finds no clause a rule could
+	// check, as for a one-off task.
+	nothingCheckable bool
 }
 
 type reading struct {
@@ -67,6 +70,9 @@ func (f fake) Complete(_ context.Context, req llm.Request) (*llm.Reply, error) {
 		for _, block := range strings.Split(text, "statement_id: ")[1:] {
 			alias, _, _ := strings.Cut(block, "\n")
 			clauses := []map[string]any{{"text": "all", "status": "covered", "rules": []string{"r1"}}}
+			if f.nothingCheckable {
+				clauses = []map[string]any{{"text": "all", "status": "not_checkable", "rules": []string{}}}
+			}
 			if f.uncovered != "" {
 				clauses = append(clauses, map[string]any{"text": f.uncovered, "status": "uncovered", "rules": []string{}})
 			}
@@ -1033,7 +1039,7 @@ func TestShaleTaskIsSetAside(t *testing.T) {
 	}
 	write(filepath.Join(repo, ".shale/local/s1.jsonl"), `{"kind":"intent","at":"2026-10-01T10:00:00Z","title":"Write the quarterly review","body":"Summarise the quarter's incidents in a document."}`+"\n")
 	write(filepath.Join(registry, "vocabulary.yaml"), vocabYAML)
-	client := fake{readings: map[string]reading{"quarterly": {rules: []map[string]any{{"kind": "informal", "rationale": "a one-off documentation task with nothing the system must do"}}}}}
+	client := fake{nothingCheckable: true, readings: map[string]reading{"quarterly": {rules: []map[string]any{{"kind": "informal", "rationale": "a one-off documentation task with nothing the system must do"}}}}}
 	out := t.TempDir()
 	opt := Options{Repo: repo, Change: "review", Registry: registry, Out: out, Base: "main", Format: "shale", Clients: []llm.Client{client}}
 	res, err := Run(context.Background(), opt)
@@ -1070,5 +1076,47 @@ func TestShaleTaskIsSetAside(t *testing.T) {
 	}
 	if res, err = Run(context.Background(), opt); err != nil || len(res.Added) != 0 {
 		t.Fatalf("after setting it aside: added %v, %v", res.Added, err)
+	}
+}
+
+// A reading of nothing checkable, where the coverage judge finds a clause a
+// rule can check, is a translation the model skipped: it fails, to be
+// retried, instead of asking whether the request is a one-off task.
+func TestSkippedTranslationFails(t *testing.T) {
+	for _, tool := range []string{"git", "z3"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skip(tool + " not on PATH")
+		}
+	}
+	repo, registry := t.TempDir(), t.TempDir()
+	write := func(p, src string) {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(repo, ".shale/config.yaml"), "privacy: redacted\n")
+	for _, args := range [][]string{{"init", "-q", "-b", "main"}, {"add", "."}, {"commit", "-q", "-m", "base"}} {
+		cmd := exec.Command("git", append([]string{"-C", repo, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	write(filepath.Join(repo, ".shale/local/s1.jsonl"), `{"kind":"intent","at":"2026-10-01T10:00:00Z","title":"List saved resources","body":"Listing MUST show every saved resource."}`+"\n")
+	write(filepath.Join(registry, "vocabulary.yaml"), vocabYAML)
+	client := fake{uncovered: "Listing MUST show every saved resource", readings: map[string]reading{"saved": {rules: []map[string]any{{"kind": "informal", "rationale": "The requested rule translation is not provided in this response."}}}}}
+	res, err := Run(context.Background(), Options{Repo: repo, Change: "list", Registry: registry, Out: t.TempDir(), Base: "main", Format: "shale", Clients: []llm.Client{client}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(res.Failed["intent/s1"], "the model gave no rules") {
+		t.Fatalf("failed = %v; want the skipped translation", res.Failed)
+	}
+	for _, q := range res.Questions {
+		if q.Kind == "task" || q.Kind == "approve" {
+			t.Fatalf("asked %s for a translation that did not happen: %+v", q.Kind, q)
+		}
 	}
 }
