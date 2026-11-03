@@ -8,6 +8,9 @@
 - The watch hook's message names the command that checks pending statements.
 - The pre-commit hook no longer asks to run `stele adopt` when there is nothing to adopt, such as a Shale project before its first request.
 - Approving a Shale request no longer fails with "changed since the check": Shale records each command into the open session, so the check now fingerprints the declared requests rather than Shale's files.
+- **A new request in the same conversation is its own requirement.** A request declared after the session's evidence was finalized reads as `intent/<session>-c2` (Shale's continuation file), so it is checked against the first one instead of being missed.
+- Retiring a request that was approved earlier on the same branch now removes its rules in the same change; before, the conflict was asked again.
+- A second change on a branch whose first change is approved is named `<branch>-2`, so it no longer writes over the approved change's registry files, answers and card.
 
 ## v0.1.0
 

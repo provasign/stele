@@ -100,9 +100,7 @@ func cmdChange(args []string, out io.Writer) int {
 		fmt.Fprint(os.Stderr, "stele change "+format+": name the branch to compare with, e.g. --base main\n")
 		return 2
 	}
-	if *base != "" && id == "" {
-		id = branchName(repo)
-	}
+	named := id != ""
 	if *list {
 		ids, err := importer.OpenSpecChanges(repo)
 		if err != nil {
@@ -126,6 +124,9 @@ func cmdChange(args []string, out io.Writer) int {
 		if !flagSet(fs, "model") && cfg.Translate.Model != "" {
 			_ = fs.Lookup("model").Value.Set(cfg.Translate.Model)
 		}
+	}
+	if *base != "" && !named {
+		id = branchChangeName(repo, *registry)
 	}
 	if id == "" || *registry == "" {
 		fmt.Fprint(os.Stderr, usage)
@@ -651,6 +652,26 @@ func cmdApprove(args []string, out io.Writer) int {
 	}
 	fmt.Fprintf(out, "approved %d rule(s) as %s\n", len(ids), *by)
 	return 0
+}
+
+// branchChangeName names a branch change after the checked-out branch.
+// Once the owner approved that change, its files are in the registry, and
+// the next change on the branch takes the next free name, <branch>-2 and
+// on, so it never writes over them.
+func branchChangeName(repo, registry string) string {
+	name := branchName(repo)
+	taken := func(id string) bool {
+		m, _ := filepath.Glob(filepath.Join(registry, change.RegistryPrefix(id)+".*"))
+		return len(m) > 0
+	}
+	if registry == "" || !taken(name) {
+		return name
+	}
+	for n := 2; ; n++ {
+		if id := fmt.Sprintf("%s-%d", name, n); !taken(id) {
+			return id
+		}
+	}
 }
 
 // branchName names a branch change after the checked-out branch.

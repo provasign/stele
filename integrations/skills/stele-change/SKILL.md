@@ -37,7 +37,7 @@ It reads every requirement once and checks them against each other. Its JSON is 
      stele change speckit . --base main --json     # or: stele change kiro . --base main --json
      ```
 
-     The change is named after the branch; use that name as `<change-id>` below.
+     The change is named after the branch (`<branch>-2` and on once a change of that name is approved); use the `change` field of the JSON as `<change-id>` below.
    - **Shale requests** (`stele.yaml` has `format: shale`): each `shale intent` is a requirement. Right after you declare one, before the first edit, check the branch's requests:
 
      ```sh

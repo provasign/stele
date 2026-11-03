@@ -551,6 +551,77 @@ func TestShaleBranch(t *testing.T) {
 	}
 }
 
+// The owner asks for something new in the same conversation, after the
+// first request was approved on this branch: the new request is checked
+// against the first, and retiring the first removes its rule.
+func TestShaleSameSessionOnBranch(t *testing.T) {
+	for _, tool := range []string{"git", "z3"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skip(tool + " not on PATH")
+		}
+	}
+	repo, registry := t.TempDir(), t.TempDir()
+	write := func(p, src string) {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	git := func(args ...string) {
+		cmd := exec.Command("git", append([]string{"-C", repo, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	write(filepath.Join(repo, ".shale/config.yaml"), "privacy: redacted\n")
+	git("init", "-q", "-b", "main")
+	git("add", ".")
+	git("commit", "-q", "-m", "base")
+	// On the branch: the first request, approved, and its session finalized.
+	first := "Protect held resources\nThe system must not delete a resource with holds."
+	write(filepath.Join(repo, ".shale/s1.yaml"), "id: s1\nfinalized_at: 2026-10-01T10:30:00Z\nintent:\n    title: Protect held resources\n    body: The system must not delete a resource with holds.\n    declared_at: 2026-10-01T10:00:00Z\n")
+	write(filepath.Join(registry, "vocabulary.yaml"), vocabYAML)
+	write(filepath.Join(registry, "change-feature.yaml"), "id: intent/s1\nkind: permission\neffect: deny\noperation: Resource.delete\nwhen: self.holds > 0\nsource:\n  statementId: intent/s1\n  doc: .shale/s1.yaml\n  textHash: "+translate.TextHash(first)+"\n")
+	reg, err := ir.LoadDir(registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := adopt.ApproveRules(reg, []string{"intent/s1"}, "owner"); err != nil {
+		t.Fatal(err)
+	}
+	// The same conversation, a new request.
+	write(filepath.Join(repo, ".shale/local/s1.jsonl"), `{"kind":"intent","at":"2026-10-01T11:00:00Z","title":"Honour erasure requests","body":"Erasure requests always delete the resource."}`+"\n")
+	client := one("Erasure requests", map[string]any{"kind": "permission", "operation": "Resource.delete", "effect": "allow", "when": "request.kind = erasure"})
+	opt := Options{Repo: repo, Change: "feature-2", Registry: registry, Out: t.TempDir(), Base: "main", Format: "shale", Clients: []llm.Client{client}}
+	res, err := Run(context.Background(), opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(res.Added, ",") != "intent/s1-c2" || len(res.Modified)+len(res.Removed) != 0 {
+		t.Fatalf("added %v modified %v removed %v; want the new request alone", res.Added, res.Modified, res.Removed)
+	}
+	if len(res.Questions) != 1 || res.Questions[0].Kind != "conflict" {
+		t.Fatalf("questions = %+v; want the conflict with the first request", res.Questions)
+	}
+
+	if err := importer.RetireIntents(repo, []importer.RetiredIntent{{ID: "intent/s1", By: "owner", For: "intent/s1-c2"}}); err != nil {
+		t.Fatal(err)
+	}
+	if res, err = Run(context.Background(), opt); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(res.Removed, ",") != "intent/s1" || strings.Join(res.Retired, ",") != "intent/s1" {
+		t.Fatalf("removed %v retired %v; want the first request and its rule gone", res.Removed, res.Retired)
+	}
+	for _, q := range res.Questions {
+		if q.Kind == "conflict" {
+			t.Fatalf("still a conflict after retiring: %+v", q)
+		}
+	}
+}
+
 // A conflict whose one condition lies inside the other's recommends
 // reading the narrower requirement as an exception (ISSUES 56).
 func TestNarrowerRequirementIsRecommendedAsException(t *testing.T) {

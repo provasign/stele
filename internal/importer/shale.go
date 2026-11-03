@@ -42,7 +42,22 @@ type RetiredIntent struct {
 // RetiredIntentsFile is skipped. A statement's source is its session's
 // evidence file, .shale/<id>.yaml, relative to the repository root, also
 // while the session is open and the file is still to be written.
+//
+// A request declared after its session's evidence was finalized (the owner
+// asked for something new in the same conversation) is a request of its
+// own: Shale folds it into a continuation, .shale/<id>-c2.yaml and on, and
+// it reads as `intent/<id>-c2`.
 func Shale(repo string) ([]translate.Statement, error) {
+	return shale(repo, false)
+}
+
+// ShaleRetired reads the requests listed in RetiredIntentsFile that are
+// still in the evidence, as Shale reads them otherwise.
+func ShaleRetired(repo string) ([]translate.Statement, error) {
+	return shale(repo, true)
+}
+
+func shale(repo string, retiredOnly bool) ([]translate.Statement, error) {
 	dir := filepath.Join(repo, ".shale")
 	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
 		return nil, fmt.Errorf("no .shale/ under %s: %w", repo, ErrNoSpecs)
@@ -60,6 +75,7 @@ func Shale(repo string) ([]translate.Statement, error) {
 		at                           time.Time
 	}
 	found := map[string]intent{}
+	finalized := map[string]time.Time{} // every evidence file, with or without a request
 	files, _ := filepath.Glob(filepath.Join(dir, "*.yaml"))
 	for _, f := range files {
 		if filepath.Base(f) == "config.yaml" {
@@ -70,8 +86,9 @@ func Shale(repo string) ([]translate.Statement, error) {
 			return nil, err
 		}
 		var ev struct {
-			ID     string `yaml:"id"`
-			Intent *struct {
+			ID          string    `yaml:"id"`
+			FinalizedAt time.Time `yaml:"finalized_at"`
+			Intent      *struct {
 				Title      string    `yaml:"title"`
 				Body       string    `yaml:"body"`
 				DeclaredAt time.Time `yaml:"declared_at"`
@@ -80,8 +97,15 @@ func Shale(repo string) ([]translate.Statement, error) {
 		if err := yaml.Unmarshal(src, &ev); err != nil {
 			return nil, fmt.Errorf("%s: %w", f, err)
 		}
-		if ev.ID == "" || ev.Intent == nil || strings.TrimSpace(ev.Intent.Title) == "" {
+		if ev.ID == "" {
 			continue
+		}
+		finalized[ev.ID] = ev.FinalizedAt
+		if ev.Intent == nil || strings.TrimSpace(ev.Intent.Title) == "" {
+			continue
+		}
+		if ev.FinalizedAt.IsZero() {
+			finalized[ev.ID] = ev.Intent.DeclaredAt
 		}
 		found[ev.ID] = intent{ev.ID, ev.Intent.Title, ev.Intent.Body, rel(repo, f), ev.Intent.DeclaredAt}
 	}
@@ -90,12 +114,22 @@ func Shale(repo string) ([]translate.Statement, error) {
 	logs, _ := filepath.Glob(filepath.Join(dir, "local", "*.jsonl"))
 	for _, f := range logs {
 		id := strings.TrimSuffix(filepath.Base(f), ".jsonl")
-		if _, done := found[id]; done {
-			continue
-		}
 		title, body, at, err := lastIntent(f)
 		if err != nil {
 			return nil, err
+		}
+		if done, ok := finalized[id]; ok {
+			if strings.TrimSpace(title) == "" || !at.After(done) {
+				continue // what the evidence file already holds
+			}
+			// Declared after the evidence was finalized: Shale writes it
+			// to the first continuation file free.
+			for n := 2; ; n++ {
+				if c := fmt.Sprintf("%s-c%d", id, n); !hasKey(finalized, c) {
+					id = c
+					break
+				}
+			}
 		}
 		if strings.TrimSpace(title) != "" {
 			// The source is where the evidence lands when the session ends,
@@ -106,7 +140,7 @@ func Shale(repo string) ([]translate.Statement, error) {
 	var out []translate.Statement
 	for _, in := range found {
 		id := "intent/" + in.session
-		if retired[id] {
+		if retired[id] != retiredOnly {
 			continue
 		}
 		prose := strings.TrimSpace(in.title)
@@ -198,6 +232,11 @@ func RetireIntents(repo string, add []RetiredIntent) error {
 	}
 	head := "# Requests the owner said a later one replaces (stele change answer ... update_old).\n"
 	return os.WriteFile(path, append([]byte(head), src...), 0o644)
+}
+
+func hasKey[V any](m map[string]V, k string) bool {
+	_, ok := m[k]
+	return ok
 }
 
 func rel(repo, path string) string {

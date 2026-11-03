@@ -23,7 +23,7 @@ A change is checked as one unit, in the spec tool's own terms ([D-057](design-de
 This is built for OpenSpec change folders and for Spec Kit and Kiro feature branches (stele-research `research/bench/change/README.md`). A branch's change is the difference between its specs and those at the base ref:
 
 ```sh
-stele change speckit . --base main --json                       # or kiro; the change is named after the branch
+stele change speckit . --base main --json                       # or kiro; the change is named after the branch (<branch>-2 once one is approved)
 stele change openspec . --list                                  # active change folders
 stele change openspec . <change-id> --registry specs/registry   # steps 2 and 4; report.md in .stele/change/<id>
 stele change openspec . <change-id> --registry specs/registry --apply   # write the change's rules once it is clean

@@ -19,6 +19,9 @@ import (
 func writeCard(res *change.Result, head *ir.Registry, status, base string) error {
 	c, err := card.Load(res.Repo, res.Change)
 	if err != nil || c == nil {
+		if len(res.Added)+len(res.Modified)+len(res.Removed) == 0 {
+			return nil // nothing to show: no card for a change that has nothing
+		}
 		c = &card.Card{}
 	}
 	c.Change, c.Format, c.Base, c.Status = res.Change, res.Format, base, status
