@@ -101,6 +101,8 @@ func cmdChangeAnswer(args []string, out io.Writer) int {
 	for _, r := range q.Requirements {
 		if slices.Contains(q.Statements, r.ID) {
 			a.Statements[r.ID] = translate.TextHash(r.Text)
+		} else if choice == "precedence" {
+			a.Over = append(a.Over, r.ID)
 		}
 	}
 	switch {

@@ -1326,3 +1326,68 @@ func TestRestatementIsTheSameRequirement(t *testing.T) {
 		}
 	}
 }
+
+// A new request that adds an exception to an approved one can take
+// precedence where they meet, both standing: the conflict offers it, the
+// answer asks the translation for overrides, and a reading that names the
+// earlier request there settles the conflict without retiring anything.
+func TestPrecedenceKeepsBothRequests(t *testing.T) {
+	for _, tool := range []string{"git", "z3"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skip(tool + " not on PATH")
+		}
+	}
+	repo, registry, out := t.TempDir(), t.TempDir(), t.TempDir()
+	write := func(p, src string) {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	held := "Protect held resources: the system must not delete a resource with holds"
+	write(filepath.Join(repo, ".shale/s1.yaml"), "id: s1\nintent:\n    title: '"+held+"'\n")
+	write(filepath.Join(repo, ".shale/local/s2.jsonl"), `{"kind":"intent","at":"2026-10-02T10:00:00Z","title":"Honour erasure requests","body":"Erasure requests always delete the resource."}`+"\n")
+	if out, err := exec.Command("git", "-C", repo, "init", "-q", "-b", "main").CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	write(filepath.Join(registry, "vocabulary.yaml"), vocabYAML)
+	write(filepath.Join(registry, "rules.yaml"), "id: intent/s1\nkind: permission\neffect: deny\noperation: Resource.delete\nwhen: self.holds > 0\nsource:\n  statementId: intent/s1\n  doc: .shale/s1.yaml\n  prose: '"+held+"'\n  textHash: "+translate.TextHash(held)+"\n")
+	reg, err := ir.LoadDir(registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := adopt.ApproveRules(reg, []string{"intent/s1"}, "owner"); err != nil {
+		t.Fatal(err)
+	}
+	reading := map[string]any{"kind": "permission", "operation": "Resource.delete", "effect": "allow", "when": "request.kind = erasure"}
+	opt := Options{Repo: repo, Change: "main", Registry: registry, Out: out, Base: "main", Format: "shale", Clients: []llm.Client{one("Erasure requests", reading)}}
+	res, err := Run(context.Background(), opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := slices.IndexFunc(res.Questions, func(q Question) bool { return q.Kind == "conflict" })
+	if i < 0 || !slices.ContainsFunc(res.Questions[i].Options, func(o Option) bool { return o.Choice == "precedence" }) {
+		t.Fatalf("questions = %+v; want a conflict offering precedence", res.Questions)
+	}
+	a := Answer{Question: res.Questions[i].ID, Kind: "conflict", Choice: "precedence", Over: []string{"intent/s1"}, Statements: map[string]string{"intent/s2": translate.TextHash(res.Statements["intent/s2"])}}
+	if n := notes([]Answer{a}, translate.Statement{ID: "intent/s2", Prose: res.Statements["intent/s2"]}); len(n) != 1 || !strings.Contains(n[0], "list intent/s1 under overrides") {
+		t.Fatalf("notes = %q", n)
+	}
+	src, _ := json.Marshal([]Answer{a})
+	write(filepath.Join(out, answersFile), string(src))
+	reading["overrides"] = []string{"intent/s1"} // the reading the note asks for
+	opt.Clients = []llm.Client{one("Erasure requests", reading)}
+	if res, err = Run(context.Background(), opt); err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range res.Questions {
+		if q.Kind == "conflict" {
+			t.Fatalf("still a conflict: %s", q.Text)
+		}
+	}
+	if len(res.Retired) != 0 || len(res.Removed) != 0 {
+		t.Fatalf("retired %v removed %v; want both requests kept", res.Retired, res.Removed)
+	}
+}

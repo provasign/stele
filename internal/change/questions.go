@@ -102,6 +102,8 @@ type Answer struct {
 	// Statements maps each statement the answer applies to to the hash of
 	// its text when answered: an edited statement no longer gets the note.
 	Statements map[string]string `json:"statements,omitempty"`
+	// Over are the requirements a "precedence" answer gives way to.
+	Over []string `json:"over,omitempty"`
 }
 
 // LoadAnswers reads a change's recorded answers.
@@ -170,6 +172,8 @@ func notes(as []Answer, s translate.Statement) []string {
 			out = append(out, review+"the owner says this situation cannot happen, so the requirements need not hold together in it: "+a.Note+". Where the requirement's own words allow, read its conditions so they exclude it.")
 		case (a.Kind == "conflict" || a.Kind == "self_conflict") && a.Choice == "misread":
 			out = append(out, review+"the owner says an earlier reading of this requirement was wrong: "+a.Note)
+		case a.Kind == "conflict" && a.Choice == "precedence" && len(a.Over) > 0:
+			out = append(out, review+fmt.Sprintf("the owner says this requirement takes precedence over %s where both apply: on each rule of this requirement that clashes with them, list %s under overrides. Keep every clause of this requirement as it reads.", strings.Join(a.Over, ", "), strings.Join(a.Over, ", ")))
 		case a.Kind == "self_conflict" && a.Choice == "retranslate":
 			out = append(out, review+"an earlier reading of this requirement gave rules that cannot all hold together ("+a.Note+"). Read the requirement again so its rules agree with each other and with its text.")
 		}
@@ -479,6 +483,14 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 					label = "Those assumptions about the world are wrong"
 				}
 				q.Options = append(q.Options, Option{Choice: "wrong_fact", Label: label, Then: "Stele drops it, retiring it with the approval if it was approved earlier; run `stele change` again"})
+			}
+			if res.Format == "shale" && len(mine) > 0 && len(mine) < len(stmts) {
+				// Both stand, the new one prevailing where they meet: a
+				// refusal added to an approved "can be lent when ..." no
+				// longer means restating the whole earlier request (a
+				// developer trial, 2026-11-03). Recorded as the rules'
+				// overrides, as a text that says "regardless of" is (D-052).
+				q.Options = append(q.Options, Option{Choice: "precedence", Label: "Both stand: the new request takes precedence where they meet", Then: "Stele reads the new request again giving it precedence over the earlier one where both apply; run `stele change` again"})
 			}
 			if res.Format == "shale" {
 				shaleOptions(q.Options)
