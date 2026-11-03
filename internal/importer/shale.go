@@ -37,8 +37,9 @@ type RetiredIntent struct {
 }
 
 // Shale reads the requests a project's coding agents declared with
-// `shale intent`: one statement per session, `intent/<session id>`, whose
-// prose is the intent's title, then its body. Finalized sessions are read
+// `shale intent`: one statement per task, `intent/<session id>` and
+// `intent/<session id>-c<n>` for a session's later tasks, whose prose is the
+// intent's title, then its body. A completion (shale done) closes a task. Finalized sessions are read
 // from .shale/<id>.yaml; a session still open, from the latest intent in
 // .shale/local/<id>.jsonl, so a request is checked before the agent edits.
 // A session with no intent declared says nothing, and an intent listed in
@@ -116,28 +117,34 @@ func shale(repo string, retiredOnly bool) ([]translate.Statement, error) {
 	// the session ends, and until then the finalized file, if any, is older.
 	logs, _ := filepath.Glob(filepath.Join(dir, "local", "*.jsonl"))
 	for _, f := range logs {
-		id := strings.TrimSuffix(filepath.Base(f), ".jsonl")
-		title, body, at, err := lastIntent(f)
+		session := strings.TrimSuffix(filepath.Base(f), ".jsonl")
+		tasks, err := logTasks(f)
 		if err != nil {
 			return nil, err
 		}
-		if done, ok := finalized[id]; ok {
-			if strings.TrimSpace(title) == "" || !at.After(done) {
-				continue // what the evidence file already holds
-			}
-			// Declared after the evidence was finalized: Shale writes it
-			// to the first continuation file free.
+		done, finalizedAlready := finalized[session]
+		// Shale writes one file per task, <session>.yaml and then the first
+		// continuation names free; each task takes its name here as there,
+		// so a request keeps its ID when the session is finalized.
+		next := func() string {
 			for n := 2; ; n++ {
-				if c := fmt.Sprintf("%s-c%d", id, n); !hasKey(finalized, c) {
-					id = c
-					break
+				if c := fmt.Sprintf("%s-c%d", session, n); !hasKey(finalized, c) {
+					return c
 				}
 			}
 		}
-		if strings.TrimSpace(title) != "" {
+		for i, t := range tasks {
+			id := session
+			if i > 0 || finalizedAlready {
+				id = next()
+			}
+			finalized[id] = time.Time{} // taken, for the tasks after it
+			if strings.TrimSpace(t.title) == "" || finalizedAlready && !t.at.After(done) {
+				continue // no request, or one the evidence file already holds
+			}
 			// The source is where the evidence lands when the session ends,
 			// so the rule's provenance does not move then.
-			found[id] = intent{id, title, body, ".shale/" + id + ".yaml", at}
+			found[id] = intent{id, t.title, t.body, ".shale/" + id + ".yaml", t.at}
 		}
 	}
 	var out []translate.Statement
@@ -168,14 +175,25 @@ func shale(repo string, retiredOnly bool) ([]translate.Statement, error) {
 	return out, nil
 }
 
-// lastIntent is the latest intent in a session's event log: a request the
-// agent declared again replaces the earlier one, as Shale folds it.
-func lastIntent(path string) (title, body string, at time.Time, err error) {
+// logTask is one task of an open session: its latest request.
+type logTask struct {
+	title, body string
+	at          time.Time
+}
+
+// logTasks reads a session's event log as Shale folds it: a completion
+// (shale done) closes a task, and a request declared after it starts the
+// next one; a request declared again before the completion restates the
+// task, and the latest wording counts. A task with no request has an empty
+// title but still takes its place, as Shale writes a file for it.
+func logTasks(path string) ([]logTask, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return "", "", time.Time{}, err
+		return nil, err
 	}
 	defer f.Close()
+	tasks := []logTask{{}}
+	closed := false
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	for sc.Scan() {
@@ -185,12 +203,20 @@ func lastIntent(path string) (title, body string, at time.Time, err error) {
 			Title string    `json:"title"`
 			Body  string    `json:"body"`
 		}
-		if json.Unmarshal(sc.Bytes(), &ev) != nil || ev.Kind != "intent" {
+		if json.Unmarshal(sc.Bytes(), &ev) != nil {
 			continue // a torn or foreign line says nothing about the request
 		}
-		title, body, at = ev.Title, ev.Body, ev.At
+		switch ev.Kind {
+		case "completion":
+			closed = true
+		case "intent":
+			if closed {
+				tasks, closed = append(tasks, logTask{}), false
+			}
+			tasks[len(tasks)-1] = logTask{ev.Title, ev.Body, ev.At}
+		}
 	}
-	return title, body, at, sc.Err()
+	return tasks, sc.Err()
 }
 
 // RetiredIntents reads RetiredIntentsFile; none is no error.

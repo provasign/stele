@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Each task of a session is its own request.** An agent working through several features in one conversation recorded them in one Shale session, and only the latest request counted: the next feature read as an edit of the approved one before. A completion (`shale done`) now closes a request, and the next one is `intent/<session>-c<n>`, the name Shale 0.2.2 gives its file; a request declared again before the completion still restates it.
 - **A one-off task is not a requirement.** With Shale requests as the specs, a request Stele finds nothing to check in ("write the review", "set up the tracker") comes back as a question for the owner: a requirement the product must keep, or a one-off task. A task is set aside in `.stele/retired-intents.yaml`, marked "not a requirement", and leaves the change instead of being approved as a requirement that protects nothing.
 
 ## v0.1.2 - 2026-11-03

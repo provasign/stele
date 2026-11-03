@@ -130,3 +130,47 @@ func TestShaleWithoutEvidence(t *testing.T) {
 		t.Fatalf("err = %v, want ErrNoSpecs", err)
 	}
 }
+
+// An agent works through two features in one conversation: a completion
+// closes the first request, and the next is a request of its own, named as
+// Shale names its file. A request declared again before the completion
+// restates it.
+func TestShaleTasksInOneSession(t *testing.T) {
+	repo := t.TempDir()
+	write := func(p, s string) {
+		t.Helper()
+		p = filepath.Join(repo, p)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(s), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(".shale/config.yaml", "privacy: redacted\n")
+	write(".shale/local/s1.jsonl", `{"kind":"intent","at":"2026-11-03T03:23:17Z","title":"Create tasks"}
+{"kind":"intent","at":"2026-11-03T03:24:00Z","title":"Create and persist tasks"}
+{"kind":"completion","at":"2026-11-03T03:53:47Z","note":"feature 1 done"}
+{"kind":"prompt","at":"2026-11-03T03:54:00Z","text":"next: list"}
+{"kind":"intent","at":"2026-11-03T03:54:28Z","title":"List saved tasks"}
+`)
+	got, err := Shale(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].ID != "intent/s1" || got[0].Prose != "Create and persist tasks" || got[1].ID != "intent/s1-c2" || got[1].Source != ".shale/s1-c2.yaml" || got[1].Prose != "List saved tasks" {
+		t.Fatalf("got %+v; want the restated first request as s1 and the next as s1-c2", got)
+	}
+
+	// Shale finalizes the session into s1.yaml and s1-c2.yaml; a third task
+	// in the new log is the next name.
+	write(".shale/s1.yaml", "id: s1\nfinalized_at: 2026-11-03T04:00:00Z\nintent:\n    title: Create and persist tasks\n    declared_at: 2026-11-03T03:24:00Z\n")
+	write(".shale/s1-c2.yaml", "id: s1-c2\nfinalized_at: 2026-11-03T04:00:00Z\nintent:\n    title: List saved tasks\n    declared_at: 2026-11-03T03:54:28Z\n")
+	write(".shale/local/s1.jsonl", `{"kind":"intent","at":"2026-11-03T04:10:00Z","title":"Complete a task"}`+"\n")
+	if got, err = Shale(repo); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 || got[0].ID != "intent/s1" || got[1].ID != "intent/s1-c2" || got[2].ID != "intent/s1-c3" {
+		t.Fatalf("after finalizing: %+v", got)
+	}
+}
