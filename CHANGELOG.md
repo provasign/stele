@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.1.2 - 2026-11-03
 
 Found by the developer trial in Codex, continued.
 
