@@ -25,11 +25,14 @@ attributes:
   id: { type: int }
   name: { type: string }
   status: { type: enum, values: [available, lent] }
+  exists: { type: bool }
 ---
 extend: Result
 context: c
 attributes:
   nameOf: { type: "map<int, string>" }
+  listedIds: { type: list, of: int }
+  listedNames: { type: list, of: string }
 ---
 operation: Tool.list
 context: c
@@ -50,6 +53,9 @@ writes: []
 	}
 	cands := []translate.Candidate{
 		{RuleID: "r1", Outcome: "rule", Kind: ir.Invariant, On: "Tool.list", Assert: "has(result.nameOf, self.id) and result.nameOf[self.id] = self.name"},
+		// The listing as a later trial read it.
+		{RuleID: "r3", Outcome: "rule", Kind: ir.Invariant, On: "Tool.list", Assert: "(self.exists implies contains(result.listedIds, self.id) and contains(result.listedNames, self.name)) and all(t in instances(Tool): t.exists implies contains(result.listedIds, t.id))"},
+		{RuleID: "r4", Outcome: "rule", Kind: ir.Invariant, On: "Tool.list", Assert: "all(i in result.listedIds: (self.exists and self.id = i) or any(t in instances(Tool): t.exists and t.id = i))"},
 		{RuleID: "r2", Outcome: "rule", Kind: ir.Invariant, On: "Tool.lend", Assert: "self.status = lent"},
 	}
 	p := vocab.Proposal{Operations: []vocab.Operation{{Name: "Tool.list", Default: "allow"}, {Name: "Tool.lend", Default: "allow"}}}

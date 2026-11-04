@@ -733,62 +733,119 @@ type parsedRule struct {
 	walked []string   // entities and relations its paths walk through
 }
 
-// reported returns the paths of e that a step only reports: a key it looks a
-// result up by (result.nameOf[self.id], has(result.nameOf, self.id)), or a
-// value compared with the result (result.nameOf[self.id] = self.name). A
-// listing that shows each tool's name against its id was taken to write
-// both, and then a listing could have changed any tool (a developer trial,
-// 2026-11-04).
+// reported returns the paths of e that a step only reports or tests, not
+// sets: those in a comparison or call that involves an output (a result
+// value, or a variable ranging over one), such as result.nameOf[self.id] =
+// self.name or contains(result.listedIds, self.id); a key a value is looked
+// up by; a condition, the left of implies; and what a quantifier over an
+// output says of its elements. A listing that shows each
+// tool's name against its id was taken to write both, and then a listing
+// could have changed any tool (a developer trial, 2026-11-04).
 func reported(reg *ir.Registry, e ir.Expr, subject *ir.Entity) map[*ir.Path]bool {
 	out := map[*ir.Path]bool{}
-	all := func(e ir.Expr) {
-		for _, p := range ir.Paths(e) {
-			out[p] = true
+	outVars := map[string]bool{} // quantifier variables over an output
+	var each func(ir.Expr, func(*ir.Path))
+	each = func(e ir.Expr, f func(*ir.Path)) {
+		switch e := e.(type) {
+		case *ir.Binary:
+			each(e.L, f)
+			each(e.R, f)
+		case *ir.Not:
+			each(e.X, f)
+		case *ir.Scale:
+			each(e.X, f)
+		case *ir.Set:
+			for _, x := range e.Elems {
+				each(x, f)
+			}
+		case *ir.ListLit:
+			for _, x := range e.Elems {
+				each(x, f)
+			}
+		case *ir.Call:
+			for _, x := range e.Args {
+				each(x, f)
+			}
+		case *ir.Index:
+			each(e.X, f)
+			each(e.K, f)
+		case *ir.Quant:
+			each(e.Coll, f)
+			each(e.Body, f)
+		case *ir.Path:
+			f(e)
 		}
 	}
 	output := func(e ir.Expr) bool {
-		for _, p := range ir.Paths(e) {
-			if a, err := reg.Resolve(p, subject); err == nil && a.Entity.Name == "Result" {
-				return true
+		found := false
+		each(e, func(p *ir.Path) {
+			if outVars[p.Segs[0]] {
+				found = true
+			} else if a, err := reg.Resolve(p, subject); err == nil && a.Entity.Name == "Result" {
+				found = true
 			}
-		}
-		return false
+		})
+		return found
 	}
+	mark := func(e ir.Expr) { each(e, func(p *ir.Path) { out[p] = true }) }
 	var walk func(ir.Expr)
 	walk = func(e ir.Expr) {
 		switch e := e.(type) {
 		case *ir.Binary:
 			switch e.Op {
-			case "=", "!=", "<", "<=", ">", ">=":
-				if output(e.L) {
-					all(e.R)
+			case "implies":
+				mark(e.L)
+				walk(e.R)
+			case "=", "!=", "<", "<=", ">", ">=", "in":
+				if output(e) {
+					mark(e)
 				}
-				if output(e.R) {
-					all(e.L)
-				}
+			default:
+				walk(e.L)
+				walk(e.R)
 			}
-			walk(e.L)
-			walk(e.R)
 		case *ir.Not:
 			walk(e.X)
-		case *ir.Index:
-			all(e.K)
-			walk(e.X)
 		case *ir.Call:
-			if e.Fn == "has" {
-				for _, x := range e.Args {
-					all(x)
-				}
-			}
-			for _, x := range e.Args {
-				walk(x)
+			if output(e) {
+				mark(e)
 			}
 		case *ir.Quant:
+			if output(e.Coll) {
+				// The body describes the output's elements: it tests state.
+				outVars[e.Var] = true
+				mark(e.Body)
+				return
+			}
 			walk(e.Body)
 		}
 	}
 	walk(e)
+	indexKeys(e, mark)
 	return out
+}
+
+// indexKeys calls mark with the key of every lookup in e.
+func indexKeys(e ir.Expr, mark func(ir.Expr)) {
+	switch e := e.(type) {
+	case *ir.Binary:
+		indexKeys(e.L, mark)
+		indexKeys(e.R, mark)
+	case *ir.Not:
+		indexKeys(e.X, mark)
+	case *ir.Scale:
+		indexKeys(e.X, mark)
+	case *ir.Call:
+		for _, x := range e.Args {
+			indexKeys(x, mark)
+		}
+	case *ir.Index:
+		mark(e.K)
+		indexKeys(e.X, mark)
+	case *ir.Quant:
+		indexKeys(e.Coll, mark)
+		indexKeys(e.Body, mark)
+	}
 }
 
 // parseRules resolves the paths of every valid candidate rule.
