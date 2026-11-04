@@ -44,14 +44,20 @@ func unreachable(ctx context.Context, z *solver.Z3, prog *lower.Program, cf Conf
 	fixed := map[string]string{} // label -> raw value
 	for _, v := range unit.Vars {
 		raw, ok := cf.before[v.Label]
-		if !ok || raw == "" || v.Post || v.Attr == nil || v.Attr.Entity == nil || v.Label != v.Attr.QName() {
-			continue // only scalar state before the step
+		if !ok || raw == "" || v.Post || v.Attr == nil || v.Attr.Entity == nil || v.Label != v.Attr.QName() && v.Label != v.Attr.QName()+"?" {
+			continue // only scalar state before the step, and whether it is set
 		}
 		if !written[v.Attr] {
 			continue // the world sets it: any value can be reached
 		}
 		if len(v.Attr.Entity.CreatedBy) == 0 {
-			return false, nil // instances may start in any state
+			// Instances may start in any state, so this value is reachable;
+			// left out, the rest describes more states than the conflict's,
+			// and if no trace reaches those, none reaches the conflict's.
+			// Giving up here kept a clash over a tool's state because the
+			// same step also wrote a loan record (a developer trial,
+			// 2026-11-03).
+			continue
 		}
 		fixed[v.Label] = raw
 	}
@@ -136,4 +142,42 @@ func unreachable(ctx context.Context, z *solver.Z3, prog *lower.Program, cf Conf
 		}
 	}
 	return true, nil
+}
+
+// CreatorsSettingAside lists the operations of the entity whose step a
+// conflict is in that, recorded as the step that creates it, would set the
+// conflict aside: no trace would reach its state. An entity with no
+// creating step may start in any state, so its clashes stand however
+// unreachable their state; the change check asks which step creates it only
+// when the answer could matter. The entity must have no creators yet; the
+// registry is left as it was.
+func CreatorsSettingAside(ctx context.Context, z *solver.Z3, reg *ir.Registry, cf Conflict) ([]string, error) {
+	op := reg.Operations[cf.Unit]
+	if op == nil || op.Entity == nil || len(op.Entity.CreatedBy) > 0 || len(cf.before) == 0 {
+		return nil, nil
+	}
+	var names []string
+	for name, o := range reg.Operations {
+		if o.Entity == op.Entity {
+			names = append(names, name)
+		}
+	}
+	slices.Sort(names)
+	defer func() { op.Entity.CreatedBy = nil }()
+	var out []string
+	for _, name := range names {
+		op.Entity.CreatedBy = []string{name}
+		prog, err := lower.Lower(reg, lower.Options{})
+		if err != nil {
+			return out, err
+		}
+		gone, err := unreachable(ctx, z, prog, cf)
+		if err != nil {
+			return out, err
+		}
+		if gone {
+			out = append(out, name)
+		}
+	}
+	return out, nil
 }

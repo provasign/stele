@@ -27,6 +27,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/provasign/stele/internal/adopt"
+	"github.com/provasign/stele/internal/checker"
 	"github.com/provasign/stele/internal/formalize"
 	"github.com/provasign/stele/internal/gate"
 	"github.com/provasign/stele/internal/importer"
@@ -149,6 +150,9 @@ type Result struct {
 	// narrow maps a pair of conflicting statements to the one whose
 	// condition lies inside the other's.
 	narrow map[string]string
+	// creators names, by conflict (conflictKey), the operations that,
+	// recorded as creating their entity, would set the conflict aside.
+	creators map[string][]string
 	// first: the registry held no approved rule before this change.
 	first bool
 }
@@ -402,6 +406,7 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 			switch {
 			case c.Error != "":
 				reasons[c.StatementID] = "invalid: " + c.Error
+				unusable(res, c)
 			case c.Outcome == "rule" && !c.Draft:
 				res.Rules[c.StatementID] = append(res.Rules[c.StatementID], c.RuleID)
 			case c.Outcome == "rule":
@@ -551,6 +556,14 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 		}
 		res.narrow = narrower(ctx, z, res.Head, head, sets)
 		confirmBlocking(res, head)
+		for _, cf := range res.Gate.Check.Conflicts {
+			if ops, err := checker.CreatorsSettingAside(ctx, z, head, cf); err == nil && len(ops) > 0 {
+				if res.creators == nil {
+					res.creators = map[string][]string{}
+				}
+				res.creators[conflictKey(cf)] = ops
+			}
+		}
 	}
 	res.Questions = questions(res, head, c, known, answers)
 	// A conflict that comes from glossary definitions left out of the
@@ -1126,7 +1139,7 @@ func lessonsFrom(as []Answer, change string) []ir.Lesson {
 		case a.Kind == "conflict" && a.Choice == "impossible" && strings.TrimSpace(a.Note) != "":
 			out = append(out, ir.Lesson{Kind: ir.LessonFact, Says: "This situation cannot happen in this project: " + strings.TrimSpace(a.Note),
 				From: from, By: a.By, At: at})
-		case (a.Kind == "reread" || ((a.Kind == "conflict" || a.Kind == "self_conflict") && a.Choice == "misread")) && strings.TrimSpace(a.Note) != "" && len(a.Statements) > 0:
+		case (a.Kind == "reread" || ((a.Kind == "conflict" || a.Kind == "self_conflict") && a.Choice == "misread") || a.Kind == "free_setting" && a.Choice == "fixed") && strings.TrimSpace(a.Note) != "" && len(a.Statements) > 0:
 			out = append(out, ir.Lesson{Kind: ir.LessonReading, Says: strings.TrimSpace(a.Note), Statements: a.Statements, From: from, By: a.By, At: at})
 		}
 	}
@@ -1186,4 +1199,46 @@ func approvedAlready(reg *ir.Registry, texts map[string]string) bool {
 		}
 	}
 	return true
+}
+
+// unusable records, as a finding of its requirement, a reading Stele could
+// not use. A requirement checked in part says so: its other rules made it
+// look checked, and the clauses this rule read went unchecked without a
+// word (a developer trial, 2026-11-03).
+func unusable(res *Result, c translate.Candidate) {
+	if res.Findings == nil {
+		res.Findings = map[string][]string{}
+	}
+	f := "not checked: Stele could not use its reading of part of this requirement (" + englishCand(c) + "): " + firstLine(c.Error)
+	if !slices.Contains(res.Findings[c.StatementID], f) {
+		res.Findings[c.StatementID] = append(res.Findings[c.StatementID], f)
+	}
+}
+
+// englishCand is a short plain reading of a candidate rule.
+func englishCand(c translate.Candidate) string {
+	var parts []string
+	if c.On != "" {
+		parts = append(parts, "on "+c.On)
+	} else if c.Operation != "" {
+		parts = append(parts, c.Kind+" "+c.Effect+" "+c.Operation)
+	}
+	if c.When != "" {
+		parts = append(parts, "when "+c.When)
+	}
+	if c.Assert != "" {
+		parts = append(parts, "then "+c.Assert)
+	}
+	return strings.Join(parts, " ")
+}
+
+// firstLine is the first line of s.
+func firstLine(s string) string {
+	line, _, _ := strings.Cut(strings.TrimSpace(s), "\n")
+	return line
+}
+
+// conflictKey names a conflict: its step and rules.
+func conflictKey(cf checker.Conflict) string {
+	return cf.Unit + ":" + strings.Join(cf.Rules, "+")
 }

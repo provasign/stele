@@ -148,3 +148,92 @@ func TestWorldDrivenValueResetByAStep(t *testing.T) {
 		t.Fatalf("load error = %v", err)
 	}
 }
+
+// loans: only lending makes a tool lent, and it sets the lent date; a
+// return copies the date into a record that must have one, and a return of
+// a tool that is not lent changes nothing. With no step
+// known to create tools, a lent tool with no date clashes with that record.
+const loans = `
+context: c
+formatVersion: 1
+---
+entity: Tool
+context: c
+attributes:
+  status: { type: enum, values: [available, lent] }
+  lentAt: { type: time, optional: true }
+  returnedLentAt: { type: time }
+---
+operation: Tool.add
+context: c
+default: allow
+writes: [Tool.status, Tool.lentAt]
+---
+operation: Tool.lend
+context: c
+default: allow
+writes: [Tool.status, Tool.lentAt]
+---
+operation: Tool.return
+context: c
+default: allow
+writes: [Tool.status, Tool.lentAt, Tool.returnedLentAt]
+---
+id: A
+kind: invariant
+on: Tool.add
+assert: self.status = available and self.lentAt = none
+---
+id: L
+kind: invariant
+on: Tool.lend
+assert: self.status = lent and self.lentAt = now
+---
+id: R
+kind: invariant
+on: Tool.return
+when: self.status = lent
+assert: self.status = available and self.lentAt = none and isSet(old(self.lentAt)) and self.returnedLentAt = old(self.lentAt)
+---
+id: R2
+kind: invariant
+on: Tool.return
+when: self.status != lent
+assert: self.status = old(self.status) and self.lentAt = old(self.lentAt)
+`
+
+// TestCreatorsSettingAside: the steps that, recorded as creating tools,
+// would set a clash aside are named (any of them would here: none can leave
+// a lent tool without a date), and recording one does set it aside.
+func TestCreatorsSettingAside(t *testing.T) {
+	needZ3(t)
+	reg, err := ir.LoadDir(writeRegistry(t, loans))
+	if err != nil {
+		t.Fatal(err)
+	}
+	prog, err := lower.Lower(reg, lower.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := Check(context.Background(), &solver.Z3{}, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Conflicts) != 1 || res.Conflicts[0].Unit != "Tool.return" {
+		t.Fatalf("conflicts %q; want the return's", cores(res))
+	}
+	ops, err := CreatorsSettingAside(context.Background(), &solver.Z3{}, reg, res.Conflicts[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(ops, "Tool.add") {
+		t.Fatalf("creators %v, want Tool.add among them", ops)
+	}
+	if len(reg.Entities["Tool"].CreatedBy) != 0 {
+		t.Fatal("the registry was left changed")
+	}
+	created := loans + "---\nextend: Tool\ncontext: c\ncreatedBy: [Tool.add]\n"
+	if res := checkSource(t, created); res.Verdict != Pass {
+		t.Errorf("with Tool.add creating tools: %s %q", res.Verdict, cores(res))
+	}
+}

@@ -1440,3 +1440,65 @@ func TestPrecedenceKeepsBothRequests(t *testing.T) {
 		t.Fatalf("retired %v removed %v; want both requests kept", res.Retired, res.Removed)
 	}
 }
+
+// A threshold read through a new setting no requirement gives a value is
+// asked about: checked for every value, it clashes with nothing (an overdue
+// rule read with config.loanPeriod beside an approved due date of 14 days,
+// a developer trial, 2026-11-03). A setting an invariant fixes is not.
+func TestFreeSettingAsked(t *testing.T) {
+	dir := t.TempDir()
+	src := vocabYAML + `---
+entity: Config
+context: res
+attributes:
+  retention: { type: duration, setBy: world }
+  grace: { type: duration, setBy: world }
+---
+id: intent/s1
+kind: permission
+effect: deny
+operation: Resource.delete
+when: config.retention > 0d
+source: { statementId: intent/s1, doc: .shale/s1.yaml, prose: Keep resources for the retention period }
+---
+id: intent/s2
+kind: invariant
+assert: config.grace = 3d
+source: { statementId: intent/s2, doc: .shale/s2.yaml, prose: The grace period is three days }
+`
+	if err := os.WriteFile(filepath.Join(dir, "r.yaml"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	head, err := ir.LoadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := &Result{Format: "shale", Added: []string{"intent/s1"}, NewTerms: []string{"Config", "Config.retention", "Config.grace"},
+		Rules: map[string][]string{"intent/s1": {"intent/s1"}}, Statements: map[string]string{"intent/s1": "Keep resources for the retention period"}}
+	got := freeSettings(res, head)
+	if len(got) != 1 || got[0].name != "Config.retention" {
+		t.Fatalf("free settings %+v, want Config.retention only", got)
+	}
+	var asked bool
+	for _, q := range questions(res, head, &cache{}, nil, nil) {
+		asked = asked || q.Kind == "free_setting" && q.AskOwner && slices.Contains(q.Statements, "intent/s1")
+	}
+	if !asked {
+		t.Error("no free_setting question")
+	}
+}
+
+// A requirement checked in part says which part is not: a rule that never
+// compiled (a loan history read through an entity the vocabulary lost) was
+// dropped while the requirement's other rules made it look checked (a
+// developer trial, 2026-11-03).
+func TestPartlyCheckedRequirementSaysWhatIsNot(t *testing.T) {
+	res := &Result{}
+	c := translate.Candidate{StatementID: "intent/s1", Kind: ir.Invariant, On: "Tool.return", Assert: "any(r in instances(LoanRecord): r.toolId = self.id)",
+		Error: "1: rule intent/s1.3: instances(LoanRecord): no such entity\nmore"}
+	unusable(res, c)
+	unusable(res, c)
+	if fs := res.Findings["intent/s1"]; len(fs) != 1 || !strings.HasPrefix(fs[0], "not checked: ") || !strings.Contains(fs[0], "LoanRecord") || strings.Contains(fs[0], "more") {
+		t.Errorf("findings %q", fs)
+	}
+}

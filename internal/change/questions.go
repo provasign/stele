@@ -144,7 +144,7 @@ func SaveAnswer(dir string, a Answer) error {
 
 // carriesNote reports whether an answer is a note for the translator.
 func carriesNote(a Answer) bool {
-	return a.Choice == "misread" || a.Choice == "retranslate" || a.Choice == "impossible" || a.Kind == "reread"
+	return a.Choice == "misread" || a.Choice == "retranslate" || a.Choice == "impossible" || a.Kind == "reread" || a.Kind == "free_setting" && a.Choice == "fixed"
 }
 
 // notes are the answers' notes for a statement as it is now written.
@@ -175,6 +175,8 @@ func notes(as []Answer, s translate.Statement) []string {
 			out = append(out, review+"the owner says an earlier reading of this requirement was wrong: "+a.Note)
 		case a.Kind == "conflict" && a.Choice == "precedence" && len(a.Over) > 0:
 			out = append(out, review+fmt.Sprintf("the owner says this requirement takes precedence over %s where both apply: on each rule of this requirement that clashes with them, list %s under overrides. Keep every clause of this requirement as it reads.", strings.Join(a.Over, ", "), strings.Join(a.Over, ", ")))
+		case a.Kind == "free_setting" && a.Choice == "fixed":
+			out = append(out, review+"the owner says the value an earlier reading took from a new setting is not free: "+a.Note+". Write that value, or the approved term that holds it, instead of the setting.")
 		case a.Kind == "self_conflict" && a.Choice == "retranslate":
 			out = append(out, review+"an earlier reading of this requirement gave rules that cannot all hold together ("+a.Note+"). Read the requirement again so its rules agree with each other and with its text.")
 		}
@@ -197,6 +199,8 @@ func answered(as []Answer, q Question) bool {
 			return true // "same" turns the pair into a rename; "different" leaves it a removal and an addition
 		case "task":
 			return true // "task" sets the request aside; "requirement" keeps it, unchecked
+		case "free_setting":
+			return true // "fixed" rereads with the note; "setting" keeps it free
 		case "restates":
 			return true // "update_old" retires the earlier request; "both" keeps it
 		}
@@ -372,6 +376,28 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 							{Choice: "creates", Label: "Yes, it creates it", Then: "Stele records that the step creates the " + split(op.Entity.Name) + "; run `stele change` again"},
 							{Choice: "existing", Label: "No, it can run on an existing one", Then: "the clashes are asked as conflicts; run `stele change` again"},
 						}
+						qs = append(qs, q)
+					}
+					continue
+				}
+			}
+			// A clash in a state no step reaches is set aside, but only for
+			// an entity whose creating steps are known: otherwise its
+			// instances may start in any state. A lent tool with no lent
+			// date clashed with the loan history, though only lending makes
+			// a tool lent and it sets the date (a developer trial,
+			// 2026-11-03). The agent says, from the spec and the code, which
+			// step makes a new one.
+			if op, ops := head.Operations[cf.Unit], res.creators[conflictKey(cf)]; op != nil && len(ops) > 0 {
+				q := Question{ID: qid("creator", op.Entity.Name), Kind: "creator", Existing: op.Entity.Name}
+				if !slices.ContainsFunc(as, func(a Answer) bool { return a.Question == q.ID }) {
+					if !slices.ContainsFunc(qs, func(x Question) bool { return x.ID == q.ID }) {
+						q.Text = fmt.Sprintf("Which step makes a new %s?", split(op.Entity.Name))
+						q.Detail = "Stele found rules that clash in a state of the " + op.Entity.Name + " that no step reaches if a new one starts with one of these steps; without knowing which, it must assume a new one can start in that state. Decide from the spec (and the code)."
+						for _, name := range ops {
+							q.Options = append(q.Options, Option{Choice: name, Label: strings.Trim(Words(name, ""), `"`), Then: "Stele records that the step creates the " + split(op.Entity.Name) + "; run `stele change` again"})
+						}
+						q.Options = append(q.Options, Option{Choice: "none", Label: "None of them: they exist from the start or come from outside", Then: "the clashes are asked as conflicts; run `stele change` again"})
 						qs = append(qs, q)
 					}
 					continue
@@ -632,6 +658,38 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 		}
 	}
 
+	// A threshold read through a new setting that no requirement gives a
+	// value is checked for every value, not the one meant: an
+	// overdue rule read "now - lentAt > config.loanPeriod" beside an
+	// approved due date of lentAt + 14d (a developer trial, 2026-11-03).
+	// The owner says whether the request meant a fixed value.
+	for _, sym := range freeSettings(res, head) {
+		var stmts []string
+		for _, id := range append(append([]string{}, res.Added...), res.Modified...) {
+			for _, rid := range res.Rules[id] {
+				if x := head.Rule(rid); x != nil && strings.Contains(english(x), sym.path) && !slices.Contains(stmts, id) {
+					stmts = append(stmts, id)
+				}
+			}
+		}
+		if len(stmts) == 0 {
+			continue
+		}
+		q := Question{ID: qid("free_setting", append([]string{sym.name}, stmts...)...), Kind: "free_setting", AskOwner: true, Statements: stmts}
+		for _, id := range stmts {
+			q.Requirements = append(q.Requirements, req(id))
+		}
+		q.Text = fmt.Sprintf("Stele read %q through a new setting, %s, that no requirement gives a value, so it checks the rules for every value of it rather than the one meant, and a clash with that value goes unseen. Does the request mean a fixed value, or one named by an approved requirement?", q.Requirements[0].Title, Words(sym.name, ""))
+		q.Recommended, q.Why = "fixed", "a value the requirements fix is checked against them; a free setting is not"
+		q.Options = []Option{
+			{Choice: "fixed", Label: "A fixed value: say which (the owner's words)", Then: "Stele reads the requirement again with the owner's note; run `stele change` again", Note: true},
+			{Choice: "setting", Label: "A setting someone configures: any value", Then: "run `stele change` again"},
+		}
+		if !answered(as, q) {
+			qs = append(qs, q)
+		}
+	}
+
 	// A request that gives Stele nothing to check is often a one-off task,
 	// not something the product must keep ("write the review", "set up the
 	// tracker"): approving it would record a requirement that protects
@@ -814,6 +872,9 @@ func creators(as []Answer) map[string][]string {
 	for _, a := range as {
 		if a.Kind == "creates" && a.Choice == "creates" && !slices.Contains(out[a.Existing], a.Term) {
 			out[a.Existing] = append(out[a.Existing], a.Term)
+		}
+		if a.Kind == "creator" && a.Choice != "none" && a.Choice != "" && !slices.Contains(out[a.Existing], a.Choice) {
+			out[a.Existing] = append(out[a.Existing], a.Choice)
 		}
 	}
 	return out
@@ -1115,4 +1176,47 @@ func paired(qs []Question, a, b string) bool {
 		}
 	}
 	return false
+}
+
+// setting is a new attribute a rule reads as a threshold.
+type setting struct{ name, path string }
+
+// freeSettings are the attributes this change adds that the world sets,
+// that hold a number, duration or time, on an entity no step writes and
+// that is not the request, the clock or a result, and that no state
+// invariant gives a value.
+func freeSettings(res *Result, head *ir.Registry) []setting {
+	var out []setting
+	for _, sym := range res.NewTerms {
+		ent, name, ok := strings.Cut(sym, ".")
+		if !ok || head == nil || head.Entities[ent] == nil {
+			continue
+		}
+		a := head.Entities[ent].Attrs[name]
+		if a == nil || !a.WorldSet || a.Kind != ir.Int && a.Kind != ir.Decimal && a.Kind != ir.Duration && a.Kind != ir.Time {
+			continue
+		}
+		switch ent {
+		case "Request", "Actor", "Clock", "Result":
+			continue
+		}
+		written := false
+		for _, op := range head.Operations {
+			written = written || slices.ContainsFunc(op.Writes, func(w *ir.Attr) bool { return w.Entity != nil && w.Entity.Name == ent })
+		}
+		if written {
+			continue
+		}
+		path := strings.ToLower(ent[:1]) + ent[1:] + "." + name
+		fixed := false
+		for _, x := range head.Rules {
+			if x.Kind == ir.Invariant && x.On == "" && x.Status != "retired" && strings.Contains(english(x), path) {
+				fixed = true
+			}
+		}
+		if !fixed {
+			out = append(out, setting{sym, path})
+		}
+	}
+	return out
 }
