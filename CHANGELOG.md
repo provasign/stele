@@ -30,6 +30,9 @@ Found by three developer trials (ten features each, built with Claude Code and S
   - **Staged content:** the pre-commit hook checks the staged specs, not the working tree.
   - **Exact approval:** approval applies exactly the registry the check produced.
   - **Gate:** a head that removes an entity another step wrote no longer panics the gate.
+  - **Removals:** a change that only removes requirements comes to the approval, which retires their rules; it used to report clean with the rules still live.
+- **Caching.** A cached step result re-decides reachability on every check, since another step's change can make its clashing state reachable. A check that was cancelled or ran out of time is never cached.
+- **Coverage failures are told.** A requirement the coverage check could not judge is a "not judged" finding in the approval, and is judged again on the next check.
 - **Translation.** The coverage judge reads a listing of the items that meet a condition as exactly those. Translation reads a refused step as changing nothing, a record as kept on the step's own instance, and an output of an optional value as optional.
 - Watch tests no longer flake on a half-written file.
 
