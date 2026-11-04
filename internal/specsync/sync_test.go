@@ -47,9 +47,17 @@ func fixture(t *testing.T) (Options, string) {
 	}
 	return Options{Root: root, Format: "markdown", Snapshot: snapshot, Registry: reg}, file
 }
+
+// write saves as editors do, through a temporary file renamed into place: a
+// watcher polling in between would otherwise see the file empty, half
+// written, and report that state.
 func write(t *testing.T, path, text string) {
 	t.Helper()
-	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
 		t.Fatal(err)
 	}
 }

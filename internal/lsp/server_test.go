@@ -28,9 +28,15 @@ func TestSavedSpecDiagnosticsThroughStdio(t *testing.T) {
 	}
 	file := filepath.Join(specs, "door.md")
 	original := "# Door\n\nREQ-1: The door MUST be locked.\n"
+	// Saved through a renamed temporary file, as editors do: written in
+	// place, the watcher could see the file empty, and the test take that
+	// state for the one it waits for.
 	put := func(p, text string) {
 		t.Helper()
-		if err := os.WriteFile(p, []byte(text), 0o644); err != nil {
+		if err := os.WriteFile(p+".tmp", []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Rename(p+".tmp", p); err != nil {
 			t.Fatal(err)
 		}
 	}
