@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -600,7 +601,30 @@ func sortedKeys(m map[string]string) []string {
 	return ks
 }
 
+// copyDir makes to the tree from is: every file copied, and every file of
+// to that from lacks removed. Approval applies the registry the change was
+// checked as; a file the check dropped (writes no longer inferred, say)
+// kept in the registry would make it a registry nobody checked.
 func copyDir(from, to string) error {
+	err := filepath.WalkDir(to, func(p string, d fs.DirEntry, err error) error {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		if err != nil || d.IsDir() {
+			return err
+		}
+		rel, err := filepath.Rel(to, p)
+		if err != nil {
+			return err
+		}
+		if _, err := os.Stat(filepath.Join(from, rel)); errors.Is(err, fs.ErrNotExist) {
+			return os.Remove(p)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
 	return filepath.WalkDir(from, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err

@@ -244,3 +244,27 @@ func TestAnswerTaskSetsRequestAside(t *testing.T) {
 		t.Fatalf("retired-intents.yaml:\n%s", src)
 	}
 }
+
+// TestCopyDirMirrors: applying the checked head leaves the registry exactly
+// as checked; a file the check dropped is removed, not kept (a code
+// review, 2026-11-03).
+func TestCopyDirMirrors(t *testing.T) {
+	from, to := t.TempDir(), t.TempDir()
+	os.MkdirAll(filepath.Join(from, "lessons"), 0o755)
+	os.WriteFile(filepath.Join(from, "rules.yaml"), []byte("new"), 0o644)
+	os.WriteFile(filepath.Join(from, "lessons", "l1.yaml"), []byte("l"), 0o644)
+	os.WriteFile(filepath.Join(to, "rules.yaml"), []byte("old"), 0o644)
+	os.WriteFile(filepath.Join(to, "change-c1.writes.yaml"), []byte("stale"), 0o644)
+	if err := copyDir(from, to); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(to, "rules.yaml")); string(b) != "new" {
+		t.Errorf("rules.yaml = %q", b)
+	}
+	if _, err := os.Stat(filepath.Join(to, "lessons", "l1.yaml")); err != nil {
+		t.Error(err)
+	}
+	if _, err := os.Stat(filepath.Join(to, "change-c1.writes.yaml")); !os.IsNotExist(err) {
+		t.Errorf("a file the head lacks was kept: %v", err)
+	}
+}

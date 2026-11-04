@@ -83,7 +83,16 @@ func cmdPrecommit(args []string, out io.Writer) int {
 
 	var blocks, notes []string
 	if touchesSpecs && cfg.Specs != nil {
-		if r, err := evaluateSpecs(cfg); err == nil {
+		// What the commit carries is the index, not the working tree: a
+		// change staged and then undone in the working tree would pass a
+		// check of the files on disk (a code review, 2026-11-03).
+		staged, cleanup, serr := stagedTree(root, cfg, rel)
+		if serr != nil {
+			fmt.Fprintf(out, "Stele: could not read the staged specs (%v); CI's stele gate still checks them.\n", serr)
+			return 0
+		}
+		defer cleanup()
+		if r, err := evaluateStaged(cfg, staged, rel); err == nil {
 			for _, id := range r.StaleRules {
 				blocks = append(blocks, fmt.Sprintf("approved rule %s was approved for text that has since changed", id))
 			}
@@ -93,7 +102,7 @@ func cmdPrecommit(args []string, out io.Writer) int {
 			// the replacement waited (a developer trial, 2026-11-03).
 			retired := map[string]bool{}
 			if shale {
-				if rs, err := importer.RetiredIntents(root); err == nil {
+				if rs, err := importer.RetiredIntents(staged); err == nil {
 					for _, x := range rs {
 						retired[x.ID] = true
 					}
@@ -243,6 +252,58 @@ func baseBranch() string {
 		return strings.TrimPrefix(strings.TrimSpace(ref), "origin/")
 	}
 	return "main"
+}
+
+// stagedTree exports, into a temporary directory laid out as the
+// repository, the staged spec files, snapshot, registry and retired
+// requests: what the commit carries.
+func stagedTree(root string, cfg *config.Config, rel func(string) string) (string, func(), error) {
+	tmp, err := os.MkdirTemp("", "stele-staged-")
+	if err != nil {
+		return "", nil, err
+	}
+	cleanup := func() { os.RemoveAll(tmp) }
+	specs := rel(cfg.SpecsDir())
+	if cfg.Specs.Format == "shale" {
+		specs = filepath.ToSlash(filepath.Join(specs, ".shale"))
+	}
+	listed, err := git("ls-files", "-z", "--", specs, rel(cfg.SnapshotFile()), rel(cfg.RegistryDir()), importer.RetiredIntentsFile)
+	if err != nil {
+		cleanup()
+		return "", nil, err
+	}
+	var paths []string
+	for _, p := range splitNUL(listed) {
+		switch strings.ToLower(filepath.Ext(p)) {
+		case ".md", ".yaml", ".yml", ".json", ".jsonl":
+			paths = append(paths, p)
+		default:
+			if p == rel(cfg.SnapshotFile()) {
+				paths = append(paths, p)
+			}
+		}
+	}
+	if len(paths) > 0 {
+		export := exec.Command("git", append([]string{"checkout-index", "--prefix=" + tmp + "/", "--"}, paths...)...)
+		export.Dir = root
+		if out, err := export.CombinedOutput(); err != nil {
+			cleanup()
+			return "", nil, fmt.Errorf("git checkout-index: %v: %s", err, out)
+		}
+	}
+	return tmp, cleanup, nil
+}
+
+// evaluateStaged is evaluateSpecs over the staged tree at dir.
+func evaluateStaged(cfg *config.Config, dir string, rel func(string) string) (*specsync.Result, error) {
+	o := specsync.Options{Registry: filepath.Join(dir, rel(cfg.RegistryDir())), Root: filepath.Join(dir, rel(cfg.SpecsDir())), Snapshot: filepath.Join(dir, rel(cfg.SnapshotFile())), Format: cfg.Specs.Format, AnyCase: cfg.Specs.AnyCase}
+	if err := os.MkdirAll(o.Root, 0o755); err != nil {
+		return nil, err
+	}
+	if err := o.Validate(); err != nil {
+		return nil, err
+	}
+	return specsync.Evaluate(o)
 }
 
 func evaluateSpecs(cfg *config.Config) (*specsync.Result, error) {

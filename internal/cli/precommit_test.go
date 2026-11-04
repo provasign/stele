@@ -96,6 +96,32 @@ func TestPrecommit(t *testing.T) {
 	}
 }
 
+// TestPrecommitChecksTheStagedSpec: the commit carries the index, so a
+// change to an approved requirement that is staged and then undone in the
+// working tree still blocks (a code review, 2026-11-03); and a change on
+// disk that is not staged does not.
+func TestPrecommitChecksTheStagedSpec(t *testing.T) {
+	dir := doorProject(t, true)
+	spec := filepath.Join(dir, "specs/door.md")
+	original, _ := os.ReadFile(spec)
+	os.WriteFile(spec, []byte("# Door\n\nREQ-1: The door MUST be locked at night.\n"), 0o644)
+	if out, err := exec.Command("git", "-C", dir, "add", "specs/door.md").CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	os.WriteFile(spec, original, 0o644)
+	if code, out := precommit(t, dir); code != 1 || !strings.Contains(out, "R1 was approved for text that has since changed") {
+		t.Errorf("staged change undone on disk: %d\n%s", code, out)
+	}
+	exec.Command("git", "-C", dir, "reset", "-q").Run()
+	os.WriteFile(filepath.Join(dir, "notes.md"), []byte("x"), 0o644)
+	os.WriteFile(spec, []byte("# Door\n\nREQ-1: The door MUST be open.\n"), 0o644)
+	os.MkdirAll(filepath.Join(dir, "specs/more"), 0o755)
+	os.WriteFile(filepath.Join(dir, "specs/more/a.md"), []byte("# More\n"), 0o644)
+	if code, out := precommit(t, dir, "specs/more/a.md"); code != 0 || strings.Contains(out, "R1 was approved") {
+		t.Errorf("unstaged change on disk blocked the commit: %d\n%s", code, out)
+	}
+}
+
 // TestPrecommitNotAdopted: before a registry has rules, a spec commit passes
 // with the command that adopts the specs.
 func TestPrecommitNotAdopted(t *testing.T) {

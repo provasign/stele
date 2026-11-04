@@ -380,7 +380,11 @@ func opChanges(head *ir.Registry, b, h *ir.Operation) []Change {
 		affected := map[string]bool{}
 		for _, n := range changed {
 			ent, attr, _ := strings.Cut(n, ".")
-			a := head.Entities[ent].Attrs[attr]
+			e := head.Entities[ent]
+			if e == nil {
+				continue // the entity is gone with the write: no rule of head reads it
+			}
+			a := e.Attrs[attr]
 			if a == nil {
 				continue
 			}

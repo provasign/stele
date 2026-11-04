@@ -288,3 +288,54 @@ assert: self.lentAt + 14d + days(self.daysOverdue) <= now and now < self.lentAt 
 		t.Fatalf("accepted %v unchecked %v; want accepted, naming the unchecked steps", res.Accepted, res.Unchecked)
 	}
 }
+
+// TestRemovedEntityOfAWrite: a head that removes an entity together with
+// another entity's operation writing it is gated, not a nil dereference (a
+// code review, 2026-11-03).
+func TestRemovedEntityOfAWrite(t *testing.T) {
+	base := `context: c
+formatVersion: 1
+---
+entity: Door
+context: c
+attributes:
+  locked: { type: bool }
+---
+entity: Log
+context: c
+attributes:
+  written: { type: bool }
+---
+operation: Door.close
+context: c
+default: allow
+writes: [Door.locked, Log.written]
+---
+id: R1
+kind: invariant
+on: Door.close
+assert: self.locked
+`
+	head := `context: c
+formatVersion: 1
+---
+entity: Door
+context: c
+attributes:
+  locked: { type: bool }
+---
+operation: Door.close
+context: c
+default: allow
+writes: [Door.locked]
+---
+id: R1
+kind: invariant
+on: Door.close
+assert: self.locked
+`
+	res := gate(t, base, head)
+	if len(res.Errors) > 0 {
+		t.Fatalf("errors %v", res.Errors)
+	}
+}
