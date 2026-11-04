@@ -90,7 +90,13 @@ func definitions(ctx context.Context, opt Options, res *Result, head *ir.Registr
 				fmt.Fprintf(opt.Log, "definitions: reading %d glossary entr(ies) for %s\n", len(entries), q.ID)
 			}
 			var err error
-			if facts, err = define(ctx, opt.Clients[0], entries, rules, attrs, q.Example, res); err != nil {
+			// Each model call has its own limit; given the run's context
+			// alone, a stalled glossary call held the command until the run
+			// timeout (a code review, 2026-11-04).
+			cctx, cancel := opt.request(ctx)
+			facts, err = define(cctx, opt.Clients[0], entries, rules, attrs, q.Example, res)
+			cancel()
+			if err != nil {
 				res.Warnings = append(res.Warnings, "definitions for "+q.ID+": "+err.Error())
 				continue
 			}

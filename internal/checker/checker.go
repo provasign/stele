@@ -307,6 +307,24 @@ type q struct {
 	env, sys []*lower.Var
 	limit    int
 	known    map[string]bool
+	// extra holds further facts about the situation, asserted by quantified
+	// only: setAside's search for a clash outside the states proven
+	// unreachable.
+	extra []string
+	// forced, when set, is the only selection quantified may choose.
+	forced []int
+}
+
+func newQ(z *solver.Z3, prog *lower.Program, u *lower.Unit, opt Options, known map[string]bool) *q {
+	c := &q{z: z, dts: prog.Datatypes, u: u, limit: opt.MaxConflicts, known: known}
+	for _, v := range u.Vars {
+		if v.System {
+			c.sys = append(c.sys, v)
+		} else {
+			c.env = append(c.env, v)
+		}
+	}
+	return c
 }
 
 // Check enumerates every minimal conflict and dead response in prog.
@@ -531,14 +549,7 @@ func (ck *checkRun) unit(ctx context.Context, u *lower.Unit, part bool) (UnitRes
 		}
 	}
 	res := &Result{}
-	c := &q{z: z, dts: prog.Datatypes, u: u, limit: opt.MaxConflicts, known: known}
-	for _, v := range u.Vars {
-		if v.System {
-			c.sys = append(c.sys, v)
-		} else {
-			c.env = append(c.env, v)
-		}
-	}
+	c := newQ(z, prog, u, opt, known)
 	if part {
 		st, err := c.satisfiable(ctx)
 		if err != nil {
@@ -631,18 +642,84 @@ func (ck *checkRun) setAside(ctx context.Context, z *solver.Z3, u *lower.Unit, r
 	}
 	var kept, gone []Conflict
 	for _, cf := range r.Conflicts {
-		off, err := unreachable(ctx, z, ck.prog, cf)
+		reached, off, err := ck.reached(ctx, z, u, cf)
 		if err != nil {
 			return UnitResult{}, err
 		}
 		if off {
 			gone = append(gone, cf)
 		} else {
-			kept = append(kept, cf)
+			kept = append(kept, reached)
 		}
 	}
 	r.Conflicts, r.Unreachable = kept, append(slices.Clip(r.Unreachable), gone...)
 	return r, nil
+}
+
+// maxResamples bounds the situations reached tries for one conflict.
+const maxResamples = 8
+
+// reached decides whether a step conflict happens in a state some trace
+// enters. The conflict comes with one situation its rules clash in, and
+// unreachable judges that one; the same rules may clash in other states too,
+// and setting the conflict aside on its sample passed a registry whose rules
+// clashed in a reachable state as well (a code review, 2026-11-04). So each
+// state proven unreachable is excluded and the clash looked for again: off
+// when the rules clash nowhere else, otherwise the conflict as sampled in a
+// reachable state. Undecided, or past maxResamples, the conflict stands.
+func (ck *checkRun) reached(ctx context.Context, z *solver.Z3, u *lower.Unit, cf Conflict) (Conflict, bool, error) {
+	ids := map[string]bool{}
+	for _, id := range cf.Rules {
+		ids[id] = true
+	}
+	var core []int
+	for i, f := range u.Rules {
+		if ids[f.Rule.ID] {
+			core = append(core, i)
+		}
+	}
+	c := newQ(z, ck.prog, u, ck.opt, ck.known)
+	for range maxResamples {
+		off, region, err := unreachable(ctx, z, ck.prog, cf, true)
+		if err != nil || !off {
+			return cf, false, err
+		}
+		c.extra = append(c.extra, "(not "+region+")")
+		witness, st, err := c.clashOf(ctx, core)
+		if err != nil {
+			return cf, false, err
+		}
+		switch st {
+		case solver.Unsat:
+			return cf, true, nil
+		case solver.Sat:
+			again := c.describe(core, witness)
+			again.Rules = cf.Rules
+			cf = again
+		default:
+			return cf, false, nil
+		}
+	}
+	return cf, false, nil
+}
+
+// clashOf asks for a situation, within c.extra, where the formulas in core
+// together have no response.
+func (c *q) clashOf(ctx context.Context, core []int) (map[string]string, solver.Status, error) {
+	c.forced = core
+	defer func() { c.forced = nil }()
+	var err error
+	for _, check := range []string{qeCheck, plainCheck} {
+		st, w, _, e := c.quantified(ctx, nil, check)
+		if e != nil {
+			err = e
+			continue
+		}
+		if st != solver.Unknown {
+			return w, st, nil
+		}
+	}
+	return nil, solver.Unknown, err
 }
 
 func (c *q) conflicts(ctx context.Context, res *Result) (bool, error) {
@@ -1419,8 +1496,18 @@ func (c *q) quantified(ctx context.Context, found [][]int, check string) (solver
 	c.preamble(&b)
 	declare(&b, c.env)
 	c.assumptions(&b)
+	for _, t := range c.extra {
+		fmt.Fprintf(&b, "(assert %s)\n", t)
+	}
 	for i := range c.u.Rules {
 		fmt.Fprintf(&b, "(declare-const %s Bool)\n", selName(i))
+		if c.forced != nil {
+			sel := selName(i)
+			if !slices.Contains(c.forced, i) {
+				sel = "(not " + sel + ")"
+			}
+			fmt.Fprintf(&b, "(assert %s)\n", sel)
+		}
 	}
 	for _, core := range found {
 		sels := make([]string, len(core))

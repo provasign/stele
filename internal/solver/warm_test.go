@@ -41,6 +41,23 @@ func TestWarmAgrees(t *testing.T) {
 	}
 }
 
+// TestSolversShareWarmProcesses: each check makes a solver of its own;
+// their idle processes are shared, not left running one set per solver (a
+// code review, 2026-11-04).
+func TestSolversShareWarmProcesses(t *testing.T) {
+	needZ3(t)
+	before := max(idleCount((&Z3{}).path()), 1)
+	for range 3 {
+		z := &Z3{Warm: true}
+		if r, err := z.Run(context.Background(), "(declare-const x Int)\n(assert (> x 0))\n(check-sat)\n"); err != nil || r.Status != Sat {
+			t.Fatalf("%+v %v", r, err)
+		}
+	}
+	if n := idleCount((&Z3{}).path()); n != before {
+		t.Fatalf("%d idle z3 processes after three solvers ran one script each, want %d", n, before)
+	}
+}
+
 // TestWarmCancel: a caller that gives up gets unknown, and the next script
 // still runs.
 func TestWarmCancel(t *testing.T) {

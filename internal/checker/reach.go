@@ -3,6 +3,7 @@ package checker
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -22,7 +23,13 @@ import (
 // no trace ever has S. Units are slices, so each query holds fewer
 // constraints than the whole registry, which only makes S look reachable
 // more often: the answer is sound.
-func unreachable(ctx context.Context, z *solver.Z3, prog *lower.Program, cf Conflict) (bool, error) {
+//
+// S is what the conflict's one sampled situation fixes, not every state the
+// rules clash in; region is S as a term over the unit's variables, so that
+// the caller can look for the clash outside it. With widen, S first loses
+// each value it can lose and stay unreachable: excluded value by value, a
+// clash that ignores an integer was sampled again at its every value.
+func unreachable(ctx context.Context, z *solver.Z3, prog *lower.Program, cf Conflict, widen bool) (off bool, region string, err error) {
 	// The values the conflict fixes for state some operation writes.
 	written := map[*ir.Attr]bool{}
 	for _, u := range prog.Units {
@@ -39,9 +46,10 @@ func unreachable(ctx context.Context, z *solver.Z3, prog *lower.Program, cf Conf
 		}
 	}
 	if unit == nil || unit.Op == nil {
-		return false, nil
+		return false, "", nil
 	}
 	fixed := map[string]string{} // label -> raw value
+	names := map[string]string{} // label -> the unit's variable
 	for _, v := range unit.Vars {
 		raw, ok := cf.before[v.Label]
 		if !ok || raw == "" || v.Post || v.Attr == nil || v.Attr.Entity == nil || v.Label != v.Attr.QName() && v.Label != v.Attr.QName()+"?" {
@@ -49,6 +57,9 @@ func unreachable(ctx context.Context, z *solver.Z3, prog *lower.Program, cf Conf
 		}
 		if !written[v.Attr] {
 			continue // the world sets it: any value can be reached
+		}
+		if v.Label == v.Attr.QName() && cf.before[v.Label+"?"] == "false" {
+			continue // unset: its value means nothing
 		}
 		if len(v.Attr.Entity.CreatedBy) == 0 {
 			// Instances may start in any state, so this value is reachable;
@@ -60,10 +71,41 @@ func unreachable(ctx context.Context, z *solver.Z3, prog *lower.Program, cf Conf
 			continue
 		}
 		fixed[v.Label] = raw
+		names[v.Label] = v.Name
 	}
 	if len(fixed) == 0 {
-		return false, nil
+		return false, "", nil
 	}
+	if off, err = neverEntered(ctx, z, prog, fixed); err != nil || !off {
+		return false, "", err
+	}
+	labels := slices.Sorted(maps.Keys(fixed))
+	if widen {
+		for _, l := range labels {
+			if len(fixed) == 1 {
+				break
+			}
+			raw := fixed[l]
+			delete(fixed, l)
+			if still, err := neverEntered(ctx, z, prog, fixed); err != nil {
+				return false, "", err
+			} else if !still {
+				fixed[l] = raw
+			}
+		}
+	}
+	var in []string
+	for _, l := range labels {
+		if raw, ok := fixed[l]; ok {
+			in = append(in, fmt.Sprintf("(= %s %s)", names[l], raw))
+		}
+	}
+	return true, conjoin(in), nil
+}
+
+// neverEntered reports whether no step leaves an instance with the values
+// fixed: none creates one so, and none changes one into them.
+func neverEntered(ctx context.Context, z *solver.Z3, prog *lower.Program, fixed map[string]string) (bool, error) {
 	for _, u := range prog.Units {
 		if u.Op == nil {
 			continue
@@ -171,7 +213,7 @@ func CreatorsSettingAside(ctx context.Context, z *solver.Z3, reg *ir.Registry, c
 		if err != nil {
 			return out, err
 		}
-		gone, err := unreachable(ctx, z, prog, cf)
+		gone, _, err := unreachable(ctx, z, prog, cf, false)
 		if err != nil {
 			return out, err
 		}

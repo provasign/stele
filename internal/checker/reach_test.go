@@ -99,6 +99,24 @@ func TestConflictFromUnreachableStateIsSetAside(t *testing.T) {
 	}
 }
 
+// TestClashAlsoInReachableStateStands: the rules clash both when a job is
+// broken, which no step enters, and when it is running, which starting
+// enters. Set aside on a sample in the broken state, the clash passed (a
+// code review, 2026-11-04).
+func TestClashAlsoInReachableStateStands(t *testing.T) {
+	needZ3(t)
+	both := strings.ReplaceAll(jobs, "when: self.status = broken", "when: self.status in {broken, running}")
+	res := checkSource(t, both)
+	if len(res.Conflicts) != 1 || len(res.Unreachable) != 0 {
+		t.Fatalf("conflicts %+v, unreachable %+v", res.Conflicts, res.Unreachable)
+	}
+	for _, b := range res.Conflicts[0].Situation {
+		if strings.HasSuffix(b.Name, "status") && b.Value != "running" {
+			t.Errorf("reported in %s %s, want the reachable running", b.Name, b.Value)
+		}
+	}
+}
+
 const idle = `context: c
 formatVersion: 1
 ---

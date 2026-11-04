@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/provasign/stele/internal/adjudicate"
 	"github.com/provasign/stele/internal/llm"
@@ -100,6 +101,49 @@ func TestGlossaryDefinitionSettlesConflict(t *testing.T) {
 	}
 	if asked != 1 {
 		t.Fatalf("definitions asked %d times, want once", asked)
+	}
+}
+
+// stalled never answers the definitions request.
+type stalled struct {
+	fake
+	left *time.Duration // the time the definitions request was given
+}
+
+func (g stalled) Complete(ctx context.Context, req llm.Request) (*llm.Reply, error) {
+	if req.System != definePrompt {
+		return g.fake.Complete(ctx, req)
+	}
+	if d, ok := ctx.Deadline(); ok {
+		*g.left = time.Until(d)
+	}
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+// The glossary call has the request timeout, not what is left of the run's:
+// a stalled one held the command until the run timeout (a code review,
+// 2026-11-04).
+func TestGlossaryCallHasRequestTimeout(t *testing.T) {
+	repo, registry := setup(t, "## ADDED Requirements\n\n### Requirement: Erasure\nA Cleared resource MUST be deletable.\nGlossary: Cleared: a resource with no holds.\n")
+	if err := os.WriteFile(filepath.Join(registry, "vocabulary.yaml"), []byte(strings.Replace(vocabYAML,
+		"holds: { type: int, range: [0, 5] }", "holds: { type: int, range: [0, 5] }\n  cleared: { type: bool }", 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var left time.Duration
+	m := stalled{one("Cleared", map[string]any{"kind": "permission", "operation": "Resource.delete", "effect": "allow", "when": "self.cleared"}), &left}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	start := time.Now()
+	res, err := Run(ctx, Options{Repo: repo, Change: "c1", Registry: registry, Out: t.TempDir(), Clients: []llm.Client{m}, NoCode: true, RequestTimeout: 200 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if left == 0 || left > time.Second || time.Since(start) > 30*time.Second {
+		t.Fatalf("definitions given %v, run took %v", left, time.Since(start))
+	}
+	if !slices.ContainsFunc(res.Warnings, func(w string) bool { return strings.Contains(w, "definitions for") }) {
+		t.Errorf("warnings %v, want the failed definitions", res.Warnings)
 	}
 }
 

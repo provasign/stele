@@ -7,6 +7,7 @@ Found by three developer trials (ten features each, built with Claude Code and S
 - **The owner's decisions take fewer turns.**
   - **Precedence:** a new request that adds a case to an approved one can take precedence where they meet, both standing; no restating of the whole rule.
   - **Restated requests:** a request restated after the owner retired the earlier wording is the same requirement, edited, with no rename question.
+  - **Denied precedence:** "MUST NOT override FR-001" no longer reads as overriding FR-001.
   - **Changed numbers:** a request whose rule is an approved rule with only its numbers changed ("at most 2" for "at most 3") asks whether it replaces it, however it is worded.
 - **More of what a request says is checked, and the rest is named.**
   - **Exact computed values decide:** "the whole days overdue", stated by two bounds, and "the message names the overdue tool" are decided where the solver used to give up.
@@ -16,7 +17,7 @@ Found by three developer trials (ten features each, built with Claude Code and S
   - **Free settings are asked about:** a threshold read through a new setting no requirement gives a value is a question: the owner says whether a fixed value was meant.
   - **Undecided steps:** the owner can approve a step the solver cannot decide; the registry records it as unchecked and CI's gate accepts only recorded steps.
 - **Fewer false contradictions.**
-  - **Unreachable states:** a clash in a state no step reaches is set aside more often. Reachability now fixes whether optional values are set and leaves out entities with no creating step. When recording which step creates an entity would set a clash aside, the agent is asked which one.
+  - **Unreachable states:** a clash in a state no step reaches is set aside more often. Reachability now fixes whether optional values are set and leaves out entities with no creating step. When recording which step creates an entity would set a clash aside, the agent is asked which one. A clash is set aside only when its rules clash in no reachable state, not when the one state the solver sampled is unreachable.
   - **Lists:** lists fit the instances they hold.
   - **Kept optionals:** `x = old(x)` keeps an optional value that is unset.
   - **Write inference:** reads of other instances are no longer taken as writes.
@@ -32,6 +33,7 @@ Found by three developer trials (ten features each, built with Claude Code and S
   - **Gate:** a head that removes an entity another step wrote no longer panics the gate.
   - **Removals:** a change that only removes requirements comes to the approval, which retires their rules; it used to report clean with the rules still live.
 - **Caching.** A cached step result re-decides reachability on every check, since another step's change can make its clashing state reachable. A check that was cancelled or ran out of time is never cached.
+- **Processes and timeouts.** Solvers share one set of warm z3 processes per binary, so a long-running `stele serve` no longer gains z3 processes with every check. The glossary and code-evidence model calls of `stele change` have the per-request timeout, like translation.
 - **Coverage failures are told.** A requirement the coverage check could not judge is a "not judged" finding in the approval, and is judged again on the next check.
 - **Translation.** The coverage judge reads a listing of the items that meet a condition as exactly those. Translation reads a refused step as changing nothing, a record as kept on the step's own instance, and an output of an optional value as optional.
 - Watch tests no longer flake on a half-written file.

@@ -670,11 +670,21 @@ func TestTextPrecedence(t *testing.T) {
 		"010/FR-008a": "FR-008a: System MUST disable colour with --raw, regardless of `--color` (FR-003b)",
 		"010/FR-002":  "FR-002: Output MUST go in colour unless the terminal cannot show it (FR-005b)",
 		"010/FR-005b": "FR-005b: fall back when the terminal has no colour",
+		// A denied precedence names no override (a code review, 2026-11-04);
+		// a qualifying one after a negated verb still does.
+		"010/FR-009": "FR-009: The pager MUST NOT override `--color` (FR-003b)",
+		"010/FR-010": "FR-010: Paging doesn't take precedence over FR-005b",
+		"010/FR-011": "FR-011: The pager MUST NOT stop regardless of FR-005b",
 	}
-	cands := []translate.Candidate{{StatementID: "010/FR-008a", Outcome: "rule"}, {StatementID: "010/FR-002", Outcome: "rule"}}
+	cands := []translate.Candidate{{StatementID: "010/FR-008a", Outcome: "rule"}, {StatementID: "010/FR-002", Outcome: "rule"},
+		{StatementID: "010/FR-009", Outcome: "rule"}, {StatementID: "010/FR-010", Outcome: "rule"}, {StatementID: "010/FR-011", Outcome: "rule"}}
 	textPrecedence(cands, prose)
-	if strings.Join(cands[0].Overrides, ",") != "010/FR-003b" || len(cands[1].Overrides) != 0 {
-		t.Fatalf("overrides = %v / %v", cands[0].Overrides, cands[1].Overrides)
+	got := make([]string, len(cands))
+	for i, c := range cands {
+		got[i] = strings.Join(c.Overrides, ",")
+	}
+	if want := []string{"010/FR-003b", "", "", "", "010/FR-005b"}; !slices.Equal(got, want) {
+		t.Fatalf("overrides = %q, want %q", got, want)
 	}
 }
 

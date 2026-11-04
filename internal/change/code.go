@@ -96,7 +96,7 @@ func codeEvidence(ctx context.Context, opt Options, res *Result) {
 			}
 			ids := slices.Compact(slices.Sorted(slices.Values(q.stmts)))
 			vs, usage := adjudicate.Decide(ctx, opt.Clients[0], stmts, []adjudicate.Candidate{{StatementIDs: ids, Situation: situation}},
-				adjudicate.Options{Repo: opt.Repo, Evidence: evidence, Ranges: true}, nil)
+				adjudicate.Options{Repo: opt.Repo, Evidence: evidence, Ranges: true, Timeout: opt.RequestTimeout}, nil)
 			res.Usage.Add(usage)
 			v = vs[0]
 			if !strings.HasPrefix(v.Reason, "model call failed") && !strings.HasPrefix(v.Reason, "code search failed") {

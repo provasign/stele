@@ -81,6 +81,14 @@ type Options struct {
 	lessons []*ir.Lesson // the registry's lessons, for the coverage judge
 }
 
+// request is ctx limited to one model call's RequestTimeout.
+func (o Options) request(ctx context.Context) (context.Context, context.CancelFunc) {
+	if o.RequestTimeout > 0 {
+		return context.WithTimeout(ctx, o.RequestTimeout)
+	}
+	return ctx, func() {}
+}
+
 // Result is what the change does to the registry and what the gate found.
 type Result struct {
 	Change string `json:"change"`

@@ -26,13 +26,32 @@ type session struct {
 	n     int
 }
 
+// pools holds one pool per z3 binary for the whole process. Each solver
+// had a pool of its own, and nothing stopped its processes when the solver
+// was dropped: every check stele serve ran left its z3 children running (a
+// code review, 2026-11-04). Shared, the idle processes stay at one per CPU
+// however many solvers a process makes, and a new solver starts warm.
+var pools sync.Map // path -> *pool
+
 func (z *Z3) pool() *pool {
 	z.once.Do(func() {
 		if z.sessions == nil {
-			z.sessions = &pool{path: z.path()}
+			p, _ := pools.LoadOrStore(z.path(), &pool{path: z.path()})
+			z.sessions = p.(*pool)
 		}
 	})
 	return z.sessions
+}
+
+// idleCount is the number of idle processes kept for path.
+func idleCount(path string) int {
+	p, ok := pools.Load(path)
+	if !ok {
+		return 0
+	}
+	p.(*pool).mu.Lock()
+	defer p.(*pool).mu.Unlock()
+	return len(p.(*pool).idle)
 }
 
 func (p *pool) get() (*session, error) {
