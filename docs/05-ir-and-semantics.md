@@ -101,7 +101,7 @@ Multiple instances with quantifiers, strings, records and the other value types 
 
 | Kind | Meaning | Checked by |
 | --- | --- | --- |
-| `permission` | `allow` (it must run) or `deny` (it must not) an operation when the guard holds, or `possible`: it must be able to run in some situation where the guard holds, with every other rule ([D-052](design-decisions.md)) | Conflict, gap, vacuity; reachability for `possible` |
+| `permission` | `allow` (it must run) or `deny` (it must not) an operation when the guard holds, or `possible`: it must be able to run in some situation where the guard holds, with every other rule, and change something it writes: a step that runs, reports an error and keeps every value was refused ([D-052](design-decisions.md)) | Conflict, gap, vacuity; reachability for `possible` |
 | `precondition` | The operation must not run unless the guard holds, for every actor; violations are errors, not denials | Invariant preservation, reachability |
 | `invariant` | `assert` holds in every reachable state where `when` holds | Invariant preservation |
 | `derivation` | Defines a derived attribute or a decision-table output | Type check, range check |

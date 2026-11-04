@@ -17,6 +17,7 @@ Found by three developer trials (ten features each, built with Claude Code and S
   - **Partial checks are named:** a reading Stele could not use is a finding of its requirement, so a requirement checked in part says which part is not.
   - **Free settings are asked about:** a threshold read through a new setting no requirement gives a value is a question: the owner says whether a fixed value was meant.
   - **Undecided steps:** the owner can approve a step the solver cannot decide; the registry records it as unchecked and CI's gate accepts only recorded steps.
+- **A missed contradiction is found.** "Stewards may have up to 5 tools lent" beside a 3-tool limit read as an error that changes nothing passed, since the refused lend still ran. Being able to do something now means the step runs and changes something it writes.
 - **Fewer false contradictions.**
   - **Unreachable states:** a clash in a state no step reaches is set aside more often. Reachability now fixes whether optional values are set and leaves out entities with no creating step. When recording which step creates an entity would set a clash aside, the agent is asked which one. A clash is set aside only when its rules clash in no reachable state, not when the one state the solver sampled is unreachable.
   - **Lists:** lists fit the instances they hold.

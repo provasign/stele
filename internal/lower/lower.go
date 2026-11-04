@@ -552,6 +552,43 @@ func (lw *lowerer) stepUnit(op *ir.Operation, live []*ir.Rule, superseded map[st
 			used[b.Label], used[p.Label] = b, p
 		}
 	}
+	// Being able to do something is running with an effect: a step that
+	// runs, reports an error and keeps every value it writes was refused.
+	// "Stewards may have up to 5 tools lent" passed beside a 3-tool limit
+	// read that way, since lending to a steward with 4 still ran (a
+	// developer trial, 2026-11-04). Kept is what x = old(x) means, so an
+	// unset value stays unset whatever its leftover value. A step that
+	// writes nothing has no effect to require.
+	if len(u.Possible) > 0 && len(op.Writes) > 0 {
+		lw.startRule()
+		var kept []string
+		for _, a := range op.Writes {
+			if a.Entity != op.Entity {
+				for _, part := range parts(a) {
+					lw.ph = before
+					b := lw.varFor(a.Entity.Name, a, part, false)
+					lw.ph = after
+					p := lw.varFor(a.Entity.Name, a, part, false)
+					kept = append(kept, fmt.Sprintf("(= %s %s)", p.Name, b.Name))
+					lw.inRule[b.Label], lw.inRule[p.Label] = b, p
+				}
+				continue
+			}
+			e, err := ir.ParseExpr(fmt.Sprintf("self.%s = old(self.%s)", a.Name, a.Name))
+			if err != nil {
+				continue
+			}
+			lw.ph = after
+			kept = append(kept, lw.boolTerm(e, op.Entity, "the effect of "+op.Name))
+		}
+		lw.ph = before
+		for l, v := range lw.inRule {
+			used[l] = v
+		}
+		for _, f := range u.Possible {
+			f.Term = fmt.Sprintf("(and %s (not %s))", f.Term, conj(kept))
+		}
+	}
 	lw.ph = before
 	runs := lw.opVar(op.Name)
 	used[runs.Label] = runs

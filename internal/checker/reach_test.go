@@ -311,3 +311,51 @@ overrides: [L]
 		t.Fatalf("%s %q", res.Verdict, cores(res))
 	}
 }
+
+// TestRefusedStepIsNotPossible: being able to do something is running with
+// an effect. A lend refused by reporting an error and keeping every value
+// still ran, so "stewards may have up to 5 tools lent" passed beside a
+// 3-tool limit read that way (a developer trial, 2026-11-04). The lent date
+// is optional and unset: its leftover value is no effect.
+func TestRefusedStepIsNotPossible(t *testing.T) {
+	needZ3(t)
+	src := `context: c
+formatVersion: 1
+---
+entity: Tool
+context: c
+attributes:
+  status: { type: enum, values: [available, lent] }
+  lentAt: { type: optional<time> }
+  held: { type: int, range: [0, 9], setBy: world }
+---
+extend: Result
+context: c
+attributes:
+  error: { type: bool }
+---
+operation: Tool.lend
+context: c
+default: allow
+writes: [Tool.status, Tool.lentAt]
+---
+id: limit
+kind: invariant
+on: Tool.lend
+when: self.held >= 3
+assert: result.error and self.status = old(self.status) and self.lentAt = old(self.lentAt)
+---
+id: steward
+kind: permission
+operation: Tool.lend
+effect: possible
+when: self.held = 4
+`
+	if res := checkSource(t, src); res.Verdict != Fail || len(res.Conflicts) != 1 || strings.Join(res.Conflicts[0].Rules, ",") != "limit,steward" {
+		t.Fatalf("%s %q", res.Verdict, cores(res))
+	}
+	// Below the limit the lend has its effect.
+	if res := checkSource(t, strings.Replace(src, "when: self.held = 4", "when: self.held = 2", 1)); res.Verdict != Pass {
+		t.Fatalf("below the limit: %s %q", res.Verdict, cores(res))
+	}
+}
