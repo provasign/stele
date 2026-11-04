@@ -1,5 +1,38 @@
 # Changelog
 
+## v0.1.5 - 2026-11-03
+
+Found by three developer trials (ten features each, built with Claude Code and Stele from the owner's requests) and a code review.
+
+- **The owner's decisions take fewer turns.**
+  - **Precedence:** a new request that adds a case to an approved one can take precedence where they meet, both standing; no restating of the whole rule.
+  - **Restated requests:** a request restated after the owner retired the earlier wording is the same requirement, edited, with no rename question.
+  - **Changed numbers:** a request whose rule is an approved rule with only its numbers changed ("at most 2" for "at most 3") asks whether it replaces it, however it is worded.
+- **More of what a request says is checked, and the rest is named.**
+  - **Exact computed values decide:** "the whole days overdue", stated by two bounds, and "the message names the overdue tool" are decided where the solver used to give up.
+  - **Results per item decide:** a uniqueness rule makes its attribute a key, so the tools a step reads with the same id are one tool, and results keyed by id have one value each.
+  - **Other instances:** state invariants hold for the other instances a rule ranges over.
+  - **Partial checks are named:** a reading Stele could not use is a finding of its requirement, so a requirement checked in part says which part is not.
+  - **Free settings are asked about:** a threshold read through a new setting no requirement gives a value is a question: the owner says whether a fixed value was meant.
+  - **Undecided steps:** the owner can approve a step the solver cannot decide; the registry records it as unchecked and CI's gate accepts only recorded steps.
+- **Fewer false contradictions.**
+  - **Unreachable states:** a clash in a state no step reaches is set aside more often. Reachability now fixes whether optional values are set and leaves out entities with no creating step. When recording which step creates an entity would set a clash aside, the agent is asked which one.
+  - **Lists:** lists fit the instances they hold.
+  - **Kept optionals:** `x = old(x)` keeps an optional value that is unset.
+  - **Write inference:** reads of other instances are no longer taken as writes.
+  - **Pruning:** keeps what a rule that does not compile yet names.
+- **Clearer questions.**
+  - **Examples:** a question's example keeps each slot's values ("shed: tools #2: id is 0").
+  - **Statuses:** an undecided check reads as `undecided`, not `broken`.
+  - **Agent reminders:** the hook reminds the agent of requests the owner has not approved, and asks it to check and report the approved requirements a change touches.
+- **Commits and approval.**
+  - **Base branch:** in a Shale project, a commit to the base branch waits for the owner's approval of the requests it carries (on a branch, the merge waits).
+  - **Staged content:** the pre-commit hook checks the staged specs, not the working tree.
+  - **Exact approval:** approval applies exactly the registry the check produced.
+  - **Gate:** a head that removes an entity another step wrote no longer panics the gate.
+- **Translation.** The coverage judge reads a listing of the items that meet a condition as exactly those. Translation reads a refused step as changing nothing, a record as kept on the step's own instance, and an output of an optional value as optional.
+- Watch tests no longer flake on a half-written file.
+
 ## v0.1.4 - 2026-11-03
 
 - **A skipped translation is not a one-off task.** A model can answer with placeholders instead of rules ("The requested rule translation is not provided in this response"). The coverage judge now also reads a statement whose readings are all informal: when it finds a clause a rule can check, the statement is translated again, and if it still has no rule it is reported under `failed`, to be retried, instead of being asked about as a one-off task.
