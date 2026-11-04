@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -597,21 +598,36 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 					best, score = old, s
 				}
 			}
-			if best == "" || score < renameGuessThreshold {
-				continue
+			type candidate struct {
+				old, detail, text string
 			}
-			q := Question{ID: qid("restates", id, best, translate.TextHash(res.Statements[id])), Kind: "restates", AskOwner: true,
-				Requirements: []Requirement{req(id), req(best)}, Statements: []string{id},
-				Detail: fmt.Sprintf("%.0f%% of the words in common", score*100)}
-			q.Requirements[1].Where = "current spec"
-			q.Text = fmt.Sprintf("The new request %q reads much like the approved %q. Does it replace it?", req(id).Title, req(best).Title)
-			q.Recommended, q.Why = "update_old", "a request restated with a change replaces the earlier one; kept, the spec would say both"
-			q.Options = []Option{
-				{Choice: "update_old", Label: "It replaces the earlier request: retire it", Then: "Stele retires the earlier request and its rules (`.stele/retired-intents.yaml`, committed with the change); run `stele change` again"},
-				{Choice: "both", Label: "Both stand: they are different requirements", Then: "run `stele change` again"},
+			var cands []candidate
+			if best != "" && score >= renameGuessThreshold {
+				cands = append(cands, candidate{best, fmt.Sprintf("%.0f%% of the words in common", score*100), "The new request %q reads much like the approved %q. Does it replace it?"})
 			}
-			if !answered(as, q) {
-				qs = append(qs, q)
+			// Worded afresh, a request restated with a change shares few
+			// words with the old one, but its rules still show it: an
+			// approved condition with only its numbers changed.
+			for _, old := range renumbered(head, res.Rules[id], changed) {
+				if !slices.ContainsFunc(cands, func(c candidate) bool { return c.old == old }) && !paired(qs, id, old) {
+					cands = append(cands, candidate{old, "a rule of the new request is a rule of the approved one with its numbers changed", "The new request %q changes a number in the approved %q. Does it replace it?"})
+				}
+			}
+			for _, cd := range cands {
+				best := cd.old
+				q := Question{ID: qid("restates", id, best, translate.TextHash(res.Statements[id])), Kind: "restates", AskOwner: true,
+					Requirements: []Requirement{req(id), req(best)}, Statements: []string{id},
+					Detail: cd.detail}
+				q.Requirements[1].Where = "current spec"
+				q.Text = fmt.Sprintf(cd.text, req(id).Title, req(best).Title)
+				q.Recommended, q.Why = "update_old", "a request restated with a change replaces the earlier one; kept, the spec would say both"
+				q.Options = []Option{
+					{Choice: "update_old", Label: "It replaces the earlier request: retire it", Then: "Stele retires the earlier request and its rules (`.stele/retired-intents.yaml`, committed with the change); run `stele change` again"},
+					{Choice: "both", Label: "Both stand: they are different requirements", Then: "run `stele change` again"},
+				}
+				if !answered(as, q) {
+					qs = append(qs, q)
+				}
 			}
 		}
 	}
@@ -1037,3 +1053,66 @@ func rejectedFact(as []Answer, id, key string) bool {
 }
 
 func candFactKey(c translate.Candidate) string { return factKey(c.On, c.When, c.Assert) }
+
+// numberLiteral matches a number in a rule's text, with a duration's unit.
+var numberLiteral = regexp.MustCompile(`\b\d+(\.\d+)?[a-z]*\b`)
+
+// renumbered lists the approved requests, unchanged in this change, with a
+// rule that a rule of the new one restates with its numbers changed: on the
+// same step, of the same kind and effect, with a condition or assertion
+// that contains the approved one's once numbers are set aside, but not as
+// written. "count(...) >= 2" restates "count(...) >= 3" (a developer
+// trial, 2026-11-03).
+func renumbered(head *ir.Registry, rules []string, changed map[string]bool) []string {
+	if head == nil {
+		return nil
+	}
+	text := func(e ir.Expr) string {
+		if e == nil {
+			return ""
+		}
+		return e.String()
+	}
+	skeleton := func(s string) string { return numberLiteral.ReplaceAllString(s, "#") }
+	found := map[string]bool{}
+	for _, rid := range rules {
+		n := head.Rule(rid)
+		if n == nil {
+			continue
+		}
+		for _, o := range head.Rules {
+			if o.StatementID == "" || changed[o.StatementID] || !strings.HasPrefix(o.StatementID, "intent/") || found[o.StatementID] {
+				continue
+			}
+			if o.Kind != n.Kind || o.Effect != n.Effect || o.Operation != n.Operation || o.On != n.On {
+				continue
+			}
+			for _, pair := range [][2]string{{text(o.When), text(n.When)}, {text(o.Assert), text(n.Assert)}} {
+				was, now := pair[0], pair[1]
+				if !numberLiteral.MatchString(was) || strings.Contains(now, was) {
+					continue
+				}
+				if strings.Contains(skeleton(now), skeleton(was)) {
+					found[o.StatementID] = true
+				}
+			}
+		}
+	}
+	return slices.Sorted(maps.Keys(found))
+}
+
+// paired reports whether a question already asks about requests a and b
+// together.
+func paired(qs []Question, a, b string) bool {
+	for _, q := range qs {
+		var ids []string
+		for _, r := range q.Requirements {
+			ids = append(ids, r.ID)
+		}
+		ids = append(ids, q.Statements...)
+		if slices.Contains(ids, a) && slices.Contains(ids, b) {
+			return true
+		}
+	}
+	return false
+}

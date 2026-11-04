@@ -1327,6 +1327,55 @@ func TestRestatementIsTheSameRequirement(t *testing.T) {
 	}
 }
 
+// A request that changes a number in an approved one, worded afresh, shares
+// few words with it; its rule, the approved one renumbered, still asks
+// whether it replaces it (a developer trial, 2026-11-03).
+func TestRenumberedRuleRestates(t *testing.T) {
+	for _, tool := range []string{"git", "z3"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skip(tool + " not on PATH")
+		}
+	}
+	repo, registry := t.TempDir(), t.TempDir()
+	write := func(p, src string) {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old := "The system must not delete a resource with 3 or more holds"
+	write(filepath.Join(repo, ".shale/s1.yaml"), "id: s1\nintent:\n    title: '"+old+"'\n")
+	write(filepath.Join(repo, ".shale/s2.yaml"), "id: s2\nintent:\n    title: 'Storage is tight: two holds are now enough to keep a resource'\n")
+	if out, err := exec.Command("git", "-C", repo, "init", "-q", "-b", "main").CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	write(filepath.Join(registry, "vocabulary.yaml"), vocabYAML)
+	write(filepath.Join(registry, "rules.yaml"), "id: intent/s1\nkind: permission\neffect: deny\noperation: Resource.delete\nwhen: self.holds >= 3\nsource:\n  statementId: intent/s1\n  doc: .shale/s1.yaml\n  prose: '"+old+"'\n  textHash: "+translate.TextHash(old)+"\n")
+	reg, err := ir.LoadDir(registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := adopt.ApproveRules(reg, []string{"intent/s1"}, "owner"); err != nil {
+		t.Fatal(err)
+	}
+	client := one("Storage is tight", map[string]any{"kind": "permission", "operation": "Resource.delete", "effect": "deny", "when": "self.holds >= 2"})
+	res, err := Run(context.Background(), Options{Repo: repo, Change: "main", Registry: registry, Out: t.TempDir(), Base: "main", Format: "shale", Clients: []llm.Client{client}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var asked *Question
+	for i, q := range res.Questions {
+		if q.Kind == "restates" && len(q.Requirements) == 2 && q.Requirements[1].ID == "intent/s1" {
+			asked = &res.Questions[i]
+		}
+	}
+	if asked == nil || !strings.Contains(asked.Text, "changes a number") {
+		t.Fatalf("no restates question for the renumbered rule: %+v", res.Questions)
+	}
+}
+
 // A new request that adds an exception to an approved one can take
 // precedence where they meet, both standing: the conflict offers it, the
 // answer asks the translation for overrides, and a reading that names the
