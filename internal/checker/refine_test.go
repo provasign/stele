@@ -212,3 +212,80 @@ func TestComputedValueDecides(t *testing.T) {
 		t.Errorf("a message that must and must not name the tool passed: %s %q, undecided %v", res.Verdict, cores(res), res.Undecided)
 	}
 }
+
+// perItem lists a shed's tools with a result per tool, keyed by the tool's
+// id, which a uniqueness rule makes a key.
+const perItem = `
+context: c
+formatVersion: 1
+---
+entity: Shed
+context: c
+relations:
+  tools: { to: Tool, many: true }
+---
+entity: Tool
+context: c
+attributes:
+  id: { type: int }
+  status: { type: enum, values: [available, lent] }
+  lentAt: { type: time, optional: true }
+---
+extend: platform.Result
+context: c
+attributes:
+  dueDateOf: { type: "map<int, time>" }
+  overdueDaysOf: { type: "map<int, int>" }
+  listedIds: { type: list, of: int }
+---
+operation: Shed.list
+context: c
+default: allow
+---
+operation: Shed.overdue
+context: c
+default: allow
+---
+id: U
+kind: invariant
+subject: Tool
+assert: "all(u in instances(Tool): u.id != self.id)"
+---
+id: L
+kind: invariant
+on: Shed.list
+assert: "all(t in self.tools: contains(result.listedIds, t.id))"
+---
+id: D
+kind: invariant
+on: Shed.list
+assert: "all(t in self.tools: t.status = lent and isSet(t.lentAt) implies result.dueDateOf[t.id] = t.lentAt + 14d)"
+---
+id: O
+kind: invariant
+on: Shed.overdue
+assert: "all(t in self.tools: t.status = lent and isSet(t.lentAt) and now > t.lentAt + 14d implies days(result.overdueDaysOf[t.id]) <= now - (t.lentAt + 14d) and now - (t.lentAt + 14d) < days(result.overdueDaysOf[t.id] + 1))"
+`
+
+// TestPerItemResultsDecide: results keyed by an item's id, over the items
+// of a relation to many, are decided. Two items sharing an id were shown
+// contradicting a result per id though the uniqueness rule makes the id a
+// key (a developer trial, 2026-11-03); then refinement never converged on
+// a map per item or a list of every item.
+func TestPerItemResultsDecide(t *testing.T) {
+	needZ3(t)
+	start := time.Now()
+	res := check(t, writeRegistry(t, perItem), lower.Options{})
+	if res.Verdict != Pass || len(res.Undecided) > 0 {
+		t.Fatalf("got %s, undecided %v, conflicts %q; want pass", res.Verdict, res.Undecided, cores(res))
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Errorf("took %v", d)
+	}
+	// Without the key, two tools with one id and different lent dates
+	// have no single due date: a real contradiction.
+	noKey := strings.Replace(perItem, "assert: \"all(u in instances(Tool): u.id != self.id)\"", "assert: self.id >= 0", 1)
+	if res := check(t, writeRegistry(t, noKey), lower.Options{}); !slices.Contains(cores(res), "list: D") {
+		t.Errorf("a due date per shared id passed without the key: %s %q, undecided %v", res.Verdict, cores(res), res.Undecided)
+	}
+}

@@ -555,6 +555,8 @@ func (lw *lowerer) stepUnit(op *ir.Operation, live []*ir.Rule, superseded map[st
 	lw.ph = before
 	runs := lw.opVar(op.Name)
 	used[runs.Label] = runs
+	// Slots of one entity that share a key are one instance (keys.go).
+	u.Assumptions = append(u.Assumptions, lw.keyAgreement(live, used)...)
 	u.Vars = sortedVars(used)
 	return u
 }

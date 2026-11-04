@@ -17,10 +17,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"runtime/debug"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -918,12 +920,14 @@ const maxRefinements = 32
 func (c *q) refine(ctx context.Context, found [][]int) (solver.Status, map[string]string, []int, bool) {
 	var responses []string // let bindings of the response variables
 	terms := c.responseTerms()
-	var asked []string // the terms, in the order the response query asks them
+	// Whether each response variable equals each of its terms, in the order
+	// the response query asks: equality, not printed values, since two
+	// equal maps can print differently.
+	type pair struct{ v, t string }
+	var asked []pair
 	for _, v := range c.sys {
 		for _, t := range terms[v.Name] {
-			if !slices.Contains(asked, t) {
-				asked = append(asked, t)
-			}
+			asked = append(asked, pair{v.Name, t})
 		}
 	}
 	// What a response must meet: every range and every selected rule.
@@ -1024,8 +1028,8 @@ func (c *q) refine(ctx context.Context, found [][]int) (solver.Status, map[strin
 			names = append(names, v.Name)
 		}
 		fmt.Fprintf(&b, "(get-value (%s))\n", strings.Join(names, " "))
-		for _, t := range asked {
-			fmt.Fprintf(&b, "(get-value (%s))\n", t)
+		for _, p := range asked {
+			fmt.Fprintf(&b, "(get-value ((= %s %s)))\n", p.v, p.t)
 		}
 		r, err = c.z.Run(ctx, b.String())
 		if err != nil || r.Status == solver.Unknown {
@@ -1035,11 +1039,11 @@ func (c *q) refine(ctx context.Context, found [][]int) (solver.Status, map[strin
 			return solver.Sat, witness, selected, true
 		}
 		values = replyValues(r)
-		termValue := map[string]string{}
-		for k, t := range asked {
+		equals := map[pair]bool{}
+		for k, p := range asked {
 			if k+1 < len(r.Replies) {
 				if l := r.Replies[k+1].List; len(l) == 1 && len(l[0].List) == 2 {
-					termValue[t] = l[0].List[1].String()
+					equals[p] = l[0].List[1].String() == "true"
 				}
 			}
 		}
@@ -1053,7 +1057,7 @@ func (c *q) refine(ctx context.Context, found [][]int) (solver.Status, map[strin
 			// the term: "unchanged", or "named after the workspace", then
 			// answers every situation, not only those with this value.
 			for _, t := range terms[v.Name] {
-				if tv, ok := termValue[t]; ok && tv == val {
+				if equals[pair{v.Name, t}] {
 					val = t
 					break
 				}
@@ -1082,6 +1086,11 @@ func (c *q) responseTerms() map[string][]string {
 	}
 	out := map[string][]string{}
 	add := func(v, t string) {
+		// A constant answers no more situations than a constant response,
+		// and preferring one pulled a list's length to its lower bound.
+		if es, err := solver.Parse(t); err != nil || len(es) != 1 || constant(es[0]) {
+			return
+		}
 		if !slices.Contains(out[v], t) && len(out[v]) < maxTermsPerVar {
 			out[v] = append(out[v], t)
 		}
@@ -1103,8 +1112,26 @@ func (c *q) responseTerms() map[string][]string {
 		return slices.ContainsFunc(e.List, mentions)
 	}
 	var equal, other []rawTerm
-	var walk func(e solver.SExpr)
-	walk = func(e solver.SExpr) {
+	// guard is the condition, over the situation alone, under which e is
+	// read: the antecedents of the implications around it.
+	guard := func(gs []solver.SExpr) *solver.SExpr {
+		var keep []string
+		for _, g := range gs {
+			if !mentions(g) && !strings.Contains(g.String(), "|sel:") {
+				keep = append(keep, g.String())
+			}
+		}
+		if len(keep) == 0 {
+			return nil
+		}
+		es, err := solver.Parse(conjoin(keep))
+		if err != nil || len(es) != 1 {
+			return nil
+		}
+		return &es[0]
+	}
+	var walk func(e solver.SExpr, gs []solver.SExpr)
+	walk = func(e solver.SExpr, gs []solver.SExpr) {
 		if !e.IsList() || len(e.List) == 0 {
 			return
 		}
@@ -1115,8 +1142,12 @@ func (c *q) responseTerms() map[string][]string {
 		case "=":
 			if len(e.List) == 3 {
 				for k := 1; k <= 2; k++ {
-					if a, t := e.List[k], e.List[3-k]; isSys(a) {
+					a, t := e.List[k], e.List[3-k]
+					if isSys(a) {
 						equal = append(equal, rawTerm{v: a.Atom, t: t})
+					}
+					if m, key, ok := mapEntry(a, sys); ok {
+						other = append(other, rawTerm{v: m, t: t, key: &key, when: guard(gs)})
 					}
 				}
 			}
@@ -1129,23 +1160,34 @@ func (c *q) responseTerms() map[string][]string {
 				other = append(other, rawTerm{v: e.List[2].Atom, t: e.List[1], contains: true})
 			}
 		case "<=", "<", ">=", ">":
-			other = append(other, boundTerms(e, sorts, sys)...)
+			for _, r := range boundTerms(e, sorts, sys) {
+				if r.key != nil {
+					r.when = guard(gs)
+				}
+				other = append(other, r)
+			}
+		case "=>":
+			if len(e.List) == 3 {
+				walk(e.List[1], gs)
+				walk(e.List[2], append(slices.Clip(gs), e.List[1]))
+				return
+			}
 		}
 		for _, x := range e.List {
-			walk(x)
+			walk(x, gs)
 		}
 	}
 	for _, t := range c.u.Fixed() {
 		if es, err := solver.Parse(t); err == nil {
 			for _, e := range es {
-				walk(e)
+				walk(e, nil)
 			}
 		}
 	}
 	for _, f := range c.u.Rules {
 		if es, err := solver.Parse(f.Term); err == nil {
 			for _, e := range es {
-				walk(e)
+				walk(e, nil)
 			}
 		}
 	}
@@ -1197,15 +1239,72 @@ func (c *q) responseTerms() map[string][]string {
 		return got
 	}
 	contained := map[string][]string{}
+	note := func(v, t string) {
+		if !slices.Contains(contained[v], t) {
+			contained[v] = append(contained[v], t)
+		}
+	}
+	type entry struct{ key, value, when string }
+	entries := map[string][]entry{}
 	for range 3 { // a term may resolve through one found in an earlier round
 		for _, r := range slices.Concat(equal, other) {
+			if r.key != nil {
+				keys := resolve(*r.key, 3)
+				for _, t := range resolve(r.t, 3) {
+					for _, k := range keys {
+						when := ""
+						if r.when != nil {
+							when = r.when.String()
+						}
+						if e := (entry{k, t, when}); !slices.Contains(entries[r.v], e) && len(entries[r.v]) < maxTermsPerVar {
+							entries[r.v] = append(entries[r.v], e)
+						}
+					}
+				}
+				continue
+			}
 			for _, t := range resolve(r.t, 3) {
 				add(r.v, t)
-				if r.contains && !slices.Contains(contained[r.v], t) {
-					contained[r.v] = append(contained[r.v], t)
+				if r.contains {
+					note(r.v, t)
 				}
 			}
 		}
+	}
+	// The positions of a list prefer different terms, position i the i-th:
+	// "lists every tool" is then answered by one response placing each
+	// tool, where every position preferring the first term answered only
+	// the situations whose tools coincide.
+	for _, v := range c.sys {
+		m := listPosition.FindStringSubmatch(v.Label)
+		if m == nil {
+			continue
+		}
+		i, _ := strconv.Atoi(m[1])
+		ts := out[v.Name]
+		if v.Post && len(ts) > 0 {
+			ts = ts[1:] // keeping the value stays first
+		}
+		if len(ts) > 1 {
+			k := i % len(ts)
+			rotated := slices.Concat(ts[k:], ts[:k])
+			copy(ts, rotated)
+		}
+	}
+	// A map is its entries, stored over a constant map of the first value:
+	// one term answers every situation the entries name.
+	for m, es := range entries {
+		t := fmt.Sprintf("((as const %s) %s)", sorts[m], es[0].value)
+		for _, e := range es {
+			if e.when == "" {
+				t = fmt.Sprintf("(store %s %s %s)", t, e.key, e.value)
+			} else {
+				// Only where the rule gives the entry: a slot that holds
+				// no item may share its key with one that does.
+				t = fmt.Sprintf("(let ((m %s)) (ite %s (store m %s %s) m))", t, e.when, e.key, e.value)
+			}
+		}
+		add(m, t)
 	}
 	// A value that must contain several strings may be all of them joined.
 	for v, ts := range contained {
@@ -1215,6 +1314,35 @@ func (c *q) responseTerms() map[string][]string {
 	}
 	return out
 }
+
+// conjoin is the conjunction of terms.
+func conjoin(ts []string) string {
+	if len(ts) == 1 {
+		return ts[0]
+	}
+	return "(and " + strings.Join(ts, " ") + ")"
+}
+
+// constant reports whether e names no symbol: a literal, or operators over
+// literals.
+func constant(e solver.SExpr) bool {
+	if !e.IsList() {
+		if e.Str {
+			return true
+		}
+		_, err := strconv.ParseFloat(e.Atom, 64)
+		return err == nil || e.Atom == "true" || e.Atom == "false"
+	}
+	for _, x := range e.List[1:] {
+		if !constant(x) {
+			return false
+		}
+	}
+	return len(e.List) > 0 && !e.List[0].IsList()
+}
+
+// listPosition matches the label of a list's element: Result.ids#2.
+var listPosition = regexp.MustCompile(`#(\d+)'?$`)
 
 // selectedBody is the conjunction the response must satisfy: the unit's
 // fixed constraints and each rule its selector selects.

@@ -24,6 +24,30 @@ type rawTerm struct {
 	v        string
 	t        solver.SExpr
 	contains bool // a string the value must contain
+	// key is set when v is a map (an SMT array) and t its value at key:
+	// the entries a rule gives a per-item result, "dueDateOf[t.id] =
+	// t.lentAt + 14d".
+	key *solver.SExpr
+	// when is the condition over the situation under which the rule gives
+	// the entry, nil for always.
+	when *solver.SExpr
+}
+
+// valueSort is the value sort of an SMT array sort, "" for any other.
+func valueSort(sort string) string {
+	es, err := solver.Parse(sort)
+	if err != nil || len(es) != 1 || len(es[0].List) != 3 || es[0].List[0].Atom != "Array" {
+		return ""
+	}
+	return es[0].List[2].String()
+}
+
+// mapEntry reads e as (select M k), M a response map: M and k.
+func mapEntry(e solver.SExpr, sys map[string]bool) (string, solver.SExpr, bool) {
+	if len(e.List) != 3 || e.List[0].Atom != "select" || e.List[1].IsList() || e.List[1].Str || !sys[e.List[1].Atom] {
+		return "", solver.SExpr{}, false
+	}
+	return e.List[1].Atom, e.List[2], true
 }
 
 // maxTermsPerVar bounds the terms collected for one variable: each is asked
@@ -58,7 +82,11 @@ func boundTerms(e solver.SExpr, sorts map[string]string, sys map[string]bool) []
 	}
 	var out []rawTerm
 	for name, c := range d.coef {
-		if !sys[name] || sorts[name] != "Int" || c.Sign() == 0 {
+		if c.Sign() == 0 {
+			continue
+		}
+		m, key, entry := mapEntry(d.atoms[name], sys)
+		if !entry && (!sys[name] || sorts[name] != "Int") {
 			continue
 		}
 		rest := d.without(name)
@@ -76,7 +104,12 @@ func boundTerms(e solver.SExpr, sorts map[string]string, sys map[string]bool) []
 		if c.Sign() < 0 {
 			t = "(- " + t + ")"
 		}
-		if es, err := solver.Parse(t); err == nil && len(es) == 1 {
+		es, err := solver.Parse(t)
+		switch {
+		case err != nil || len(es) != 1:
+		case entry:
+			out = append(out, rawTerm{v: m, t: es[0], key: &key})
+		default:
 			out = append(out, rawTerm{v: name, t: es[0]})
 		}
 	}
@@ -166,6 +199,11 @@ func linearOf(e solver.SExpr, sorts map[string]string) (*linear, bool) {
 			if _, ok := linearOf(x, sorts); !ok {
 				return nil, false
 			}
+		}
+	case "select":
+		// A map's value at a key, when the map holds integers.
+		if len(args) != 2 || args[0].IsList() || valueSort(sorts[args[0].Atom]) != "Int" {
+			return nil, false
 		}
 	default:
 		if !intHeads[head] {
