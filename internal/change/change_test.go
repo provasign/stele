@@ -55,6 +55,8 @@ type fake struct {
 	// nothingCheckable: the coverage check finds no clause a rule could
 	// check, as for a one-off task.
 	nothingCheckable bool
+	// coverDown: the coverage check's backend fails.
+	coverDown bool
 }
 
 type reading struct {
@@ -67,6 +69,9 @@ func (f fake) Complete(_ context.Context, req llm.Request) (*llm.Reply, error) {
 	text := req.Turns[len(req.Turns)-1].Text
 	if !strings.Contains(text, "statement_id: s1") {
 		return &llm.Reply{JSON: "{}"}, nil
+	}
+	if strings.Contains(text, "list its clauses, say which rules cover each") && f.coverDown {
+		return nil, fmt.Errorf("coverage backend unavailable")
 	}
 	if strings.Contains(text, "list its clauses, say which rules cover each") {
 		// The clause coverage check: every statement is one covered clause.
@@ -212,6 +217,11 @@ func TestRemovedRequirementRetiresRule(t *testing.T) {
 	}
 	if strings.Join(res.Retired, ",") != "res/Delete guard" || !res.Gate.Accepted {
 		t.Fatalf("retired %v gate %+v", res.Retired, res.Gate)
+	}
+	// The approval applies the retirement, so a removal-only change asks
+	// for it (a code review, 2026-11-03).
+	if len(res.Questions) != 1 || res.Questions[0].Kind != "approve" || !strings.Contains(res.Questions[0].Text, "retires 1 approved rule(s) (res/Delete guard)") {
+		t.Fatalf("questions %+v", res.Questions)
 	}
 }
 
@@ -1500,5 +1510,34 @@ func TestPartlyCheckedRequirementSaysWhatIsNot(t *testing.T) {
 	unusable(res, c)
 	if fs := res.Findings["intent/s1"]; len(fs) != 1 || !strings.HasPrefix(fs[0], "not checked: ") || !strings.Contains(fs[0], "LoanRecord") || strings.Contains(fs[0], "more") {
 		t.Errorf("findings %q", fs)
+	}
+}
+
+// A coverage check that fails is told, not taken for a pass: the approval
+// names the requirement as not judged, and the next check judges it again
+// (a code review, 2026-11-03).
+func TestFailedCoverageIsToldAndRetried(t *testing.T) {
+	repo, registry := setup(t, "## ADDED Requirements\n\n### Requirement: Erasure\nErasure requests MUST always delete the resource.\n")
+	out := t.TempDir()
+	run := func(c fake) *Result {
+		t.Helper()
+		res, err := Run(context.Background(), Options{Repo: repo, Change: "c1", Registry: registry, Out: out, Clients: []llm.Client{c}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+	reading := map[string]reading{"Erasure": {rules: []map[string]any{{"kind": "permission", "operation": "Resource.delete", "effect": "allow", "when": "request.kind = erasure"}}}}
+	res := run(fake{readings: reading, coverDown: true})
+	if !slices.ContainsFunc(res.Findings["res/Erasure"], func(f string) bool { return strings.HasPrefix(f, "not judged: ") }) {
+		t.Fatalf("findings %q; want the failed coverage named", res.Findings["res/Erasure"])
+	}
+	var calls []string
+	res = run(fake{readings: reading, calls: &calls})
+	if len(calls) == 0 {
+		t.Error("the next check reused the unjudged reading instead of judging it again")
+	}
+	if slices.ContainsFunc(res.Findings["res/Erasure"], func(f string) bool { return strings.HasPrefix(f, "not judged: ") }) {
+		t.Errorf("findings after a healthy check %q", res.Findings["res/Erasure"])
 	}
 }

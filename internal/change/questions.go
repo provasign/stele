@@ -713,7 +713,10 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 	}
 
 	// The approval, once nothing else is open.
-	if g != nil && len(g.Errors) == 0 && (g.Accepted || g.OnlyUndecided()) && len(qs) == 0 && len(g.Unapproved) > 0 && len(res.Failed) == 0 {
+	// A change that only retires rules needs the approval too: it is what
+	// applies the retirement, and without it the registry kept the removed
+	// requirement's rules live (a code review, 2026-11-03).
+	if g != nil && len(g.Errors) == 0 && (g.Accepted || g.OnlyUndecided()) && len(qs) == 0 && (len(g.Unapproved) > 0 || len(res.Retired) > 0) && len(res.Failed) == 0 {
 		var checked []string
 		for id := range inChange {
 			if len(res.Rules[id]) > 0 {
@@ -721,7 +724,7 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 			}
 		}
 		sort.Strings(checked)
-		q := Question{ID: qid("approve", g.Unapproved...), Kind: "approve", AskOwner: true}
+		q := Question{ID: qid("approve", append(slices.Clone(g.Unapproved), res.Retired...)...), Kind: "approve", AskOwner: true}
 		flagged := 0
 		for _, id := range checked {
 			r := req(id)
@@ -736,11 +739,17 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 			}
 			q.Requirements = append(q.Requirements, r)
 		}
-		if !res.first {
+		switch {
+		case len(checked) == 0:
+			q.Text = fmt.Sprintf("This change retires %d approved rule(s) (%s) and adds none", len(res.Retired), strings.Join(res.Retired, ", "))
+		case !res.first:
 			q.Text = fmt.Sprintf("%d requirement(s) in this change are checked and agree with the approved spec", len(checked))
-		} else {
+		default:
 			// The first change: there is nothing approved to agree with yet.
 			q.Text = fmt.Sprintf("%d requirement(s) in this change are checked and agree with each other; nothing is approved yet, so these are the first", len(checked))
+		}
+		if len(checked) > 0 && len(res.Retired) > 0 {
+			q.Text += fmt.Sprintf("; it retires %d approved rule(s) (%s)", len(res.Retired), strings.Join(res.Retired, ", "))
 		}
 		if flagged > 0 {
 			q.Text += fmt.Sprintf("; Stele's reading of %d may say less or more than the text (see findings)", flagged)
@@ -766,7 +775,7 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 			q.Text += fmt.Sprintf(". Your answers also teach Stele %d lesson(s) about this project, saved in the registry with the change: %s", n, strings.Join(res.NewLessons, "; "))
 		}
 		q.Text += ". Approve this change?"
-		q.Detail = strings.Join(g.Unapproved, "\n")
+		q.Detail = strings.Join(append(slices.Clone(g.Unapproved), res.Retired...), "\n")
 		q.Options = []Option{
 			{Choice: "approve", Label: "Approve", Then: "Stele writes the change's rules into the registry and records the approval"},
 			{Choice: "show", Label: "Show me how Stele read them first", Then: "show the requirements with Stele's reading (report.md, \"Rules to approve\"), then ask again"},

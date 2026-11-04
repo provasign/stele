@@ -687,7 +687,10 @@ func (c *cache) translate(ctx context.Context, opt Options, todo []translate.Sta
 	}
 	findings := map[string][]string{}
 	uncovered := map[string][]string{}
+	coverFailed := map[string]bool{}
+	retry := false
 	for _, e := range fr.Ends {
+		coverFailed[e.ID] = e.CoverFailed != ""
 		uncovered[e.ID] = e.Uncovered
 		for _, u := range e.Uncovered {
 			findings[e.ID] = append(findings[e.ID], fmt.Sprintf("no rule checks %q", u))
@@ -697,6 +700,9 @@ func (c *cache) translate(ctx context.Context, opt Options, todo []translate.Sta
 		}
 		if e.Blocks != "" {
 			findings[e.ID] = append(findings[e.ID], "blocks a step: "+e.Blocks)
+		}
+		if e.CoverFailed != "" {
+			findings[e.ID] = append(findings[e.ID], "not judged: Stele's check that its reading says what the text says did not run ("+firstLine(e.CoverFailed)+"); run the check again")
 		}
 	}
 	for _, s := range todo {
@@ -714,9 +720,16 @@ func (c *cache) translate(ctx context.Context, opt Options, todo []translate.Sta
 			res.Failed[s.ID] = strings.TrimSpace(why)
 			continue // not cached: the next check translates it again
 		}
-		c.Entries[s.ID] = entry{Key: key(s), Cands: byStmt[s.ID], Findings: findings[s.ID]}
+		k := key(s)
+		if coverFailed[s.ID] {
+			// Used by this check, never matched by the next, and the run is
+			// started afresh: the next check judges it again (a code
+			// review, 2026-11-03).
+			k, retry = "retry:"+k, true
+		}
+		c.Entries[s.ID] = entry{Key: k, Cands: byStmt[s.ID], Findings: findings[s.ID]}
 	}
-	if len(fr.Deferred) > 0 {
+	if len(fr.Deferred) > 0 || retry {
 		// The run's state records the failures as settled; a rerun with the
 		// same statements must call the model again, not read them back.
 		if err := os.RemoveAll(dir); err != nil {

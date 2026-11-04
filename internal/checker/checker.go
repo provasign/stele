@@ -109,6 +109,16 @@ func (c *Cache) lookup(key string) (UnitResult, bool) {
 			c.remember(key, r)
 		}
 	}
+	if ok {
+		// Copies, so the reachability pass never edits what is cached.
+		r.Conflicts = slices.Clone(r.Conflicts)
+		for i := range r.Conflicts {
+			if i < len(r.Before) {
+				r.Conflicts[i].before = r.Before[i]
+			}
+		}
+		r.Before = nil
+	}
 	c.mu.Lock()
 	if ok {
 		c.Hits++
@@ -122,6 +132,10 @@ func (c *Cache) lookup(key string) (UnitResult, bool) {
 func (c *Cache) store(key string, r UnitResult) {
 	if c == nil || key == "" {
 		return
+	}
+	r.Before = nil
+	for _, cf := range r.Conflicts {
+		r.Before = append(r.Before, cf.before)
 	}
 	c.remember(key, r)
 	if c.Dir == "" {
@@ -166,13 +180,18 @@ type UnitResult struct {
 	Whole bool `json:"whole,omitempty"`
 	// Unreachable are this unit's conflicts set aside as unreachable.
 	Unreachable []Conflict `json:"unreachable,omitempty"`
+	// Before holds, in the cache, each conflict's state before the step
+	// (Conflict.before, by position): reachability is decided again from
+	// it on every check.
+	Before []map[string]string `json:"before,omitempty"`
 }
 
 // unitKey hashes the question a unit asks.
 // cacheFormat changes when the checker asks a unit more than before, so
 // cached results from an older checker are not reused (2: avoided rules;
-// 3: refinement decides situations the quantified query left unknown).
-const cacheFormat = "3"
+// 3: refinement decides situations the quantified query left unknown;
+// 4: conflicts are cached before reachability, with their states before).
+const cacheFormat = "4"
 
 func unitKey(u *lower.Unit, dts []string, version string, limit int, known map[string]bool) string {
 	h := sha256.New()
@@ -508,7 +527,7 @@ func (ck *checkRun) unit(ctx context.Context, u *lower.Unit, part bool) (UnitRes
 			key = "part-" + key
 		}
 		if r, ok := opt.Cache.lookup(key); ok {
-			return r, nil
+			return ck.setAside(ctx, z, u, r)
 		}
 	}
 	res := &Result{}
@@ -527,7 +546,9 @@ func (ck *checkRun) unit(ctx context.Context, u *lower.Unit, part bool) (UnitRes
 		}
 		if st != solver.Sat {
 			r := UnitResult{Whole: true}
-			opt.Cache.store(key, r)
+			if ctx.Err() == nil {
+				opt.Cache.store(key, r)
+			}
 			return r, nil
 		}
 	}
@@ -583,31 +604,44 @@ func (ck *checkRun) unit(ctx context.Context, u *lower.Unit, part bool) (UnitRes
 		res.Conflicts = append(res.Conflicts, cs...)
 		unknown = u3
 	}
-	// A step conflict from a state no trace enters is set aside.
-	if u.Op != nil {
-		var kept []Conflict
-		for _, cf := range res.Conflicts {
-			gone, err := unreachable(ctx, z, prog, cf)
-			if err != nil {
-				return UnitResult{}, err
-			}
-			if gone {
-				res.Unreachable = append(res.Unreachable, cf)
-			} else {
-				kept = append(kept, cf)
-			}
-		}
-		res.Conflicts = kept
-	}
 	r := UnitResult{
-		Conflicts:   res.Conflicts,
-		Dead:        res.Dead,
-		Vacuous:     res.Vacuous,
-		Undecided:   unknown,
-		NearLimit:   z.NearLimit() > 0,
-		Unreachable: res.Unreachable,
+		Conflicts: res.Conflicts,
+		Dead:      res.Dead,
+		Vacuous:   res.Vacuous,
+		Undecided: unknown,
+		NearLimit: z.NearLimit() > 0,
 	}
-	opt.Cache.store(key, r)
+	// A cancelled or timed-out check answers unknown for want of time, not
+	// because the solver could not decide: stored, it was reused by every
+	// later check without trying again (a code review, 2026-11-03).
+	if ctx.Err() == nil {
+		opt.Cache.store(key, r)
+	}
+	return ck.setAside(ctx, z, u, r)
+}
+
+// setAside moves the step conflicts from a state no trace enters out of
+// r.Conflicts. Whether a state is reachable depends on every operation, not
+// only the unit's, so it is decided on every check, cached result or not: a
+// cached step kept passing after another step was changed to enter the
+// state it conflicts in (a code review, 2026-11-03).
+func (ck *checkRun) setAside(ctx context.Context, z *solver.Z3, u *lower.Unit, r UnitResult) (UnitResult, error) {
+	if u.Op == nil || r.Whole {
+		return r, nil
+	}
+	var kept, gone []Conflict
+	for _, cf := range r.Conflicts {
+		off, err := unreachable(ctx, z, ck.prog, cf)
+		if err != nil {
+			return UnitResult{}, err
+		}
+		if off {
+			gone = append(gone, cf)
+		} else {
+			kept = append(kept, cf)
+		}
+	}
+	r.Conflicts, r.Unreachable = kept, append(slices.Clip(r.Unreachable), gone...)
 	return r, nil
 }
 

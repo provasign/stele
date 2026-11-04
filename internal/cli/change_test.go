@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"github.com/provasign/stele/internal/change"
 	"github.com/provasign/stele/internal/gate"
+	"github.com/provasign/stele/internal/ir"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -34,10 +35,13 @@ func TestChangeCommandLoop(t *testing.T) {
 	write("reg/vocabulary.yaml", "context: res\nformatVersion: 1\n---\nextend: platform.Request\ncontext: res\nattributes:\n  kind: { type: enum, values: [normal, erasure] }\n---\nentity: Resource\ncontext: res\nattributes:\n  holds: { type: int, range: [0, 5] }\n---\noperation: Resource.delete\ncontext: res\ndefault: allow\nwrites: []\n")
 	write("reg/rules.yaml", "id: res/Delete guard\nkind: permission\neffect: deny\noperation: Resource.delete\nwhen: self.holds > 0\nsource:\n  statementId: res/Delete guard\n  doc: openspec/specs/res/spec.md#L3\n")
 	// The translator: a compact reply for the one statement each request holds.
+	// The coverage check: each statement it asks about is one covered clause.
+	covered := `{"statements":[{"statement_id":"s1","clauses":[{"text":"all","status":"covered","rules":["r1"]}],"broader":[]},{"statement_id":"s2","clauses":[{"text":"all","status":"covered","rules":["r1"]}],"broader":[]}]}`
 	rule := func(effect, when string) string {
 		return `{"entities":[],"extensions":[],"operations":[],"rules":[{"statement_id":"s1","kind":"permission","operation":"Resource.delete","effect":"` + effect + `","when":"` + when + `","overrides":[]}]}`
 	}
 	write("reply.sh", "in=$(cat)\ncase \"$in\" in\n"+
+		"*'list its clauses'*) echo '"+covered+"' ;;\n"+
 		"*'unless the request is an erasure'*) echo '"+rule("deny", "self.holds > 0 and request.kind != erasure")+"' ;;\n"+
 		"*'Erasure requests MUST'*) echo '"+rule("allow", "request.kind = erasure")+"' ;;\n"+
 		"*) echo '{}' ;;\nesac\n")
@@ -104,10 +108,13 @@ func TestChangeAnswerLoop(t *testing.T) {
 	write("repo/openspec/changes/erase/specs/res/spec.md", "## ADDED Requirements\n\n### Requirement: Erasure\nErasure requests MUST always delete the resource.\n")
 	write("reg/vocabulary.yaml", "context: res\nformatVersion: 1\n---\nextend: platform.Request\ncontext: res\nattributes:\n  kind: { type: enum, values: [normal, erasure] }\n---\nentity: Resource\ncontext: res\nattributes:\n  holds: { type: int, range: [0, 5] }\n---\noperation: Resource.delete\ncontext: res\ndefault: allow\nwrites: []\n")
 	write("reg/rules.yaml", "id: res/Delete guard\nkind: permission\neffect: deny\noperation: Resource.delete\nwhen: self.holds > 0\nsource:\n  statementId: res/Delete guard\n  doc: openspec/specs/res/spec.md#L3\n")
+	// The coverage check: each statement it asks about is one covered clause.
+	covered := `{"statements":[{"statement_id":"s1","clauses":[{"text":"all","status":"covered","rules":["r1"]}],"broader":[]},{"statement_id":"s2","clauses":[{"text":"all","status":"covered","rules":["r1"]}],"broader":[]}]}`
 	rule := func(effect, when string) string {
 		return `{"entities":[],"extensions":[],"operations":[],"rules":[{"statement_id":"s1","kind":"permission","operation":"Resource.delete","effect":"` + effect + `","when":"` + when + `","overrides":[]}]}`
 	}
 	write("reply.sh", "in=$(cat)\ncase \"$in\" in\n"+
+		"*'list its clauses'*) echo '"+covered+"' ;;\n"+
 		"*'unless the request is an erasure'*) echo '"+rule("deny", "self.holds > 0 and request.kind != erasure")+"' ;;\n"+
 		"*'Erasure requests MUST'*) echo '"+rule("allow", "request.kind = erasure")+"' ;;\n"+
 		"*) echo '{}' ;;\nesac\n")
@@ -266,5 +273,54 @@ func TestCopyDirMirrors(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(to, "change-c1.writes.yaml")); !os.IsNotExist(err) {
 		t.Errorf("a file the head lacks was kept: %v", err)
+	}
+}
+
+// TestRemovalOnlyChangeIsApproved: a change that only removes a requirement
+// comes to the approval, and approving retires the rule in the registry; it
+// used to report clean with the rule still live (a code review,
+// 2026-11-03).
+func TestRemovalOnlyChangeIsApproved(t *testing.T) {
+	if _, err := exec.LookPath("z3"); err != nil {
+		t.Skip("z3 not on PATH")
+	}
+	dir := t.TempDir()
+	write := func(rel, src string) {
+		p := filepath.Join(dir, rel)
+		os.MkdirAll(filepath.Dir(p), 0o755)
+		if err := os.WriteFile(p, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("repo/openspec/specs/res/spec.md", "# Resources\n\n### Requirement: Delete guard\nThe system MUST NOT delete a resource with holds.\n")
+	write("repo/openspec/changes/drop/specs/res/spec.md", "## REMOVED Requirements\n\n### Requirement: Delete guard\n**Reason**: holds are gone.\n")
+	write("reg/vocabulary.yaml", "context: res\nformatVersion: 1\n---\nentity: Resource\ncontext: res\nattributes:\n  holds: { type: int, range: [0, 5] }\n---\noperation: Resource.delete\ncontext: res\ndefault: allow\nwrites: []\n")
+	write("reg/rules.yaml", "id: res/Delete guard\nkind: permission\neffect: deny\noperation: Resource.delete\nwhen: self.holds > 0\nsource:\n  statementId: res/Delete guard\n  doc: openspec/specs/res/spec.md#L3\n")
+	repo, reg, work := filepath.Join(dir, "repo"), filepath.Join(dir, "reg"), filepath.Join(dir, "work")
+	var out bytes.Buffer
+	if cmdApprove([]string{"--registry", reg, "--all", "--by", "owner"}, &out) != 0 {
+		t.Fatal(out.String())
+	}
+	out.Reset()
+	if code := cmdChange([]string{"openspec", repo, "drop", "--registry", reg, "--out", work, "--json", "--llm-cmd", "echo {}"}, &out); code != 0 {
+		t.Fatalf("change: exit %d\n%s", code, out.String())
+	}
+	var s changeSummary
+	if err := json.Unmarshal(out.Bytes(), &s); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	if s.Status != "ready" || len(s.Questions) != 1 || s.Questions[0].Kind != "approve" {
+		t.Fatalf("status %s, questions %+v", s.Status, s.Questions)
+	}
+	out.Reset()
+	if code := cmdChange([]string{"answer", "drop", s.Questions[0].ID, "approve", "--out", work, "--by", "owner"}, &out); code != 0 {
+		t.Fatalf("approve: exit %d\n%s", code, out.String())
+	}
+	r, err := ir.LoadDir(reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if x := r.Rule("res/Delete guard"); x == nil || x.Live() {
+		t.Errorf("the removed requirement's rule is still live: %+v", x)
 	}
 }

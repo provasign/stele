@@ -334,6 +334,7 @@ func cover(ctx context.Context, m llm.Client, stmts []translate.Statement, st *s
 		return out
 	}
 	first := withRules(nil)
+	errsBefore := len(st.Errors)
 	st.CoverStats = CoverStats{Statements: len(first)}
 	fmt.Fprintf(opt.Log, "cover: checking the clauses and scope of %d statement(s) with rules or read as informal ...\n", len(first))
 	cov, err := checkCoverage(ctx, m, first, st, opt)
@@ -389,6 +390,25 @@ func cover(ctx context.Context, m llm.Client, stmts []translate.Statement, st *s
 		fmt.Fprintf(opt.Log, "cover: %d of %d retranslated statement(s) now faithful\n", st.CoverStats.Recovered, len(back))
 	}
 	st.Coverage = cov
+	// A statement the check was due to judge and did not (its request
+	// failed, its reply did not parse or left it out) is named: its
+	// readings were approved as checked when no one had judged them (a
+	// code review, 2026-11-03).
+	st.CoverFailed = map[string]string{}
+	errs := st.Errors[errsBefore:]
+	for _, s := range first {
+		if slices.ContainsFunc(cov, func(x StatementCoverage) bool { return x.StatementID == s.ID }) {
+			continue
+		}
+		// The error that names it, else one about a whole request.
+		why := "the coverage check failed"
+		if i := slices.IndexFunc(errs, func(e string) bool { return strings.Contains(e, s.ID) }); i >= 0 {
+			why = errs[i]
+		} else if i := slices.IndexFunc(errs, func(e string) bool { return !strings.HasPrefix(e, "cover: no reply for ") }); i >= 0 {
+			why = errs[i]
+		}
+		st.CoverFailed[s.ID] = why
+	}
 	st.Uncovered, st.Exceeds = map[string][]string{}, map[string][]string{}
 	for _, sc := range cov {
 		for _, c := range sc.Clauses {

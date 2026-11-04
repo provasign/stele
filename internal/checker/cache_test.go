@@ -79,3 +79,53 @@ func TestPersistedCache(t *testing.T) {
 		t.Errorf("one changed rule: hits %d misses %d, want one miss", again.Hits, again.Misses)
 	}
 }
+
+// TestCachedStepSeesNewlyReachableConflict: reachability depends on every
+// operation, not only the cached step's. Job.finish's clash in a broken job
+// is set aside while no step makes a job broken; once Job.start may, the
+// cached finish result shows it (a code review, 2026-11-03).
+func TestCachedStepSeesNewlyReachableConflict(t *testing.T) {
+	z := needZ3(t)
+	ctx := context.Background()
+	cache := &Cache{Dir: t.TempDir()}
+	res, err := CheckWith(ctx, z, lowered(t, jobs), Options{Cache: cache})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Conflicts) != 0 || len(res.Unreachable) != 1 {
+		t.Fatalf("first: conflicts %q, unreachable %d", cores(res), len(res.Unreachable))
+	}
+	breaks := strings.Replace(jobs, "assert: self.status = running", "assert: self.status in {running, broken}", 1)
+	for _, c := range []*Cache{cache, {Dir: cache.Dir}} { // in memory, and read back from disk
+		res, err = CheckWith(ctx, z, lowered(t, breaks), Options{Cache: c})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.Hits == 0 || len(res.Conflicts) != 1 || len(res.Unreachable) != 0 {
+			t.Errorf("start may break: hits %d, conflicts %q, unreachable %d", c.Hits, cores(res), len(res.Unreachable))
+		}
+	}
+}
+
+// TestCancelledCheckIsNotCached: a check cut short answers unknown for want
+// of time; the next check solves the units again instead of reusing that
+// (a code review, 2026-11-03).
+func TestCancelledCheckIsNotCached(t *testing.T) {
+	z := needZ3(t)
+	cache := &Cache{Dir: t.TempDir()}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	prog := lowered(t, resources)
+	_, _ = CheckWith(ctx, z, prog, Options{Cache: cache})
+	got, err := CheckWith(context.Background(), z, prog, Options{Cache: &Cache{Dir: cache.Dir}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := CheckWith(context.Background(), z, prog, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Verdict != want.Verdict || !reflect.DeepEqual(cores(got), cores(want)) {
+		t.Errorf("after a cancelled check: %s %q, fresh %s %q", got.Verdict, cores(got), want.Verdict, cores(want))
+	}
+}

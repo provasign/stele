@@ -159,6 +159,8 @@ type End struct {
 	// Blocks says how a rule of the statement alone leaves a step no
 	// valid outcome (selfcheck.go).
 	Blocks string `json:"blocks,omitempty"`
+	// CoverFailed says why the coverage check did not judge the statement.
+	CoverFailed string `json:"cover_failed,omitempty"`
 	// Lessons are the owner's lessons the statement was read with.
 	Lessons []string `json:"lessons,omitempty"`
 }
@@ -230,11 +232,15 @@ type state struct {
 	// Links are world facts relating two attributes, found by consolidation.
 	Links []translate.Candidate `json:"links,omitempty"`
 	// Covered is set once the clause coverage check ran (cover.go).
-	Covered    bool                `json:"covered,omitempty"`
-	Coverage   []StatementCoverage `json:"clause_coverage,omitempty"`
-	Uncovered  map[string][]string `json:"uncovered,omitempty"`
-	Exceeds    map[string][]string `json:"exceeds,omitempty"` // rules beyond their text, described
-	CoverStats CoverStats          `json:"cover_stats,omitempty"`
+	Covered   bool                `json:"covered,omitempty"`
+	Coverage  []StatementCoverage `json:"clause_coverage,omitempty"`
+	Uncovered map[string][]string `json:"uncovered,omitempty"`
+	Exceeds   map[string][]string `json:"exceeds,omitempty"` // rules beyond their text, described
+	// CoverFailed names the statements the coverage check was due to judge
+	// and did not, with why: no one has checked their readings against
+	// their text.
+	CoverFailed map[string]string `json:"cover_failed,omitempty"`
+	CoverStats  CoverStats        `json:"cover_stats,omitempty"`
 	// SelfChecked is set once the self-conflict check ran (selfcheck.go);
 	// SelfConflicts are the statements whose rules still contradict each
 	// other, with the clash, and whose rules are held out.
@@ -577,6 +583,9 @@ func finish(dir string, m llm.Client, stmts []translate.Statement, st *state, op
 	res.Proposal, res.Cands, res.LinkCands = p, st.Cands, st.Links
 	res.Cover, res.Coverage, res.SelfCheck = st.CoverStats, st.Coverage, st.SelfStats
 	res.Ends, res.Counts = ends(stmts, st.Cands, st.CompactDeferred, st.Uncovered, st.Exceeds, st.Blocking)
+	for i := range res.Ends {
+		res.Ends[i].CoverFailed = st.CoverFailed[res.Ends[i].ID]
+	}
 	res.Health = health(reg, stmts, parseRules(reg, st.Cands), res.Ends)
 	if err := writeReport(dir, res); err != nil {
 		return nil, err
