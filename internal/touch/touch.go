@@ -232,7 +232,11 @@ func Summary(ts []Touched, k int, plain func(string) string) string {
 		}
 		fmt.Fprintf(&b, "- %s%s%s\n  because %s\n", prose, where, mark, strings.Join(t.Evidence[:min(2, len(t.Evidence))], "; "))
 	}
-	b.WriteString("Touching is not breaking: Stele matched names, it did not check the code against the rules.\n")
+	// Said as a caveat ("Stele matched names, it did not check the code"),
+	// an agent took it as leave to skip the check (a developer trial,
+	// 2026-11-03): the matching is why the agent must check, not why it
+	// need not.
+	b.WriteString("Stele found these by the names the change shares with them; it cannot tell from names whether the code still keeps them, so that check is yours: read each against the change (the code, or a test that exercises it), fix what no longer holds, and say in your report which you checked and how.\n")
 	return b.String()
 }
 

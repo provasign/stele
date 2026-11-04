@@ -95,10 +95,13 @@ func TestRulesMatchStepsAndAttributes(t *testing.T) {
 	}
 }
 
-func TestSummarySaysTouchingIsNotBreaking(t *testing.T) {
+// TestSummaryAsksForTheCheck: the summary says touching is not breaking,
+// as a check the agent owes, not a caveat to skip (a developer trial,
+// 2026-11-03).
+func TestSummaryAsksForTheCheck(t *testing.T) {
 	ts := Rules(registry(t), []codegraph.Symbol{{Name: "Borrow", Kind: "function", File: "lib.go", Line: 3}})
 	s := Summary(ts, 8, func(p string) string { return strings.Join(strings.Fields(p), " ") })
-	for _, want := range []string{"touches 1 approved requirement", "(.shale/s1.yaml) [not yet approved by the owner]", "because Borrow (lib.go:3) is the step Member.borrow", "did not check the code"} {
+	for _, want := range []string{"touches 1 approved requirement", "(.shale/s1.yaml) [not yet approved by the owner]", "because Borrow (lib.go:3) is the step Member.borrow", "cannot tell from names", "that check is yours", "say in your report which you checked"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("summary lacks %q:\n%s", want, s)
 		}
