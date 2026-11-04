@@ -617,6 +617,14 @@ func (lw *lowerer) invariant(x *ir.Rule, superseded map[string][]*ir.Decision, p
 // this unit, reading that rule's condition in the current phase: the
 // precedence the specification states itself (D-052).
 func (lw *lowerer) override(f *Formula, x *ir.Rule) {
+	if stateInvariant(x) && !lw.readsSystem(x) {
+		// A fact about the world, such as the command's text: no requirement
+		// prevails over it. Weakened by the limit that overrode the lending
+		// request it came with, it read the limit's tool state and became a
+		// rule a step could break by the world choosing another text (a
+		// developer trial, 2026-11-04).
+		return
+	}
 	for _, w := range lw.reg.Overriders(x.Statement()) {
 		if w == x || w.Statement() == x.Statement() {
 			continue
@@ -638,6 +646,24 @@ func (lw *lowerer) override(f *Formula, x *ir.Rule) {
 		f.Term = fmt.Sprintf("(=> (not %s) %s)", cond, f.Term)
 		f.Note = appendNote(f.Note, "overridden by "+w.ID+" as its text states")
 	}
+}
+
+// readsSystem reports whether x reads an attribute the system controls.
+func (lw *lowerer) readsSystem(x *ir.Rule) bool {
+	subject, err := lw.reg.SubjectOf(x)
+	if err != nil {
+		return true
+	}
+	reads := lw.reg.Reads(x.Assert, subject)
+	if x.When != nil {
+		reads = append(reads, lw.reg.Reads(x.When, subject)...)
+	}
+	for _, a := range reads {
+		if a.Controller == ir.System {
+			return true
+		}
+	}
+	return false
 }
 
 // supersede weakens f with each decision's condition, read in the current phase.

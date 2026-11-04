@@ -255,3 +255,59 @@ func TestCreatorsSettingAside(t *testing.T) {
 		t.Errorf("with Tool.add creating tools: %s %q", res.Verdict, cores(res))
 	}
 }
+
+// TestWorldFactIsNotOverridden: the lending request came with a fact about
+// the world, the lend command's text; the limit that overrides lending
+// weakened that fact too, which made it a rule over tool state that a
+// return broke by the world choosing another text (a developer trial,
+// 2026-11-04).
+func TestWorldFactIsNotOverridden(t *testing.T) {
+	needZ3(t)
+	res := checkSource(t, `context: c
+formatVersion: 1
+---
+entity: Tool
+context: c
+attributes:
+  status: { type: enum, values: [available, lent] }
+  holder: { type: optional<string> }
+---
+entity: Cli
+context: c
+attributes:
+  lendCommand: { type: string, setBy: world }
+---
+operation: Tool.lend
+context: c
+default: allow
+writes: [Tool.status, Tool.holder]
+---
+operation: Tool.return
+context: c
+default: allow
+writes: [Tool.status, Tool.holder]
+---
+id: L
+kind: invariant
+on: Tool.lend
+assert: self.status = lent
+---
+id: L.2
+kind: invariant
+assert: cli.lendCommand = "toolshed lend"
+---
+id: R
+kind: invariant
+on: Tool.return
+assert: self.status = available and self.holder = none
+---
+id: M
+kind: invariant
+when: self.status = lent
+assert: isSet(self.holder)
+overrides: [L]
+`)
+	if res.Verdict != Pass {
+		t.Fatalf("%s %q", res.Verdict, cores(res))
+	}
+}

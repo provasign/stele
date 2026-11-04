@@ -7,6 +7,7 @@ Found by three developer trials (ten features each, built with Claude Code and S
 - **The owner's decisions take fewer turns.**
   - **Precedence:** a new request that adds a case to an approved one can take precedence where they meet, both standing; no restating of the whole rule.
   - **Restated requests:** a request restated after the owner retired the earlier wording is the same requirement, edited, with no rename question.
+  - **World facts:** precedence over a request no longer weakens the facts about the world it states (a command's text), which had turned them into clashes with unrelated steps.
   - **Denied precedence:** "MUST NOT override FR-001" no longer reads as overriding FR-001.
   - **Changed numbers:** a request whose rule is an approved rule with only its numbers changed ("at most 2" for "at most 3") asks whether it replaces it, however it is worded.
 - **More of what a request says is checked, and the rest is named.**
