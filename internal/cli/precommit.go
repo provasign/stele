@@ -24,10 +24,10 @@ import (
 // silent unless the commit stages spec or registry files. It blocks (exit 1)
 // only on what an approval clears: approved rules whose statement text has
 // changed or disappeared, and a staged registry the gate refuses (conflicts,
-// unapproved rules, errors), checked as CI checks it. A new requirement
-// without rules gets the command that checks it, without blocking: some
-// statements are deliberately informal. Every message ends with the command
-// to run, for the coding agent to act on.
+// unapproved rules, errors), checked as CI checks it. A new requirement the
+// owner has not approved gets the command that checks it, without blocking,
+// except in a commit to a Shale project's base branch (onBase). Every
+// message ends with the command to run, for the coding agent to act on.
 func cmdPrecommit(args []string, out io.Writer) int {
 	cfg, err := config.Find(".")
 	if err != nil || cfg == nil {
@@ -150,6 +150,19 @@ func cmdPrecommit(args []string, out io.Writer) int {
 			}
 		}
 	}
+	// On the branch changes merge into there is no later merge to wait
+	// for: the commit is the merge, so what waits for the owner blocks it.
+	// A developer trial (2026-11-03) committed unapproved requests to main
+	// twice under a note that said "before this change merges".
+	if len(blocks) == 0 && len(notes) > 0 && onBase(shale) {
+		base := baseBranch()
+		fmt.Fprintf(out, "Stele blocked this commit to %s: the owner has not approved the requests it carries.\n", base)
+		for _, n := range notes {
+			fmt.Fprintf(out, "- %s\n", n)
+		}
+		fmt.Fprintf(out, "Next: run `%s`, put its questions to the owner, ask for the approval, then commit again; or commit on a branch and merge it once approved. Do not bypass this check with --no-verify.\n", next)
+		return 1
+	}
 	if len(blocks) == 0 {
 		if len(notes) > 0 {
 			fmt.Fprintf(out, "Stele: %s.\nNext: run `%s` and put its questions to the owner and ask for the approval before this change merges.\n", strings.Join(notes, "; "), next)
@@ -211,6 +224,17 @@ func nextCommand(cfg *config.Config, root string) string {
 		return "stele change " + format + " . --base " + baseBranch() + " --json"
 	}
 	return "stele watch --once --json"
+}
+
+// onBase reports whether HEAD is the branch changes merge into. Only a
+// Shale project's requests are held there: they arrive with the code that
+// carries them out, while spec drafts are committed before their approval.
+func onBase(shale bool) bool {
+	if !shale {
+		return false
+	}
+	branch, err := git("symbolic-ref", "--short", "HEAD")
+	return err == nil && strings.TrimSpace(branch) == baseBranch()
 }
 
 // baseBranch is the branch changes merge into: origin's default, else main.

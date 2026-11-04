@@ -179,7 +179,7 @@ This layer detects drift and prepares work. `in_sync` means no saved-source/prov
 - an approved rule whose statement text has changed or disappeared;
 - a staged registry that `stele gate` refuses, checked against the registry in `HEAD`, as CI checks it: conflicts, unapproved rules, errors.
 
-A new requirement with no rules yet gets the command that checks it, without blocking, because some statements are deliberately informal. Before the specs are adopted, a spec commit passes with the adoption command. Every message ends with the command to run, for the coding agent to act on. A clone without `stele` on PATH is not checked, and CI's gate remains the backstop.
+A new requirement the owner has not approved yet gets the command that checks it, without blocking: on a branch, the merge waits for the approval. In a Shale project, a commit to the base branch itself (`origin`'s default, else `main`) is blocked until the owner approves the requests it carries, since no later merge would hold them; a request the owner retired waits there for its replacement's approval too. Before the specs are adopted, a spec commit passes with the adoption command. Every message ends with the command to run, for the coding agent to act on. A clone without `stele` on PATH is not checked, and CI's gate remains the backstop.
 
 ### Resident checker
 

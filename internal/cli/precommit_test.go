@@ -45,7 +45,7 @@ func doorProject(t *testing.T, withRules bool) string {
 	}
 	cfg, _ := json.Marshal(map[string]any{"formatVersion": 1, "registry": "registry", "translate": map[string]any{"llm": "claude", "drafts": 1}, "specs": map[string]any{"root": "specs", "format": "markdown", "snapshot": "statements.yaml"}})
 	write("stele.yaml", string(cfg))
-	for _, args := range [][]string{{"init", "-q"}, {"config", "user.email", "t@example.com"}, {"config", "user.name", "T"}, {"add", "-A"}, {"commit", "-qm", "start"}} {
+	for _, args := range [][]string{{"init", "-q", "-b", "main"}, {"config", "user.email", "t@example.com"}, {"config", "user.name", "T"}, {"add", "-A"}, {"commit", "-qm", "start"}} {
 		cmd := exec.Command("git", args...)
 		cmd.Dir = dir
 		if out, err := cmd.CombinedOutput(); err != nil {
@@ -119,11 +119,31 @@ func TestPrecommitNoRequirements(t *testing.T) {
 		t.Errorf("%d %q", code, out)
 	}
 	// Its first request is a new requirement waiting for the owner, as any
-	// later one: never "adopt".
+	// later one: never "adopt". On a branch it waits for the merge.
+	branch(t, dir, "feature")
 	os.WriteFile(filepath.Join(dir, ".shale/s1.yaml"), []byte("id: s1\nintent:\n    title: Lock the door at night\n"), 0o644)
 	code, out := precommit(t, dir, ".shale/s1.yaml")
 	if code != 0 || strings.Contains(out, "adopt") || !strings.Contains(out, "intent/s1 is not approved yet") || !strings.Contains(out, "stele change shale . --base") {
 		t.Errorf("first request: %d\n%s", code, out)
+	}
+	// On main the commit is the merge, so the request blocks it.
+	branch(t, dir, "main")
+	code, out = precommit(t, dir, ".shale/s1.yaml")
+	if code != 1 || !strings.Contains(out, "blocked this commit to main") || !strings.Contains(out, "intent/s1 is not approved yet") {
+		t.Errorf("first request on main: %d\n%s", code, out)
+	}
+}
+
+// branch checks out name, creating it from HEAD when it does not exist;
+// staged and unstaged changes go with it.
+func branch(t *testing.T, dir, name string) {
+	t.Helper()
+	args := []string{"-C", dir, "checkout", "-q", name}
+	if exec.Command("git", "-C", dir, "rev-parse", "--verify", "-q", name).Run() != nil {
+		args = []string{"-C", dir, "checkout", "-q", "-b", name}
+	}
+	if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v %s", args, err, out)
 	}
 }
 
@@ -207,7 +227,7 @@ func TestPrecommitOpenSpecChange(t *testing.T) {
 		return "context: main\nformatVersion: 1\n---\nentity: Door\ncontext: main\nattributes:\n  locked: {type: bool, controller: system}\n---\noperation: Door.close\ncontext: main\ndefault: allow\nwrites: [Door.locked]\n---\nid: R1\nkind: invariant\nassert: door.locked\nsource: " + string(src) + "\n"
 	}
 	write(".stele/registry/rules.yaml", rule("Requirement: Locked doors\nThe door MUST be locked."))
-	for _, args := range [][]string{{"init", "-q"}, {"config", "user.email", "t@example.com"}, {"config", "user.name", "T"}, {"add", "-A"}, {"commit", "-qm", "start"}} {
+	for _, args := range [][]string{{"init", "-q", "-b", "main"}, {"config", "user.email", "t@example.com"}, {"config", "user.name", "T"}, {"add", "-A"}, {"commit", "-qm", "start"}} {
 		run(args...)
 	}
 	_ = cfg
@@ -298,8 +318,13 @@ func TestPrecommitRetiredWaitsForApproval(t *testing.T) {
 	os.MkdirAll(filepath.Join(dir, ".stele"), 0o755)
 	os.WriteFile(filepath.Join(dir, ".stele/retired-intents.yaml"), []byte("- id: intent/s1\n  by: owner\n"), 0o644)
 	os.WriteFile(filepath.Join(dir, ".shale/s2.yaml"), []byte("id: s2\nintent:\n    title: Lock the door at night unless a guest stays\n"), 0o644)
+	branch(t, dir, "feature")
 	code, out := precommit(t, dir, ".stele/retired-intents.yaml", ".shale/s2.yaml")
 	if code != 0 || !strings.Contains(out, "the owner retired intent/s1") {
 		t.Errorf("%d\n%s", code, out)
+	}
+	branch(t, dir, "main")
+	if code, out := precommit(t, dir, ".stele/retired-intents.yaml", ".shale/s2.yaml"); code != 1 || !strings.Contains(out, "the owner retired intent/s1") || !strings.Contains(out, "commit on a branch") {
+		t.Errorf("on main: %d\n%s", code, out)
 	}
 }
