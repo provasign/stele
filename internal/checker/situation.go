@@ -15,6 +15,10 @@ import (
 // rules' literals", like "!14!".
 var fresh = regexp.MustCompile(`^"!(\d+)!"$`)
 
+// valuePart splits a variable's name from a trailing part: presence ("?"),
+// a length ("#n") or a position ("#2").
+var valuePart = regexp.MustCompile(`^(.+?)(\?|#n|#\d+)$`)
+
 // Situation renders a counterexample as values a spec author reads: a list
 // or set from its length and positions, an optional that is unset as unset,
 // and a string the solver invented as other text.
@@ -50,9 +54,12 @@ func Situation(reg *ir.Registry, bs []Binding) []string {
 		return s
 	}
 	for _, b := range bs {
+		// Only a trailing part is one: Shed.tools#1.id names an attribute
+		// of a slot, and cutting it at "#" merged every slot's values into
+		// one, leaving only presence flags to describe the situation.
 		name, part := b.Name, ""
-		if i := strings.LastIndexAny(name, "#?"); i > 0 && !strings.HasSuffix(name, "#keys") {
-			name, part = b.Name[:i], b.Name[i:]
+		if m := valuePart.FindStringSubmatch(name); m != nil {
+			name, part = m[1], m[2]
 		}
 		v := get(name)
 		switch {
@@ -112,6 +119,15 @@ func Plain(s []string) string {
 		if !ok {
 			name, val = strings.TrimSuffix(b, " unset"), "unset"
 		}
+		if slot, ok := strings.CutSuffix(name, ":in"); ok {
+			switch val {
+			case "true":
+				now = append(now, Words(slot)+" exists")
+			case "false":
+				now = append(now, "no "+Words(slot))
+			}
+			continue
+		}
 		if op, ok := strings.CutSuffix(name, ":runs"); ok {
 			switch val {
 			case "true":
@@ -153,7 +169,20 @@ func Words(symbol string) string {
 	if !ok {
 		return SplitName(symbol)
 	}
-	return SplitName(ent) + ": " + SplitName(name)
+	// A slot of a relation to many, "Shed.tools#2.id": "shed: tools #2: id";
+	// of instances(E), "Tool.*instances#1.id": "tool: other #1: id".
+	var parts []string
+	for _, seg := range strings.Split(name, ".") {
+		if rel, n, ok := strings.Cut(seg, "#"); ok {
+			if rel == "*instances" {
+				rel = "other"
+			}
+			parts = append(parts, SplitName(rel)+" #"+n)
+			continue
+		}
+		parts = append(parts, SplitName(seg))
+	}
+	return SplitName(ent) + ": " + strings.Join(parts, ": ")
 }
 
 // SplitName splits a camel-case or snake-case name into lower-case words.
