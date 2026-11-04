@@ -733,6 +733,64 @@ type parsedRule struct {
 	walked []string   // entities and relations its paths walk through
 }
 
+// reported returns the paths of e that a step only reports: a key it looks a
+// result up by (result.nameOf[self.id], has(result.nameOf, self.id)), or a
+// value compared with the result (result.nameOf[self.id] = self.name). A
+// listing that shows each tool's name against its id was taken to write
+// both, and then a listing could have changed any tool (a developer trial,
+// 2026-11-04).
+func reported(reg *ir.Registry, e ir.Expr, subject *ir.Entity) map[*ir.Path]bool {
+	out := map[*ir.Path]bool{}
+	all := func(e ir.Expr) {
+		for _, p := range ir.Paths(e) {
+			out[p] = true
+		}
+	}
+	output := func(e ir.Expr) bool {
+		for _, p := range ir.Paths(e) {
+			if a, err := reg.Resolve(p, subject); err == nil && a.Entity.Name == "Result" {
+				return true
+			}
+		}
+		return false
+	}
+	var walk func(ir.Expr)
+	walk = func(e ir.Expr) {
+		switch e := e.(type) {
+		case *ir.Binary:
+			switch e.Op {
+			case "=", "!=", "<", "<=", ">", ">=":
+				if output(e.L) {
+					all(e.R)
+				}
+				if output(e.R) {
+					all(e.L)
+				}
+			}
+			walk(e.L)
+			walk(e.R)
+		case *ir.Not:
+			walk(e.X)
+		case *ir.Index:
+			all(e.K)
+			walk(e.X)
+		case *ir.Call:
+			if e.Fn == "has" {
+				for _, x := range e.Args {
+					all(x)
+				}
+			}
+			for _, x := range e.Args {
+				walk(x)
+			}
+		case *ir.Quant:
+			walk(e.Body)
+		}
+	}
+	walk(e)
+	return out
+}
+
 // parseRules resolves the paths of every valid candidate rule.
 func parseRules(reg *ir.Registry, cands []translate.Candidate) []parsedRule {
 	var out []parsedRule
@@ -761,6 +819,7 @@ func parseRules(reg *ir.Registry, cands []translate.Candidate) []parsedRule {
 				continue
 			}
 			after := i == 1 && c.On != ""
+			told := reported(reg, e, subject)
 			for _, p := range ir.Paths(e) {
 				if c.Kind == ir.Derivation && len(p.Segs) > 1 && p.Segs[len(p.Segs)-1] == "default" {
 					p = &ir.Path{Segs: p.Segs[:len(p.Segs)-1]}
@@ -771,7 +830,7 @@ func parseRules(reg *ir.Registry, cands []translate.Candidate) []parsedRule {
 					// as config.x) can be what it writes: an instance
 					// reached through a relation is another one, which the
 					// checker never lets a step write.
-					if after && len(p.Segs) == 2 {
+					if after && len(p.Segs) == 2 && !told[p] {
 						pr.after = append(pr.after, a)
 					}
 				}

@@ -21,7 +21,7 @@ Found by three developer trials (ten features each, built with Claude Code and S
   - **Unreachable states:** a clash in a state no step reaches is set aside more often. Reachability now fixes whether optional values are set and leaves out entities with no creating step. When recording which step creates an entity would set a clash aside, the agent is asked which one. A clash is set aside only when its rules clash in no reachable state, not when the one state the solver sampled is unreachable.
   - **Lists:** lists fit the instances they hold.
   - **Kept optionals:** `x = old(x)` keeps an optional value that is unset.
-  - **Write inference:** reads of other instances are no longer taken as writes.
+  - **Write inference:** reads of other instances, and values a step only reports (a key it looks a result up by, a value compared with its result), are no longer taken as writes.
   - **Pruning:** keeps what a rule that does not compile yet names.
 - **Clearer questions.**
   - **Examples:** a question's example keeps each slot's values ("shed: tools #2: id is 0").
