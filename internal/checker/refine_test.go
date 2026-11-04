@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -144,5 +145,70 @@ if grep -q produce-models; then sleep 0.85; echo unsat; else echo sat; fi
 	}
 	if !reflect.DeepEqual(res.NearLimit, []string{"Resource.delete"}) {
 		t.Errorf("near limit %v, want [Resource.delete]", res.NearLimit)
+	}
+}
+
+// dayCount states a computed value exactly: the whole days a loan is
+// overdue, between two bounds, and a message that names the loan's tool.
+const dayCount = `
+context: c
+formatVersion: 1
+---
+entity: Loan
+context: c
+attributes:
+  tool: { type: string }
+  lentAt: { type: time }
+  daysOverdue: { type: int }
+---
+extend: platform.Result
+context: c
+attributes:
+  message: { type: string }
+---
+operation: Loan.overdue
+context: c
+default: allow
+writes: [Loan.daysOverdue]
+---
+id: D
+kind: invariant
+on: Loan.overdue
+when: now > self.lentAt + 14d
+assert: self.lentAt + 14d + days(self.daysOverdue) <= now and now < self.lentAt + 14d + days(self.daysOverdue + 1)
+---
+id: M
+kind: invariant
+on: Loan.overdue
+when: now > self.lentAt + 14d
+assert: contains(result.message, self.tool) and contains(result.message, "overdue")
+`
+
+// TestComputedValueDecides: a step that must set a whole number between two
+// bounds, and a message that must name its subject, are decided. The answer
+// differs in every situation, so refinement over constant responses never
+// converged and the quantified query timed out (ISSUES 80); the floor of
+// the bound, and the strings joined, answer every situation at once.
+func TestComputedValueDecides(t *testing.T) {
+	needZ3(t)
+	start := time.Now()
+	res := check(t, writeRegistry(t, dayCount), lower.Options{})
+	if res.Verdict != Pass || len(res.Undecided) > 0 {
+		t.Fatalf("got %s, undecided %v, conflicts %q; want pass", res.Verdict, res.Undecided, cores(res))
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Errorf("took %v", d)
+	}
+	// The candidates only shape the responses tried: a rule no count
+	// can meet with D is still a conflict.
+	clash := dayCount + "---\nid: Z\nkind: invariant\non: Loan.overdue\nwhen: now > self.lentAt + 20d\nassert: self.daysOverdue < 3\n"
+	if res := check(t, writeRegistry(t, clash), lower.Options{}); !slices.Contains(cores(res), "overdue: D + Z") {
+		t.Errorf("a count below the bound passed: %s %q, undecided %v", res.Verdict, cores(res), res.Undecided)
+	}
+	// Nor can the message both name the tool and leave it out. (Every
+	// message contains an empty name, so S alone needs one.)
+	silent := dayCount + "---\nid: S\nkind: invariant\non: Loan.overdue\nwhen: self.tool != \"\"\nassert: not contains(result.message, self.tool)\n"
+	if res := check(t, writeRegistry(t, silent), lower.Options{}); !slices.Contains(cores(res), "overdue: M + S") {
+		t.Errorf("a message that must and must not name the tool passed: %s %q, undecided %v", res.Verdict, cores(res), res.Undecided)
 	}
 }

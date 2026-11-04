@@ -269,7 +269,7 @@ func summarize(res *change.Result, outDir string) changeSummary {
 		// what one step must do (a developer trial reported it as broken,
 		// with nothing to act on).
 		s.Status = "undecided"
-		s.Next = fmt.Sprintf("the solver could not decide what %s must do; answer the questions, then the approval says which rules it leaves unchecked. A simpler wording of the requirement behind that step (an exact formula for a computed value, such as a count of days, is the usual cause) may let Stele check it", strings.Join(res.Gate.Check.Undecided, ", "))
+		s.Next = fmt.Sprintf("the solver could not decide what %s must do; answer the questions, then the approval says which rules it leaves unchecked. A simpler wording of the requirement behind that step may let Stele check it", strings.Join(res.Gate.Check.Undecided, ", "))
 	default:
 		s.Status, s.Next = "broken", "the check did not finish; see the report"
 	}

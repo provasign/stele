@@ -239,9 +239,14 @@ func TestUncheckedStepsAccepted(t *testing.T) {
 	if _, err := exec.LookPath("z3"); err != nil {
 		t.Skip("z3 not on PATH")
 	}
-	z := &solver.Z3{Timeout: time.Second}
-	// A whole number of days between two times, stated exactly: the solver
-	// cannot settle it (ISSUES 80).
+	// A solver that settles nothing: what it cannot decide changes as the
+	// checker learns (the exact day count of ISSUES 80 is decided now).
+	fake := filepath.Join(t.TempDir(), "z3")
+	script := "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'Z3 version 0 - fake'; exit 0; fi\ncat >/dev/null\necho unknown\n"
+	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	z := &solver.Z3{Path: fake, Timeout: time.Second}
 	d := dir(t, `context: c
 formatVersion: 1
 ---
@@ -250,11 +255,6 @@ context: c
 attributes:
   lentAt: { type: time }
   daysOverdue: { type: int }
----
-extend: platform.Result
-context: c
-attributes:
-  names: { type: list, of: string }
 ---
 operation: Tool.overdue
 context: c
@@ -265,7 +265,7 @@ id: D
 kind: invariant
 on: Tool.overdue
 when: now > self.lentAt + 14d
-assert: self.lentAt + 14d + days(self.daysOverdue) <= now and now < self.lentAt + 14d + days(self.daysOverdue + 1) and contains(result.names, "x")
+assert: self.lentAt + 14d + days(self.daysOverdue) <= now and now < self.lentAt + 14d + days(self.daysOverdue + 1)
 `)
 	res, err := Dirs(context.Background(), z, "", d)
 	if err != nil {

@@ -1011,9 +1011,11 @@ func (c *q) refine(ctx context.Context, found [][]int) (solver.Status, map[strin
 				fmt.Fprintf(&b, "(assert-soft %s :weight 4)\n", f.Term)
 			}
 		}
+		// Keeping the value, or the first term a rule names, is preferred;
+		// any term answers more situations than a constant does.
 		for _, v := range c.sys {
-			if len(terms[v.Name]) > 0 {
-				fmt.Fprintf(&b, "(assert-soft (= %s %s) :weight 1)\n", v.Name, terms[v.Name][0])
+			for k, t := range terms[v.Name] {
+				fmt.Fprintf(&b, "(assert-soft (= %s %s) :weight %d)\n", v.Name, t, max(1, 2-k))
 			}
 		}
 		b.WriteString("(check-sat)\n")
@@ -1064,17 +1066,23 @@ func (c *q) refine(ctx context.Context, found [][]int) (solver.Status, map[strin
 }
 
 // responseTerms gives, for each response variable, the terms over the
-// situation it may equal: its value before the step, and any term a rule or
-// the frame equates it with, "(= v' t)" with t free of response variables.
-// Refinement collects a response as these terms where it can.
+// situation it may equal: its value before the step, any term a rule or the
+// frame equates it with, "(= v' t)", and the terms candidates.go derives
+// from bounds and contained strings. A term that names another response
+// variable is resolved through that variable's own terms. Refinement
+// collects a response as these terms where it can.
 func (c *q) responseTerms() map[string][]string {
 	sys := map[string]bool{}
+	sorts := map[string]string{}
+	for _, v := range c.env {
+		sorts[v.Name] = v.Sort
+	}
 	for _, v := range c.sys {
-		sys[v.Name] = true
+		sys[v.Name], sorts[v.Name] = true, v.Sort
 	}
 	out := map[string][]string{}
 	add := func(v, t string) {
-		if !slices.Contains(out[v], t) {
+		if !slices.Contains(out[v], t) && len(out[v]) < maxTermsPerVar {
 			out[v] = append(out[v], t)
 		}
 	}
@@ -1094,22 +1102,34 @@ func (c *q) responseTerms() map[string][]string {
 		}
 		return slices.ContainsFunc(e.List, mentions)
 	}
+	var equal, other []rawTerm
 	var walk func(e solver.SExpr)
 	walk = func(e solver.SExpr) {
 		if !e.IsList() || len(e.List) == 0 {
 			return
 		}
+		isSys := func(a solver.SExpr) bool { return !a.IsList() && !a.Str && sys[a.Atom] }
 		switch e.List[0].Atom {
 		case "forall", "exists", "let", "lambda":
 			return // a term there may name a bound variable
 		case "=":
 			if len(e.List) == 3 {
 				for k := 1; k <= 2; k++ {
-					if a, t := e.List[k], e.List[3-k]; !a.IsList() && sys[a.Atom] && !mentions(t) {
-						add(a.Atom, t.String())
+					if a, t := e.List[k], e.List[3-k]; isSys(a) {
+						equal = append(equal, rawTerm{v: a.Atom, t: t})
 					}
 				}
 			}
+		case "str.contains":
+			if len(e.List) == 3 && isSys(e.List[1]) {
+				other = append(other, rawTerm{v: e.List[1].Atom, t: e.List[2], contains: true})
+			}
+		case "str.prefixof", "str.suffixof":
+			if len(e.List) == 3 && isSys(e.List[2]) {
+				other = append(other, rawTerm{v: e.List[2].Atom, t: e.List[1], contains: true})
+			}
+		case "<=", "<", ">=", ">":
+			other = append(other, boundTerms(e, sorts, sys)...)
 		}
 		for _, x := range e.List {
 			walk(x)
@@ -1127,6 +1147,70 @@ func (c *q) responseTerms() map[string][]string {
 			for _, e := range es {
 				walk(e)
 			}
+		}
+	}
+	// Equalities free of response variables first, in the order found:
+	// they were the only terms before, and the first is preferred.
+	for _, r := range equal {
+		if !mentions(r.t) {
+			add(r.v, r.t.String())
+		}
+	}
+	// resolve replaces each response variable t names by that variable's
+	// terms, one at a time, keeping the results that name none.
+	var resolve func(t solver.SExpr, depth int) []string
+	resolve = func(t solver.SExpr, depth int) []string {
+		if !mentions(t) {
+			return []string{t.String()}
+		}
+		if depth == 0 {
+			return nil
+		}
+		var w string
+		var find func(e solver.SExpr)
+		find = func(e solver.SExpr) {
+			if w != "" {
+				return
+			}
+			if !e.IsList() {
+				if !e.Str && sys[e.Atom] {
+					w = e.Atom
+				}
+				return
+			}
+			for _, x := range e.List {
+				find(x)
+			}
+		}
+		find(t)
+		var got []string
+		for _, s := range out[w] {
+			r, err := solver.Parse(s)
+			if err != nil || len(r) != 1 {
+				continue
+			}
+			got = append(got, resolve(substitute(t, w, r[0]), depth-1)...)
+			if len(got) >= maxTermsPerVar {
+				break
+			}
+		}
+		return got
+	}
+	contained := map[string][]string{}
+	for range 3 { // a term may resolve through one found in an earlier round
+		for _, r := range slices.Concat(equal, other) {
+			for _, t := range resolve(r.t, 3) {
+				add(r.v, t)
+				if r.contains && !slices.Contains(contained[r.v], t) {
+					contained[r.v] = append(contained[r.v], t)
+				}
+			}
+		}
+	}
+	// A value that must contain several strings may be all of them joined.
+	for v, ts := range contained {
+		if len(ts) > 1 {
+			add(v, "(str.++ "+strings.Join(ts[:min(len(ts), 6)], " ")+")")
 		}
 	}
 	return out
