@@ -543,7 +543,7 @@ func finish(dir string, m llm.Client, stmts []translate.Statement, st *state, op
 	p = unboundCounters(p, rules)
 	if !opt.NoPrune {
 		var pruned vocab.Proposal
-		pruned, res.Pruned = prune(reg, p, rules)
+		pruned, res.Pruned = prune(reg, p, rules, named(append(append([]translate.Candidate{}, st.Cands...), st.Links...)))
 		if _, err := vocab.Load(vocab.Options{VocabFiles: opt.VocabFiles, Context: opt.Context}, pruned); err == nil {
 			p = pruned
 		} else {
@@ -758,20 +758,25 @@ func parseRules(reg *ir.Registry, cands []translate.Candidate) []parsedRule {
 				}
 				if a, err := reg.Resolve(p, subject); err == nil {
 					pr.reads = append(pr.reads, a)
-					if after {
+					// Only the step's own instance (self.x, or a root such
+					// as config.x) can be what it writes: an instance
+					// reached through a relation is another one, which the
+					// checker never lets a step write.
+					if after && len(p.Segs) == 2 {
 						pr.after = append(pr.after, a)
 					}
 				}
 				pr.walked = append(pr.walked, walk(reg, p, subject)...)
 			}
-			// Attributes read through a quantifier's variable are used too.
+			// Attributes read through a quantifier's variable are used too,
+			// never written: the variable ranges over other instances. A
+			// listing that reads every tool's lent date was taken to write
+			// it, and then any step could have changed a tool (a developer
+			// trial, 2026-11-03).
 			for _, a := range reg.Reads(e, subject) {
 				if !slices.Contains(pr.reads, a) {
 					pr.reads = append(pr.reads, a)
 					pr.walked = append(pr.walked, a.Entity.Name)
-					if after {
-						pr.after = append(pr.after, a)
-					}
 				}
 			}
 		}
@@ -934,8 +939,47 @@ func resetValue(c *translate.Candidate, a *ir.Attr, op *ir.Operation) string {
 
 // prune drops the proposal's attributes, relations, operations and entities
 // no rule uses. It returns the pruned symbols.
-func prune(reg *ir.Registry, p vocab.Proposal, rules []parsedRule) (vocab.Proposal, []string) {
+func prune(reg *ir.Registry, p vocab.Proposal, rules []parsedRule, names map[string]bool) (vocab.Proposal, []string) {
 	usedAttr, usedOp, usedEnt := map[string]bool{}, map[string]bool{}, map[string]bool{}
+	// What a rule that does not compile yet names is kept as used: pruned,
+	// it could never compile. A loan history's entity, read only through
+	// instances(LoanRecord), was pruned with its operation, and the clause
+	// went unchecked without a finding (a developer trial, 2026-11-03).
+	for _, e := range p.Entities {
+		if names[e.Name] {
+			usedEnt[e.Name] = true
+			for _, a := range e.Attributes {
+				if names["."+a.Name] {
+					usedAttr[e.Name+"."+a.Name] = true
+				}
+			}
+			for _, r := range e.Relations {
+				if names["."+r.Name] {
+					usedAttr[e.Name+"."+r.Name] = true
+				}
+			}
+		}
+	}
+	// An extension's members are read through self or a variable as often
+	// as through the entity's root ("self.lastLoan.memberEmail"), so a
+	// member is kept when any failing rule names it.
+	for _, e := range p.Extensions {
+		for _, a := range e.Attributes {
+			if names["."+a.Name] {
+				usedAttr[e.Name+"."+a.Name] = true
+			}
+		}
+		for _, r := range e.Relations {
+			if names["."+r.Name] {
+				usedAttr[e.Name+"."+r.Name] = true
+			}
+		}
+	}
+	for _, o := range p.Operations {
+		if names[o.Name] {
+			usedOp[o.Name] = true
+		}
+	}
 	for _, r := range rules {
 		for _, a := range r.reads {
 			usedAttr[a.Path()] = true
@@ -1026,6 +1070,32 @@ func prune(reg *ir.Registry, p vocab.Proposal, rules []parsedRule) (vocab.Propos
 	}
 	sort.Strings(pruned)
 	return out, pruned
+}
+
+// identifier matches an entity, operation or attribute name in rule text.
+var identifier = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*`)
+
+// named lists what the rules that do not compile name: entity and operation
+// names as written, each attribute as ".name", and each path in full.
+func named(cands []translate.Candidate) map[string]bool {
+	out := map[string]bool{}
+	for _, c := range cands {
+		if c.Outcome != "rule" || c.Error == "" {
+			continue
+		}
+		for _, src := range []string{c.Subject, c.On, c.Operation, c.When, c.Assert} {
+			for _, id := range identifier.FindAllString(src, -1) {
+				out[id] = true
+				segs := strings.Split(id, ".")
+				out[segs[0]] = true
+				for i, seg := range segs[1:] {
+					out["."+seg] = true
+					out[strings.Join(segs[:i+2], ".")] = true
+				}
+			}
+		}
+	}
+	return out
 }
 
 // ends gives each statement its end state.

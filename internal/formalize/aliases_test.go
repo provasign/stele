@@ -123,7 +123,7 @@ func TestAliasPreservesDefaultDerivationPaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, removed := prune(reg, st.Proposal, parseRules(reg, st.Cands))
+	p, removed := prune(reg, st.Proposal, parseRules(reg, st.Cands), nil)
 	if len(removed) > 0 || len(p.Entities[0].Attributes) != 1 {
 		t.Fatalf("default-only setting was pruned: %+v", removed)
 	}
