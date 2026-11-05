@@ -399,6 +399,18 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 				}
 			}
 		}
+		// A step proposed on an earlier check writes what this check's rules
+		// set after it: the resend of a stalled model call read as keeping
+		// the time limit a later request gave it, and clashed (Stele's own
+		// change, 2026-11-05).
+		if reg, err := ir.LoadFiles(files...); err == nil {
+			if q, added := formalize.InferWrites(reg, p, all); len(added) > 0 {
+				p = q
+				if err := writeVocab(p); err != nil {
+					return nil, err
+				}
+			}
+		}
 		translate.Revalidate(files, all)
 		if reg, err := ir.LoadFiles(files...); err == nil {
 			res.InferredWrites = inferWrites(reg, p, all)

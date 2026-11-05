@@ -19,7 +19,7 @@ func TestHedge(t *testing.T) {
 		}
 		return &Reply{JSON: "{}"}, nil
 	}
-	r, err := hedge(context.Background(), 10*time.Millisecond, stallsFirst)
+	r, err := Hedge(context.Background(), 10*time.Millisecond, stallsFirst)
 	if err != nil || r == nil || calls.Load() != 2 {
 		t.Fatalf("stalled call: %v %v after %d calls", r, err, calls.Load())
 	}
@@ -29,7 +29,7 @@ func TestHedge(t *testing.T) {
 		calls.Add(1)
 		return nil, errors.New("crashed")
 	}
-	if _, err := hedge(context.Background(), time.Hour, fails); err == nil || calls.Load() != 1 {
+	if _, err := Hedge(context.Background(), time.Hour, fails); err == nil || calls.Load() != 1 {
 		t.Fatalf("failed call: %v after %d calls", err, calls.Load())
 	}
 
@@ -38,7 +38,7 @@ func TestHedge(t *testing.T) {
 		calls.Add(1)
 		return &Reply{JSON: "{}"}, nil
 	}
-	if _, err := hedge(context.Background(), time.Hour, fast); err != nil || calls.Load() != 1 {
+	if _, err := Hedge(context.Background(), time.Hour, fast); err != nil || calls.Load() != 1 {
 		t.Fatalf("fast call: %v after %d calls", err, calls.Load())
 	}
 }

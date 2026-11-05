@@ -105,9 +105,8 @@ type codexCLI struct{ model, effort string }
 
 func (c *codexCLI) Name() string { return "codex-cli:" + orDefault(c.model) + withEffort(c.effort) }
 
-func (c *codexCLI) Complete(ctx context.Context, req Request) (*Reply, error) {
-	return hedge(ctx, codexHedgeAfter, func(ctx context.Context) (*Reply, error) { return c.once(ctx, req) })
-}
+// HedgeAfter: a stalled Codex call is sent again (Hedger).
+func (c *codexCLI) HedgeAfter() time.Duration { return codexHedgeAfter }
 
 // codexHedgeAfter is how long a Codex call runs before the same request is
 // sent again. A few calls stall: in a developer trial at medium effort, 2 of
@@ -115,10 +114,15 @@ func (c *codexCLI) Complete(ctx context.Context, req Request) (*Reply, error) {
 // answered in 30 to 45 seconds; most calls answer within 90 seconds.
 const codexHedgeAfter = 100 * time.Second
 
-// hedge runs call, and once more if it has not answered after the given
+// Hedger is a client whose calls sometimes stall: a call that has not
+// answered after HedgeAfter is sent again (Hedge).
+type Hedger interface{ HedgeAfter() time.Duration }
+
+// Hedge runs call, and once more if it has not answered after the given
 // time; the first answer is used and the other call is cancelled. A call
-// that fails before then fails at once: retrying is the caller's.
-func hedge(ctx context.Context, after time.Duration, call func(context.Context) (*Reply, error)) (*Reply, error) {
+// that fails before then fails at once: retrying is the caller's. Each run
+// of call sets its own time limit, so the second attempt gets a full one.
+func Hedge(ctx context.Context, after time.Duration, call func(context.Context) (*Reply, error)) (*Reply, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	type answer struct {
@@ -160,7 +164,7 @@ func hedge(ctx context.Context, after time.Duration, call func(context.Context) 
 	}
 }
 
-func (c *codexCLI) once(ctx context.Context, req Request) (*Reply, error) {
+func (c *codexCLI) Complete(ctx context.Context, req Request) (*Reply, error) {
 	dir, err := os.MkdirTemp("", "stele-codex-")
 	if err != nil {
 		return nil, err

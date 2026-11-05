@@ -1093,6 +1093,13 @@ func restrictedDefaults(p vocab.Proposal, rules []parsedRule) (vocab.Proposal, [
 	return out, changed
 }
 
+// InferWrites is inferWrites over candidates: a change translated over
+// several checks proposes a step in one and may say what it sets in a later
+// one, which that translation never saw as its own (stele change).
+func InferWrites(reg *ir.Registry, p vocab.Proposal, cands []translate.Candidate) (vocab.Proposal, []string) {
+	return inferWrites(reg, p, parseRules(reg, cands))
+}
+
 // inferWrites adds to an operation's writes each attribute a rule asserts
 // about the state after it, unless the world sets it or it is a request or
 // actor input. Only operations of the proposal change; it returns what it

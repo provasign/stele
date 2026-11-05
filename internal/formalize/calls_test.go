@@ -203,3 +203,36 @@ func TestCostBudgetIgnoresUnpricedBackends(t *testing.T) {
 		t.Errorf("at most %d call in flight; want parallel calls", most.Load())
 	}
 }
+
+type hedged struct {
+	contextCompletion
+	after time.Duration
+}
+
+func (h hedged) HedgeAfter() time.Duration { return h.after }
+
+// TestHedgedCallHasItsOwnLimit: the second attempt of a stalled call gets
+// the whole request limit, not what the first left of it.
+func TestHedgedCallHasItsOwnLimit(t *testing.T) {
+	var calls atomic.Int32
+	m := hedged{after: 60 * time.Millisecond, contextCompletion: func(ctx context.Context, _ llm.Request) (*llm.Reply, error) {
+		if calls.Add(1) == 1 {
+			<-ctx.Done() // stalls to its limit
+			return nil, ctx.Err()
+		}
+		select { // answers after 60 ms: past the first attempt's limit, within its own
+		case <-time.After(60 * time.Millisecond):
+			return &llm.Reply{JSON: "{}"}, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}}
+	j, err := newCallJournal(m, t.TempDir(), Options{RequestTimeout: 100 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer j.close()
+	if r, err := j.Complete(context.Background(), llm.Request{System: "abc", Schema: "{}"}); err != nil || r == nil || calls.Load() != 2 {
+		t.Fatalf("hedged call: %v %v after %d calls", r, err, calls.Load())
+	}
+}

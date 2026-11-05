@@ -195,14 +195,26 @@ func (j *callJournal) Complete(ctx context.Context, req llm.Request) (*llm.Reply
 	fmt.Fprintf(j.opt.Log, "  model call %d: %d prompt bytes, %d schema bytes\n", e.ID, e.PromptBytes, e.SchemaBytes)
 	j.mu.Unlock()
 	run := ctx // the run's own context, before this call's deadline
-	if j.opt.RequestTimeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, j.opt.RequestTimeout)
-		defer cancel()
+	call := func(ctx context.Context) (*llm.Reply, error) {
+		if j.opt.RequestTimeout > 0 {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, j.opt.RequestTimeout)
+			defer cancel()
+		}
+		reply, err := j.Client.Complete(ctx, req)
+		if ctx.Err() != nil {
+			err = errors.Join(err, ctx.Err())
+		}
+		return reply, err
 	}
-	reply, err := j.Client.Complete(ctx, req)
-	if ctx.Err() != nil {
-		err = errors.Join(err, ctx.Err())
+	var reply *llm.Reply
+	if h, ok := j.Client.(llm.Hedger); ok {
+		// Each attempt has the whole request limit: sharing one, the
+		// second attempt of a stalled Codex call had 80 seconds and timed
+		// out too (a developer trial, 2026-11-05).
+		reply, err = llm.Hedge(run, h.HedgeAfter(), call)
+	} else {
+		reply, err = call(run)
 	}
 	if err == nil && reply == nil {
 		err = fmt.Errorf("backend returned no reply")
