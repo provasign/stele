@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -39,6 +40,10 @@ func TestInitAsksForDrafts(t *testing.T) {
 }
 
 func TestInitNonInteractiveUsesFlagsAndDefaults(t *testing.T) {
+	// No model CLI or key on this PATH: the default stays, with a note.
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "")
 	dir := t.TempDir()
 	var out bytes.Buffer
 	if code := cmdInit([]string{dir, "--drafts", "5"}, strings.NewReader(""), &out, false); code != 0 {
@@ -172,6 +177,41 @@ func TestInitFindsOpenSpec(t *testing.T) {
 
 // detectSpecs reads Spec Kit's feature folders as Spec Kit even without
 // .specify/, and other specs/ folders as plain Markdown.
+// A new Spec Kit project, with .specify/ and no spec yet, keeps its specs
+// in stele.yaml; and with only the codex CLI installed, Codex translates.
+// Set up for the claude CLI, a Codex-only machine failed every translation
+// (a developer trial, 2026-11-05).
+func TestInitNewSpecKitProjectOnCodex(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake CLI is a shell script")
+	}
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "codex"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "")
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".specify"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if code := cmdInit([]string{dir, "--yes", "--harness", "codex", "--hook=false", "--git-hook=false"}, strings.NewReader(""), &out, false); code != 0 {
+		t.Fatalf("exit %d: %s", code, out.String())
+	}
+	c, err := config.Find(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Translate.LLM != "codex" || c.Specs == nil || c.Specs.Format != "speckit" {
+		t.Fatalf("llm %q specs %+v\n%s", c.Translate.LLM, c.Specs, out.String())
+	}
+	if !strings.Contains(out.String(), "no specs yet") {
+		t.Errorf("output: %s", out.String())
+	}
+}
+
 func TestDetectSpecKitFeatureFolders(t *testing.T) {
 	for _, c := range []struct{ file, want string }{
 		{"specs/001-loans/spec.md", "speckit"},

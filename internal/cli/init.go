@@ -85,6 +85,14 @@ func cmdInit(args []string, in io.Reader, out io.Writer, interactive bool) int {
 	switch {
 	case *llmFlag != "":
 		c.Translate.LLM = *llmFlag
+	case !ask:
+		var ok bool
+		if c.Translate.LLM, ok = availableLLM(c.Translate.LLM); !ok {
+			fmt.Fprintln(out, "No model found to translate specs with: Stele needs the claude or codex CLI on PATH, or ANTHROPIC_API_KEY or OPENAI_API_KEY. Install one and set translate.llm in stele.yaml (claude, codex, anthropic or openai).")
+		}
+	}
+	switch {
+	case *llmFlag != "":
 	case ask:
 		fmt.Fprintln(out, "Which LLM should translate spec prose into rules?")
 		fmt.Fprintln(out, "  claude, codex     use the CLI you already have installed")
@@ -161,12 +169,22 @@ func cmdInit(args []string, in io.Reader, out io.Writer, interactive bool) int {
 		// The specs as they are now are the starting point: saved-spec sync
 		// reports what changes from here.
 		stmts, err := importSpecs(dir, c.Specs)
+		// A new Spec Kit, OpenSpec or Kiro project has its folders and no
+		// spec yet: each spec is checked as it is written. Turning sync off
+		// left stele.yaml without the specs, so nothing named the format
+		// (a developer trial, 2026-11-05).
+		empty := errors.Is(err, importer.ErrNoSpecs)
+		if empty {
+			stmts, err = nil, nil
+		}
 		if err == nil {
 			err = writeSnapshot(filepath.Join(dir, c.Specs.Snapshot), stmts, c.Specs.Format)
 		}
 		if err != nil {
 			fmt.Fprintf(out, "Could not read the %s specs (%v); saved-spec sync stays off until stele.yaml names them.\n", c.Specs.Format, err)
 			c.Specs = nil
+		} else if empty {
+			fmt.Fprintf(out, "Found a %s project with no specs yet; Stele checks each one as it is written.\n", formatLabel(c.Specs.Format))
 		} else {
 			fmt.Fprintf(out, "Found %s specs: %d requirement(s).\n", formatLabel(c.Specs.Format), len(stmts))
 			found = len(stmts)
@@ -304,6 +322,26 @@ func installGitHook(dir string) (path, note string, err error) {
 		return "", "", err
 	}
 	return path, "", os.WriteFile(path, []byte(gitHookScript), 0o755)
+}
+
+// availableLLM is the translation backend this machine can run: the
+// claude CLI, else the codex CLI, else an API key's provider, else def. A
+// machine with Codex alone was set up for the claude CLI, and every
+// translation failed (a developer trial, 2026-11-05). It reports whether
+// any was found.
+func availableLLM(def string) (string, bool) {
+	for _, cli := range []string{"claude", "codex"} {
+		if _, err := exec.LookPath(cli); err == nil {
+			return cli, true
+		}
+	}
+	switch {
+	case os.Getenv("ANTHROPIC_API_KEY") != "":
+		return "anthropic", true
+	case os.Getenv("OPENAI_API_KEY") != "":
+		return "openai", true
+	}
+	return def, false
 }
 
 // detectSpecs finds the project's spec layout from its folders, or nil.
