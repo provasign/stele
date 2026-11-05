@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -262,6 +263,10 @@ func summarize(res *change.Result, outDir string) changeSummary {
 		s.Status, s.Next = "broken", "the registry after this change does not compile; see errors"
 	case len(res.Failed) > 0:
 		s.Status, s.Next = "failed", fmt.Sprintf("the model could not translate %d requirement(s), so nothing was checked for them (see failed); fix what the error names (the model command, its login or sandbox) and run the same check again: it retries them", len(res.Failed))
+		if !slices.ContainsFunc(slices.Collect(maps.Values(res.Failed)), func(why string) bool { return !strings.HasPrefix(why, change.NoRules) }) {
+			// The model answered, with no rules: nothing to fix but to ask again.
+			s.Next = fmt.Sprintf("the model gave no rules for %d requirement(s) (see failed); run the same check again, without rewording them: it retries them once, and a requirement read so again is reported as unchecked", len(res.Failed))
+		}
 	case approve:
 		s.Status, s.Next = "ready", "ask the owner the approval question; answer with `stele change answer`"
 	case len(res.Questions) > 0:

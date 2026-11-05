@@ -30,6 +30,10 @@ type cache struct {
 	// one by itself; Merges are those it did.
 	Flags  []vocab.Flag  `json:"flags,omitempty"`
 	Merges []vocab.Merge `json:"merges,omitempty"`
+	// NoRules holds, per requirement, the key of the text the model last
+	// read with no rules though a clause can be checked: read so again, it
+	// is unchecked rather than failed.
+	NoRules map[string]string `json:"no_rules,omitempty"`
 }
 
 type entry struct {
@@ -235,3 +239,7 @@ func terms(p vocab.Proposal) []string {
 	slices.Sort(out)
 	return slices.Compact(out)
 }
+
+// NoRules starts the reason a requirement failed when the model answered
+// with no rules for it.
+const NoRules = "the model gave no rules"

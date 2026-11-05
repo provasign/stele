@@ -1190,7 +1190,8 @@ func TestShaleTaskIsSetAside(t *testing.T) {
 
 // A reading of nothing checkable, where the coverage judge finds a clause a
 // rule can check, is a translation the model skipped: it fails, to be
-// retried, instead of asking whether the request is a one-off task.
+// retried, instead of asking whether the request is a one-off task. Read so
+// again, it is what the model makes of the text: the change goes on.
 func TestSkippedTranslationFails(t *testing.T) {
 	for _, tool := range []string{"git", "z3"} {
 		if _, err := exec.LookPath(tool); err != nil {
@@ -1216,7 +1217,8 @@ func TestSkippedTranslationFails(t *testing.T) {
 	write(filepath.Join(repo, ".shale/local/s1.jsonl"), `{"kind":"intent","at":"2026-10-01T10:00:00Z","title":"List saved resources","body":"Listing MUST show every saved resource."}`+"\n")
 	write(filepath.Join(registry, "vocabulary.yaml"), vocabYAML)
 	client := fake{uncovered: "Listing MUST show every saved resource", readings: map[string]reading{"saved": {rules: []map[string]any{{"kind": "informal", "rationale": "The requested rule translation is not provided in this response."}}}}}
-	res, err := Run(context.Background(), Options{Repo: repo, Change: "list", Registry: registry, Out: t.TempDir(), Base: "main", Format: "shale", Clients: []llm.Client{client}})
+	out := t.TempDir()
+	res, err := Run(context.Background(), Options{Repo: repo, Change: "list", Registry: registry, Out: out, Base: "main", Format: "shale", Clients: []llm.Client{client}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1227,6 +1229,22 @@ func TestSkippedTranslationFails(t *testing.T) {
 		if q.Kind == "task" || q.Kind == "approve" {
 			t.Fatalf("asked %s for a translation that did not happen: %+v", q.Kind, q)
 		}
+	}
+
+	// Read with no rules again, it is unchecked: the owner sees each
+	// clause no rule checks and can approve.
+	res, err = Run(context.Background(), Options{Repo: repo, Change: "list", Registry: registry, Out: out, Base: "main", Format: "shale", Clients: []llm.Client{client}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Failed) != 0 {
+		t.Fatalf("failed again: %v", res.Failed)
+	}
+	if res.Unchecked["intent/s1"] == "" {
+		t.Errorf("unchecked = %v; want the requirement", res.Unchecked)
+	}
+	if len(res.Questions) != 1 || res.Questions[0].Kind != "task" {
+		t.Errorf("questions %+v; want the owner asked whether it is a requirement", res.Questions)
 	}
 }
 

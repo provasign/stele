@@ -722,8 +722,20 @@ func (c *cache) translate(ctx context.Context, opt Options, todo []translate.Sta
 		failed = failed && len(byStmt[s.ID]) == 0
 		if !failed && len(uncovered[s.ID]) > 0 && !slices.ContainsFunc(byStmt[s.ID], func(c translate.Candidate) bool { return c.Outcome == "rule" }) {
 			// Read as having nothing to check, yet the coverage judge finds
-			// clauses a rule can check: the model skipped the translation.
-			why, failed = "the model gave no rules, though the text has clauses a rule can check: "+strings.Join(uncovered[s.ID], "; "), true
+			// clauses a rule can check: the model skipped the translation,
+			// and the next check retries it. The same text read so again is
+			// what the model makes of it: it is unchecked, each clause a
+			// finding the owner sees. Failed every time, a plot listing's
+			// display requirement held its change back, and the agent
+			// offered to reword the spec to suit Stele (a developer trial,
+			// 2026-11-05).
+			if c.NoRules[s.ID] != key(s) {
+				if c.NoRules == nil {
+					c.NoRules = map[string]string{}
+				}
+				c.NoRules[s.ID] = key(s)
+				why, failed = NoRules+", though the text has clauses a rule can check: "+strings.Join(uncovered[s.ID], "; "), true
+			}
 		}
 		if failed {
 			if res.Failed == nil {
