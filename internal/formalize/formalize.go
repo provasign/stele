@@ -742,6 +742,16 @@ type parsedRule struct {
 // tool's name against its id was taken to write both, and then a listing
 // could have changed any tool (a developer trial, 2026-11-04).
 func reported(reg *ir.Registry, e ir.Expr, subject *ir.Entity) map[*ir.Path]bool {
+	return reports(reg, e, subject, true)
+}
+
+// shown returns the paths of e that a step reports in its result: as
+// reported, less the conditions it only tests.
+func shown(reg *ir.Registry, e ir.Expr, subject *ir.Entity) map[*ir.Path]bool {
+	return reports(reg, e, subject, false)
+}
+
+func reports(reg *ir.Registry, e ir.Expr, subject *ir.Entity, conditions bool) map[*ir.Path]bool {
 	out := map[*ir.Path]bool{}
 	outVars := map[string]bool{} // quantifier variables over an output
 	var each func(ir.Expr, func(*ir.Path))
@@ -794,7 +804,9 @@ func reported(reg *ir.Registry, e ir.Expr, subject *ir.Entity) map[*ir.Path]bool
 		case *ir.Binary:
 			switch e.Op {
 			case "implies":
-				mark(e.L)
+				if conditions {
+					mark(e.L)
+				}
 				walk(e.R)
 			case "=", "!=", "<", "<=", ">", ">=", "in":
 				if output(e) {
@@ -823,6 +835,108 @@ func reported(reg *ir.Registry, e ir.Expr, subject *ir.Entity) map[*ir.Path]bool
 	walk(e)
 	indexKeys(e, mark)
 	return out
+}
+
+// Asserted lists what e, a step's assertion about the state after it,
+// sets on the step's own instance: the paths it names directly, less those
+// it only reports or tests (reported). A change's rule on an existing step
+// is read the same way as formalize reads a new step's: "listing the tools
+// shows each lent tool's due date" made the listing write the id and the
+// lent date (a developer trial, 2026-11-04).
+func Asserted(reg *ir.Registry, e ir.Expr, subject *ir.Entity) []*ir.Attr {
+	told := reported(reg, e, subject)
+	var out []*ir.Attr
+	for _, p := range ir.Paths(e) {
+		if len(p.Segs) != 2 || told[p] {
+			continue
+		}
+		if a, err := reg.Resolve(p, subject); err == nil && !slices.Contains(out, a) {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// OnlyReported lists what op writes that its approved rules only report:
+// a live rule on the step shows the value in its result, and none asserts
+// it after the step. A value the rules only test, in a condition, is the
+// step's to change all the same (a restart tests the status it changes). A registry
+// approved before write inference learned to tell reports from writes keeps
+// such writes, and a listing then could change any tool (a developer trial,
+// 2026-11-04). A value the step's effect sets, one the world sets, one a
+// state invariant ties to another value the step writes (a due date kept
+// 14 days after the lent date), and the step's own history are left out.
+func OnlyReported(reg *ir.Registry, op *ir.Operation) []*ir.Attr {
+	named, after := map[*ir.Attr]bool{}, map[*ir.Attr]bool{}
+	var states [][]*ir.Attr // what each state invariant reads
+	for _, x := range reg.Rules {
+		if !x.Live() {
+			continue
+		}
+		subject, err := reg.SubjectOf(x)
+		if err != nil {
+			continue
+		}
+		if x.Kind == ir.Invariant && x.On == "" {
+			var reads []*ir.Attr
+			for _, e := range []ir.Expr{x.When, x.Assert} {
+				if e != nil {
+					reads = append(reads, reg.Reads(e, subject)...)
+				}
+			}
+			states = append(states, reads)
+			continue
+		}
+		if x.On != op.Name {
+			continue
+		}
+		if x.Assert == nil {
+			continue
+		}
+		told, show := reported(reg, x.Assert, subject), shown(reg, x.Assert, subject)
+		for _, p := range ir.Paths(x.Assert) {
+			a, err := reg.Resolve(p, subject)
+			if err != nil || p.Segs[0] != "self" {
+				continue
+			}
+			if show[p] {
+				named[a] = true
+			}
+			if !told[p] {
+				after[a] = true
+			}
+		}
+	}
+	var out []*ir.Attr
+	for _, a := range op.Writes {
+		if !named[a] || after[a] || a.WorldSet || a.Entity != op.Entity {
+			continue
+		}
+		if slices.ContainsFunc(op.Effect, func(e ir.Assignment) bool { return e.Attr == a }) {
+			continue
+		}
+		if h := op.History; h != nil && (a == h.Ran || a == h.Runs || a == h.Last) {
+			continue
+		}
+		out = append(out, a)
+	}
+	// Tied to a value the step does write; two values it only reports do
+	// not keep each other (a tool's id and whether it exists, both read by
+	// "ids are unique among existing tools").
+	tied := func(a *ir.Attr) bool {
+		return slices.ContainsFunc(states, func(reads []*ir.Attr) bool {
+			return slices.Contains(reads, a) && slices.ContainsFunc(reads, func(b *ir.Attr) bool {
+				return b != a && op.WritesAttr(b) && !slices.Contains(out, b)
+			})
+		})
+	}
+	var kept []*ir.Attr
+	for _, a := range out {
+		if !tied(a) {
+			kept = append(kept, a)
+		}
+	}
+	return kept
 }
 
 // indexKeys calls mark with the key of every lookup in e.

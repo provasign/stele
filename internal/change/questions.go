@@ -24,7 +24,7 @@ import (
 // coding agent to ask the owner (D-058). The owner never reads Stele's files.
 type Question struct {
 	ID   string `json:"id"`
-	Kind string `json:"kind"` // same_term | creates | conflict | self_conflict | meaning_change | approve
+	Kind string `json:"kind"` // same_term | creates | conflict | self_conflict | meaning_change | reported_write | approve
 	// AskOwner is false for a question the agent answers itself: Stele's own
 	// misreading, re-read once before the owner is asked.
 	AskOwner     bool          `json:"ask_owner"`
@@ -547,9 +547,48 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 
 	qs = groupConflicts(qs, head, req)
 
+	// What an approved step is recorded as writing that its rules only
+	// report: asked before the clashes in that step, which the extra write
+	// may be what makes (a listing that could change any tool's name).
+	var kept []Question
+	for _, name := range slices.Sorted(maps.Keys(res.reportedWrites)) {
+		op := head.Operations[name]
+		for _, w := range res.reportedWrites[name] {
+			q := Question{ID: qid("reported_write", name, w), Kind: "reported_write", Term: name, Existing: w}
+			if slices.ContainsFunc(as, func(a Answer) bool { return a.Question == q.ID }) {
+				continue
+			}
+			step := strings.Trim(Words(name, ""), `"`)
+			value := strings.Trim(Words(w, meaningOf(head, w)), `"`)
+			q.Text = fmt.Sprintf("Does %s change %s, or only report it?", step, value)
+			var on []string
+			for _, x := range head.Rules {
+				if x.Live() && x.On == name {
+					on = append(on, x.ID)
+				}
+			}
+			sort.Strings(on)
+			q.Detail = fmt.Sprintf("The registry records that %s writes %s, but every approved rule on the step (%s) only reports or tests it, and none says what it is after the step. A step that writes a value may leave it in any state, so the checks treat %s as able to change it. Decide from the spec (and the code).", name, w, strings.Join(on, ", "), name)
+			q.Recommended, q.Why = "keeps", "no approved rule says the step changes it"
+			q.Options = []Option{
+				{Choice: "keeps", Label: "It only reports it: the step keeps the value", Then: "Stele records that " + step + " keeps it, and the owner approves that with the change; run `stele change` again"},
+				{Choice: "changes", Label: "The step changes it", Then: "it stays a write; run `stele change` again"},
+			}
+			q.unit = op.Name
+			kept = append(kept, q)
+		}
+	}
+	if len(kept) > 0 {
+		asked := map[string]bool{}
+		for _, q := range kept {
+			asked[q.unit] = true
+		}
+		qs = append(kept, slices.DeleteFunc(qs, func(q Question) bool { return (q.Kind == "conflict" || q.Kind == "self_conflict") && asked[q.unit] })...)
+	}
+
 	// Vocabulary the change alters under rules already approved.
 	if g != nil {
-		made := creators(as)
+		made, kept := creators(as), keeps(as)
 		for _, ch := range g.NeedsApproval {
 			if len(ch.Affected) == 0 {
 				continue
@@ -562,7 +601,7 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 			for _, ws := range res.InferredWrites {
 				inferred = inferred || slices.Contains(ws, ch.Symbol)
 			}
-			if (ch.Kind == "writes-changed" && (slices.Contains(made[ent], ch.Symbol) || res.InferredWrites[ch.Symbol] != nil)) || (ch.Kind == "controller-changed" && (len(made[ent]) > 0 || inferred)) {
+			if (ch.Kind == "writes-changed" && (slices.Contains(made[ent], ch.Symbol) || res.InferredWrites[ch.Symbol] != nil || onlyKept(ch.Detail, kept[ch.Symbol]))) || (ch.Kind == "controller-changed" && (len(made[ent]) > 0 || inferred || keptAny(kept, ch.Symbol))) {
 				continue
 			}
 			q := Question{ID: qid("meaning_change", ch.Symbol, ch.Detail), Kind: "meaning_change", AskOwner: true, Term: ch.Symbol, Detail: ch.Kind + ": " + ch.Detail}
@@ -771,6 +810,17 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 		if len(res.NewTerms) > 0 {
 			q.Text += fmt.Sprintf(". The change adds %d new term(s)", len(res.NewTerms))
 		}
+		if k := keeps(as); len(k) > 0 {
+			var said []string
+			for _, op := range slices.Sorted(maps.Keys(k)) {
+				var vs []string
+				for _, w := range k[op] {
+					vs = append(vs, strings.Trim(Words(w, meaningOf(head, w)), `"`))
+				}
+				said = append(said, strings.Trim(Words(op, ""), `"`)+" keeps "+strings.Join(vs, ", "))
+			}
+			q.Text += ". It corrects what approved steps change, as the agent answered: " + strings.Join(said, "; ")
+		}
 		if n := len(res.NewLessons); n > 0 {
 			q.Text += fmt.Sprintf(". Your answers also teach Stele %d lesson(s) about this project, saved in the registry with the change: %s", n, strings.Join(res.NewLessons, "; "))
 		}
@@ -863,6 +913,49 @@ func sortedKeys(m map[string]string) []string {
 func stateInvariantIn(reg *ir.Registry, rules []string) bool {
 	for _, r := range rules {
 		if x := reg.Rule(r); x != nil && x.Kind == ir.Invariant && x.On == "" {
+			return true
+		}
+	}
+	return false
+}
+
+// onlyKept reports whether a writes-changed detail ("A.x, A.y -> A.x")
+// only drops values the answers say the step keeps: the agent decided that
+// from the step's rules, and the approval names it.
+func onlyKept(detail string, kept []string) bool {
+	before, after, ok := strings.Cut(detail, " -> ")
+	if !ok || len(kept) == 0 {
+		return false
+	}
+	list := func(s string) []string {
+		var out []string
+		for _, x := range strings.Split(s, ", ") {
+			// The gate names writes by QName (Job$result.code, Tool.lentTo?),
+			// answers by the path the step writes (Job.result.code).
+			if x = strings.TrimSuffix(strings.ReplaceAll(strings.TrimSpace(x), "$", "."), "?"); x != "" {
+				out = append(out, x)
+			}
+		}
+		return out
+	}
+	b, a := list(before), list(after)
+	for _, x := range a {
+		if !slices.Contains(b, x) {
+			return false
+		}
+	}
+	for _, x := range b {
+		if !slices.Contains(a, x) && !slices.Contains(kept, x) {
+			return false
+		}
+	}
+	return true
+}
+
+// keptAny reports whether an answer says some step keeps the value.
+func keptAny(kept map[string][]string, symbol string) bool {
+	for _, ws := range kept {
+		if slices.Contains(ws, symbol) {
 			return true
 		}
 	}

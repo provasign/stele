@@ -161,6 +161,9 @@ type Result struct {
 	// creators names, by conflict (conflictKey), the operations that,
 	// recorded as creating their entity, would set the conflict aside.
 	creators map[string][]string
+	// reportedWrites names, by operation, what the step is recorded as
+	// writing that its approved rules only report (formalize.OnlyReported).
+	reportedWrites map[string][]string
 	// first: the registry held no approved rule before this change.
 	first bool
 }
@@ -497,7 +500,7 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 	if err := writeLinks(filepath.Join(res.Head, prefix+".world.yaml"), linkCands); err != nil {
 		return nil, err
 	}
-	if err := writeWrites(filepath.Join(res.Head, prefix+".writes.yaml"), res.InferredWrites); err != nil {
+	if err := writeWrites(filepath.Join(res.Head, prefix+".writes.yaml"), res.InferredWrites, keeps(answers)); err != nil {
 		return nil, err
 	}
 	if err := writeCreators(filepath.Join(res.Head, prefix+".created.yaml"), creators(answers), newIn); err != nil {
@@ -572,6 +575,7 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 				res.creators[conflictKey(cf)] = ops
 			}
 		}
+		res.reportedWrites = reportedWrites(head, res)
 	}
 	res.Questions = questions(res, head, c, known, answers)
 	// A conflict that comes from glossary definitions left out of the

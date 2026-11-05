@@ -2,10 +2,12 @@ package change
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strings"
 
+	"github.com/provasign/stele/internal/formalize"
 	"github.com/provasign/stele/internal/ir"
 	"github.com/provasign/stele/internal/translate"
 	"github.com/provasign/stele/internal/vocab"
@@ -40,7 +42,7 @@ func inferWrites(reg *ir.Registry, p vocab.Proposal, cands []translate.Candidate
 		if err != nil {
 			continue
 		}
-		for _, a := range reg.Reads(withoutOld(assert), subject) {
+		for _, a := range formalize.Asserted(reg, withoutOld(assert), subject) {
 			// Only the step's own entity: an attribute reached through a
 			// relation is usually read to relate to (the cluster's tenant in
 			// a backup's key), not changed.
@@ -157,21 +159,81 @@ func withoutOld(e ir.Expr) ir.Expr {
 
 // writeWrites records the writes a change adds to existing operations, or
 // removes the file when it adds none.
-func writeWrites(path string, by map[string][]string) error {
-	if len(by) == 0 {
+func writeWrites(path string, by, kept map[string][]string) error {
+	if len(by) == 0 && len(kept) == 0 {
 		return removeIfExists(path)
 	}
 	var b strings.Builder
-	b.WriteString("# Writes the change's rules need from steps the registry already declares (`stele change`).\n")
-	ops := make([]string, 0, len(by))
-	for o := range by {
-		ops = append(ops, o)
+	b.WriteString("# Writes the change's rules need from steps the registry already declares, and values\n# steps were recorded as writing that they keep (`stele change`).\n")
+	ops := slices.Sorted(maps.Keys(by))
+	for _, o := range slices.Sorted(maps.Keys(kept)) {
+		if !slices.Contains(ops, o) {
+			ops = append(ops, o)
+		}
 	}
 	sort.Strings(ops)
 	for _, o := range ops {
-		fmt.Fprintf(&b, "---\nextend: %s\nwrites: [%s]\n", o, strings.Join(by[o], ", "))
+		fmt.Fprintf(&b, "---\nextend: %s\n", o)
+		if len(by[o]) > 0 {
+			fmt.Fprintf(&b, "writes: [%s]\n", strings.Join(by[o], ", "))
+		}
+		if len(kept[o]) > 0 {
+			fmt.Fprintf(&b, "keeps: [%s]\n", strings.Join(kept[o], ", "))
+		}
 	}
 	return writeFile(path, b.String())
+}
+
+// reportedWrites finds, among the steps this check meets (the change's
+// rules are on them, or a clash or an undecided check is in them), what
+// each is recorded as writing that its approved rules only report. Approved
+// registries kept such writes after write inference learned to tell
+// reports from writes, and nothing corrected them (ISSUES 90): the agent is
+// asked, and an answer that the step keeps the value records it in the
+// change.
+func reportedWrites(head *ir.Registry, res *Result) map[string][]string {
+	met := map[string]bool{}
+	for _, ids := range res.Rules {
+		for _, id := range ids {
+			if x := head.Rule(id); x != nil && x.On != "" {
+				met[x.On] = true
+			}
+		}
+	}
+	if c := res.Gate.Check; c != nil {
+		for _, cf := range append(slices.Clone(c.Conflicts), c.Unreachable...) {
+			met[cf.Unit] = true
+		}
+		for _, u := range c.Undecided {
+			met[u] = true
+		}
+	}
+	out := map[string][]string{}
+	for name := range met {
+		op := head.Operations[name]
+		if op == nil {
+			continue
+		}
+		for _, a := range formalize.OnlyReported(head, op) {
+			out[name] = append(out[name], a.Path())
+		}
+	}
+	return out
+}
+
+// keeps are the answers that say a step keeps a value it was recorded as
+// writing: operation to Entity.attribute.
+func keeps(as []Answer) map[string][]string {
+	out := map[string][]string{}
+	for _, a := range as {
+		if a.Kind == "reported_write" && a.Choice == "keeps" && !slices.Contains(out[a.Term], a.Existing) {
+			out[a.Term] = append(out[a.Term], a.Existing)
+		}
+	}
+	for _, ws := range out {
+		sort.Strings(ws)
+	}
+	return out
 }
 
 // systemSet finds attributes the change proposes as set by the world that

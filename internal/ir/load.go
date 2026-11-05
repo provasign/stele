@@ -74,6 +74,7 @@ type rawDoc struct {
 
 	Default string   `yaml:"default"`
 	Writes  []string `yaml:"writes"`
+	Keeps   []string `yaml:"keeps"` // on an operation extension: values it was recorded as writing that it keeps
 
 	ID      string `yaml:"id"`
 	On      string `yaml:"on"`
@@ -214,6 +215,7 @@ type opDoc struct {
 	name   string
 	def    string
 	writes []string
+	keeps  []string
 	effect map[string]any
 	where  string
 }
@@ -281,12 +283,13 @@ func (l *loader) doc(d *rawDoc, where string) {
 			break
 		}
 		if strings.Contains(strings.TrimPrefix(d.Extend, "platform."), ".") {
-			// extend: Entity.op adds writes to an operation declared elsewhere.
-			if len(d.Writes) == 0 {
-				l.errf(where, "extend %s: an operation extension lists writes", d.Extend)
+			// extend: Entity.op adds writes to an operation declared elsewhere,
+			// or says it keeps values it was recorded as writing.
+			if len(d.Writes) == 0 && len(d.Keeps) == 0 {
+				l.errf(where, "extend %s: an operation extension lists writes or keeps", d.Extend)
 				break
 			}
-			l.opExtends = append(l.opExtends, opDoc{name: strings.TrimPrefix(d.Extend, "platform."), writes: d.Writes, where: where})
+			l.opExtends = append(l.opExtends, opDoc{name: strings.TrimPrefix(d.Extend, "platform."), writes: d.Writes, keeps: d.Keeps, where: where})
 			break
 		}
 		// Applied after every file is read: the entity may be declared later.
@@ -1105,6 +1108,27 @@ func (l *loader) operations() {
 			l.writes(op, d)
 		}
 	}
+	// Keeps come after every write, so a value one file says the step
+	// writes and another says it keeps is kept: an approved step recorded
+	// as writing a value it only reports is corrected this way, without
+	// editing the file that declared it.
+	for _, d := range l.opExtends {
+		op := l.reg.Operations[d.name]
+		if op == nil {
+			continue
+		}
+		for _, w := range d.keeps {
+			a := l.writePath(op, d, w)
+			if a == nil {
+				continue
+			}
+			if slices.ContainsFunc(op.Effect, func(e Assignment) bool { return e.Attr == a }) {
+				l.errf(d.where, "extend %s keeps %s, which its effect sets", d.name, w)
+				continue
+			}
+			op.Writes = slices.DeleteFunc(op.Writes, func(x *Attr) bool { return x == a })
+		}
+	}
 	// A value the world sets may be written only as a declared reset, so the
 	// step cannot choose it to avoid a rule (ISSUES 19).
 	for _, op := range l.reg.Operations {
@@ -1291,31 +1315,37 @@ func (l *loader) creations() {
 // writes resolves an operation document's writes onto the operation.
 func (l *loader) writes(op *Operation, d opDoc) {
 	for _, w := range d.writes {
-		ent, attr, ok := strings.Cut(w, ".")
-		e := l.reg.Entities[ent]
-		if !ok || e == nil {
-			l.errf(d.where, "operation %s writes %q: not a declared Entity.attribute", d.name, w)
-			continue
-		}
-		if e.Name == "Request" || e.Name == "Actor" {
-			l.errf(d.where, "operation %s writes %s: requests and actors are inputs, not state", d.name, w)
-			continue
-		}
-		// Entity.attribute, a record field (Entity.record.field), or an
-		// optional relation, whose presence the operation sets.
-		p := &Path{Segs: append([]string{"self"}, strings.Split(attr, ".")...)}
-		a, err := l.reg.Resolve(p, e)
-		if ref, rerr := l.reg.ResolveRef(p, e); err != nil && rerr == nil && ref.Rel != nil {
-			a, err = ref.Rel.Set, nil
-		}
-		if err != nil {
-			l.errf(d.where, "operation %s writes %q: not a declared Entity.attribute", d.name, w)
-			continue
-		}
-		if !op.WritesAttr(a) {
+		if a := l.writePath(op, d, w); a != nil && !op.WritesAttr(a) {
 			op.Writes = append(op.Writes, a)
 		}
 	}
+}
+
+// writePath resolves one Entity.attribute an operation document names in
+// writes or keeps, or reports why it cannot.
+func (l *loader) writePath(op *Operation, d opDoc, w string) *Attr {
+	ent, attr, ok := strings.Cut(w, ".")
+	e := l.reg.Entities[ent]
+	if !ok || e == nil {
+		l.errf(d.where, "operation %s writes %q: not a declared Entity.attribute", d.name, w)
+		return nil
+	}
+	if e.Name == "Request" || e.Name == "Actor" {
+		l.errf(d.where, "operation %s writes %s: requests and actors are inputs, not state", d.name, w)
+		return nil
+	}
+	// Entity.attribute, a record field (Entity.record.field), or an
+	// optional relation, whose presence the operation sets.
+	p := &Path{Segs: append([]string{"self"}, strings.Split(attr, ".")...)}
+	a, err := l.reg.Resolve(p, e)
+	if ref, rerr := l.reg.ResolveRef(p, e); err != nil && rerr == nil && ref.Rel != nil {
+		a, err = ref.Rel.Set, nil
+	}
+	if err != nil {
+		l.errf(d.where, "operation %s writes %q: not a declared Entity.attribute", d.name, w)
+		return nil
+	}
+	return a
 }
 
 // instanceRelations adds, to each entity a rule reads with instances(E),

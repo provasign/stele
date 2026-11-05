@@ -61,6 +61,47 @@ attributes:
 	}
 }
 
+// An operation extension's keeps take back a write another file declared,
+// whichever file is read first; a value the step's effect sets cannot be
+// kept.
+func TestExtensionKeepsAWrite(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, src string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("a-kept.yaml", "extend: Tool.list\nkeeps: [Tool.name]\n")
+	write("b-domain.yaml", `context: c
+formatVersion: 1
+---
+entity: Tool
+context: c
+attributes:
+  name: { type: string }
+  shown: { type: bool }
+---
+operation: Tool.list
+context: c
+default: allow
+writes: [Tool.name, Tool.shown]
+effect:
+  shown: "true"
+`)
+	reg, err := LoadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	op := reg.Operations["Tool.list"]
+	if len(op.Writes) != 1 || op.Writes[0].Name != "shown" {
+		t.Errorf("writes = %v, want Tool.shown alone", op.Writes)
+	}
+	write("c-effect.yaml", "extend: Tool.list\nkeeps: [Tool.shown]\n")
+	if _, err = LoadDir(dir); err == nil || !strings.Contains(err.Error(), "keeps Tool.shown, which its effect sets") {
+		t.Errorf("err = %v", err)
+	}
+}
+
 // Every type spelling a translator may write loads to the same types.
 func TestTypeSpellings(t *testing.T) {
 	dir := t.TempDir()

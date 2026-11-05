@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- **Approved steps can be corrected.** A registry approved before Stele learned to tell a value a step reports from one it writes kept those writes, and nothing corrected them: a listing could change any tool, so clashes no step reaches stood and steps went undecided. When a change check meets such a step (the change's rules are on it, or a clash or an undecided check is in it), it asks the agent whether the step changes each value it only shows in its result. The answer "keeps" is recorded in the change's registry (`extend: Op` with `keeps: [...]`), and the approval names it. Found in all three trial registries (every listing), and once in 160 benchmark registries.
+- **Rules a change adds to an existing step read reports as reports.** "Listing the tools also shows each lent tool's due date" made the listing write the tool's id and lent date: the fix in v0.1.5 covered new steps only.
+
 ## v0.1.5 - 2026-11-05
 
 Found by three developer trials (ten features each, built with Claude Code and Stele from the owner's requests) and a code review.

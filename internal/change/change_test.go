@@ -403,6 +403,91 @@ source:
 	}
 }
 
+// TestReportedWriteIsCorrected: an approved listing recorded as writing the
+// tool's name, which its rule only shows, kept the write after inference
+// learned better, and nothing corrected it (ISSUES 90). A change that meets
+// the step asks the agent; "keeps" takes the write back in the change's
+// registry, and the approval says so instead of a meaning-change question.
+func TestReportedWriteIsCorrected(t *testing.T) {
+	if _, err := exec.LookPath("z3"); err != nil {
+		t.Skip("z3 not on PATH")
+	}
+	repo, registry, out := t.TempDir(), t.TempDir(), t.TempDir()
+	write := func(p, src string) {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	prose := "Requirement: List names\nThe listing MUST show each tool's name against its id."
+	write(filepath.Join(repo, "openspec/specs/shed/spec.md"), "# Shed\n\n### Requirement: List names\nThe listing MUST show each tool's name against its id.\n")
+	write(filepath.Join(repo, "openspec/changes/c1/specs/shed/spec.md"), "## ADDED Requirements\n\n### Requirement: List count\nThe listing MUST show how many tools there are.\n")
+	write(filepath.Join(registry, "vocabulary.yaml"), `context: shed
+formatVersion: 1
+---
+entity: Tool
+context: shed
+attributes:
+  id: { type: int }
+  name: { type: string }
+---
+extend: Result
+context: shed
+attributes:
+  nameOf: { type: "map<int, string>" }
+  count: { type: int }
+---
+operation: Tool.list
+context: shed
+default: allow
+writes: [Tool.name]
+`)
+	write(filepath.Join(registry, "rules.yaml"), `id: shed/List names
+kind: invariant
+on: Tool.list
+assert: result.nameOf[self.id] = self.name
+source:
+  statementId: shed/List names
+  doc: openspec/specs/shed/spec.md#L3
+  textHash: `+translate.TextHash(prose)+`
+`)
+	reg, err := ir.LoadDir(registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := adopt.ApproveRules(reg, []string{"shed/List names"}, "owner"); err != nil {
+		t.Fatal(err)
+	}
+	opt := Options{Repo: repo, Change: "c1", Registry: registry, Out: out,
+		Clients: []llm.Client{one("how many", map[string]any{"kind": "invariant", "on": "Tool.list", "subject": "Tool", "assert": "result.count >= 0"})}}
+	res, err := Run(context.Background(), opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Questions) == 0 || res.Questions[0].Kind != "reported_write" || res.Questions[0].AskOwner || res.Questions[0].Existing != "Tool.name" {
+		t.Fatalf("questions = %+v", res.Questions)
+	}
+	q := res.Questions[0]
+	if err := SaveAnswer(out, Answer{Question: q.ID, Kind: q.Kind, Choice: "keeps", By: "agent", Term: q.Term, Existing: q.Existing}); err != nil {
+		t.Fatal(err)
+	}
+	if res, err = Run(context.Background(), opt); err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Questions) != 1 || res.Questions[0].Kind != "approve" || !strings.Contains(res.Questions[0].Text, "tool: list keeps tool: name") {
+		t.Fatalf("after the answer: gate %+v questions %+v", res.Gate.Check, res.Questions)
+	}
+	head, err := ir.LoadDir(res.Head)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ws := head.Operations["Tool.list"].Writes; len(ws) != 0 {
+		t.Errorf("the listing still writes %v", ws)
+	}
+}
+
 func TestNotesAccumulate(t *testing.T) {
 	dir := t.TempDir()
 	stmt := map[string]string{"s": "h"}
@@ -1282,6 +1367,30 @@ func TestStateInvariantWrites(t *testing.T) {
 	got := inferWrites(reg, p, cands)
 	if strings.Join(got["Tool.lend"], ",") != "Tool.dueAt" || len(got["Tool.rename"]) != 0 {
 		t.Fatalf("writes = %v; want Tool.lend to write Tool.dueAt", got)
+	}
+}
+
+// A change's rule on an existing step that only reports values ("listing
+// the tools shows each lent tool's due date") makes the step write
+// nothing; one that sets a value still does (a developer trial,
+// 2026-11-04: the listing wrote the id and the lent date).
+func TestReportedValuesOfExistingStep(t *testing.T) {
+	dir := t.TempDir()
+	src := "context: c\nformatVersion: 1\n---\nentity: Tool\ncontext: c\nattributes:\n  id: { type: int }\n  status: { type: enum, values: [available, lent] }\n  lentAt: { type: optional<time> }\n---\nextend: Result\ncontext: c\nattributes:\n  dueOf: { type: \"map<int, time>\" }\n---\noperation: Tool.list\ncontext: c\ndefault: allow\nwrites: []\n---\noperation: Tool.lend\ncontext: c\ndefault: allow\nwrites: []\n"
+	if err := os.WriteFile(filepath.Join(dir, "v.yaml"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reg, err := ir.LoadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cands := []translate.Candidate{
+		{Outcome: "rule", Kind: ir.Invariant, Subject: "Tool", On: "Tool.list", RuleID: "r1", When: "self.status = lent and isSet(self.lentAt)", Assert: "has(result.dueOf, self.id) and result.dueOf[self.id] = self.lentAt + 14d"},
+		{Outcome: "rule", Kind: ir.Invariant, Subject: "Tool", On: "Tool.lend", RuleID: "r2", Assert: "self.status = lent"},
+	}
+	got := inferWrites(reg, vocab.Proposal{}, cands)
+	if len(got["Tool.list"]) != 0 || strings.Join(got["Tool.lend"], ",") != "Tool.status" {
+		t.Fatalf("writes = %v; want only Tool.lend to write Tool.status", got)
 	}
 }
 
