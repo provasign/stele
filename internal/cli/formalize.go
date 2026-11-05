@@ -83,6 +83,9 @@ func cmdFormalize(args []string, out io.Writer) int {
 	if cfg != nil && cfg.Translate.Model != "" && !flagSet(fs, "model") {
 		_ = fs.Lookup("model").Value.Set(cfg.Translate.Model)
 	}
+	if cfg != nil && cfg.Translate.Effort != "" && !flagSet(fs, "effort") {
+		_ = fs.Lookup("effort").Value.Set(cfg.Translate.Effort)
+	}
 	m, err := client()
 	if err != nil {
 		return failf("formalize", err)

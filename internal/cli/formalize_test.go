@@ -3,12 +3,14 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"flag"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/provasign/stele/internal/formalize"
 	"github.com/provasign/stele/internal/ir"
+	"github.com/provasign/stele/internal/llm"
 )
 
 func TestFormalizeResumePreservesContext(t *testing.T) {
@@ -73,5 +75,37 @@ func TestFormalizeCompactCLI(t *testing.T) {
 	// The budget is exhausted. A completed resume must still succeed.
 	if code := cmdFormalize(args, &out); code != 0 {
 		t.Fatalf("completed resume invoked model again: %d", code)
+	}
+}
+
+// TestCodexTranslatesAtMediumEffort: translation asks Codex for medium
+// effort unless --effort says otherwise, instead of the user's own Codex
+// default; review keeps the CLI's default on Codex.
+func TestCodexTranslatesAtMediumEffort(t *testing.T) {
+	name := func(mk func(*flag.FlagSet) func() (llm.Client, error), args ...string) string {
+		fs := flag.NewFlagSet("t", flag.ContinueOnError)
+		client := mk(fs)
+		if err := fs.Parse(args); err != nil {
+			t.Fatal(err)
+		}
+		c, err := client()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c.Name()
+	}
+	review := func(fs *flag.FlagSet) func() (llm.Client, error) {
+		return llmFlagsEffort(fs, map[string]string{"claude": "high"})
+	}
+	for _, tc := range []struct{ got, want string }{
+		{name(llmFlags, "--llm", "codex"), "codex-cli:default@medium"},
+		{name(llmFlags, "--llm", "codex", "--effort", "high"), "codex-cli:default@high"},
+		{name(llmFlags, "--llm", "claude"), "claude-cli:default"},
+		{name(review, "--llm", "codex"), "codex-cli:default"},
+		{name(review, "--llm", "claude"), "claude-cli:default@high"},
+	} {
+		if tc.got != tc.want {
+			t.Errorf("got %s, want %s", tc.got, tc.want)
+		}
 	}
 }

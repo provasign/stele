@@ -70,12 +70,23 @@ func cmdImport(args []string, out io.Writer) int {
 	return 0
 }
 
-// llmFlags registers the backend flags shared by translate and review.
-func llmFlags(fs *flag.FlagSet) func() (llm.Client, error) { return llmFlagsEffort(fs, "") }
+// llmFlags registers the backend flags shared by translate and review, with
+// the translation efforts as defaults.
+func llmFlags(fs *flag.FlagSet) func() (llm.Client, error) {
+	return llmFlagsEffort(fs, translationEffort)
+}
 
-// llmFlagsEffort is llmFlags with a reasoning effort for the claude CLI
-// when --effort is not given (the anthropic backend has its own default).
-func llmFlagsEffort(fs *flag.FlagSet, effortDefault string) func() (llm.Client, error) {
+// translationEffort is the reasoning effort translation asks a backend for
+// when neither --effort nor stele.yaml gives one. Codex otherwise runs at
+// the user's own default: at high, a six-requirement Spec Kit change took 7
+// to 20 minutes, its calls stalling past the request limit and retried
+// whole, and at medium 3 to 5 minutes with none stalled and the readings
+// as good (a developer trial, 2026-11-05).
+var translationEffort = map[string]string{"codex": "medium"}
+
+// llmFlagsEffort is llmFlags with a reasoning effort per backend when
+// --effort is not given (the anthropic backend has its own default).
+func llmFlagsEffort(fs *flag.FlagSet, effortDefault map[string]string) func() (llm.Client, error) {
 	backend := fs.String("llm", "anthropic", "LLM backend: anthropic, openai (API keys), claude, codex (local CLIs), cmd")
 	model := fs.String("model", "", "model for the backend (anthropic defaults to claude-opus-5-5; CLIs use their own default)")
 	effort := fs.String("effort", "", "reasoning effort: low, medium, high, xhigh, max (anthropic, claude); codex takes its own levels, e.g. minimal, low, medium, high")
@@ -84,8 +95,8 @@ func llmFlagsEffort(fs *flag.FlagSet, effortDefault string) func() (llm.Client, 
 		if *command != "" && !flagSet(fs, "llm") {
 			*backend = "cmd" // --llm-cmd alone selects the command backend
 		}
-		if *effort == "" && *backend == "claude" {
-			*effort = effortDefault
+		if *effort == "" {
+			*effort = effortDefault[*backend]
 		}
 		return llm.New(llm.Config{Backend: *backend, Model: *model, Effort: *effort, Command: *command})
 	}
@@ -103,7 +114,7 @@ func cmdReview(args []string, out io.Writer) int {
 	// High effort, as on the anthropic backend: on Project A 001-015 the
 	// review found 3 to 5 of 10 known conflicts at the CLI's default effort
 	// and 6 to 9 at high, for no more cost (stele-research research/bench/sweep, step 7).
-	client := llmFlagsEffort(fs, "high")
+	client := llmFlagsEffort(fs, map[string]string{"claude": "high"})
 	_ = fs.Parse(args)
 	if *stmtsPath == "" || (*outPath == "" && !*planOnly) {
 		fmt.Fprint(os.Stderr, "usage: stele review --statements FILE --out review.json [--budget-tokens N] [--plan] [--world-facts domain.yaml] [--llm ...]\n")

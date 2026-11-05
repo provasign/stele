@@ -45,9 +45,10 @@ func (c *Config) SnapshotFile() string { return filepath.Join(c.dir, c.Specs.Sna
 
 // Translate holds the defaults for `stele translate`.
 type Translate struct {
-	LLM    string `yaml:"llm"`             // one backend: anthropic, openai, claude, codex or cmd
-	Model  string `yaml:"model,omitempty"` // empty uses the backend's default
-	Drafts int    `yaml:"drafts"`          // drafts per requirement; above 1, disagreements become questions
+	LLM    string `yaml:"llm"`              // one backend: anthropic, openai, claude, codex or cmd
+	Model  string `yaml:"model,omitempty"`  // empty uses the backend's default
+	Effort string `yaml:"effort,omitempty"` // reasoning effort; empty uses Stele's default for the backend
+	Drafts int    `yaml:"drafts"`           // drafts per requirement; above 1, disagreements become questions
 }
 
 // Vocab holds the defaults for `stele vocab propose`. Finding the facts
@@ -138,6 +139,8 @@ func Write(dir string, c Config) error {
 	}
 	header := "# Stele settings. See docs/04-data-model.md for the registry layout.\n" +
 		"# translate.drafts: drafts per requirement. 1 is cheapest. Above 1, readings are\n" +
-		"# compared by the solver and disagreements become questions for the spec author.\n"
+		"# compared by the solver and disagreements become questions for the spec author.\n" +
+		"# translate.effort: the model's reasoning effort (unset: medium on codex, the CLI's\n" +
+		"# default otherwise). Higher is slower and was not more accurate on codex.\n"
 	return os.WriteFile(filepath.Join(dir, FileName), append([]byte(header), src...), 0o644)
 }

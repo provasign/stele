@@ -134,6 +134,9 @@ func cmdChange(args []string, out io.Writer) int {
 		if !flagSet(fs, "model") && cfg.Translate.Model != "" {
 			_ = fs.Lookup("model").Value.Set(cfg.Translate.Model)
 		}
+		if !flagSet(fs, "effort") && cfg.Translate.Effort != "" {
+			_ = fs.Lookup("effort").Value.Set(cfg.Translate.Effort)
+		}
 	}
 	if *base != "" && !named {
 		id = branchChangeName(repo, *registry)
