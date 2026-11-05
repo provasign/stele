@@ -210,6 +210,24 @@ func TestInitNewSpecKitProjectOnCodex(t *testing.T) {
 	if !strings.Contains(out.String(), "no specs yet") {
 		t.Errorf("output: %s", out.String())
 	}
+	if strings.Contains(out.String(), "Node.js") {
+		t.Errorf("warned about Node.js with no hook installed: %s", out.String())
+	}
+}
+
+// TestInitWarnsWithoutNode: the agent hooks run with node; a machine
+// without it got hooks that fail, and nothing said why (a developer trial,
+// 2026-11-05).
+func TestInitWarnsWithoutNode(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	dir := t.TempDir()
+	var out bytes.Buffer
+	if code := cmdInit([]string{dir, "--yes", "--llm", "codex", "--harness", "claude", "--git-hook=false"}, strings.NewReader(""), &out, false); code != 0 {
+		t.Fatalf("exit %d: %s", code, out.String())
+	}
+	if !strings.Contains(out.String(), "install Node.js") {
+		t.Errorf("no Node.js warning: %s", out.String())
+	}
 }
 
 func TestDetectSpecKitFeatureFolders(t *testing.T) {

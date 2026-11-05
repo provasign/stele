@@ -242,6 +242,11 @@ func setUpAgents(dir string, c config.Config, selected []string, hook, gitHook, 
 	if len(selected) == 0 {
 		fmt.Fprintf(out, "No coding agent found here; run `stele init --harness %s` to set one up.\n", strings.Join(harnessIDs(), ","))
 	}
+	if hook && (slices.Contains(selected, "claude") || slices.Contains(selected, "codex")) {
+		if _, err := exec.LookPath("node"); err != nil {
+			fmt.Fprintln(out, "Stele's agent hooks run with Node.js, which is not on PATH here: install Node.js so they work.")
+		}
+	}
 	if len(changed) == 0 {
 		fmt.Fprintf(out, "Stele is already set up for %s.\n", harnessLabels(selected))
 		return 0

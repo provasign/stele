@@ -47,7 +47,7 @@ That is all you run. `init` finds your spec format and coding agents, and writes
 
 **Without spec documents.** In a repository that uses Shale and has no spec folder, `stele init` takes the requests the agents declare with `shale intent` as the specs. Right after the agent declares one, before it edits, Stele checks it against every request approved before and asks you about any contradiction: change the new request, retire the earlier one, or restate both as one rule with its exception. A request Stele finds nothing to check in, often a one-off task ("write the review"), is put to you: keep it as a requirement, or set it aside so it is never approved as one. Requests retired or set aside are listed in `.stele/retired-intents.yaml`; Shale's own evidence is never edited.
 
-Stele needs the [Z3](https://github.com/Z3Prover/z3) solver on PATH; the installer tells you the command for your system. To build from source instead: `GOWORK=off go build -o bin/stele ./cmd/stele` (Go 1.26). `stele --help` lists every command, and the [docs](docs/README.md) explain each step.
+Stele needs the [Z3](https://github.com/Z3Prover/z3) solver on PATH; the installer tells you the command for your system. Its Claude Code and Codex hooks run with [Node.js](https://nodejs.org); `stele init` says so when `node` is missing. To build from source instead: `GOWORK=off go build -o bin/stele ./cmd/stele` (Go 1.26). `stele --help` lists every command, and the [docs](docs/README.md) explain each step.
 
 ## What to expect
 
