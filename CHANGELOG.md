@@ -7,6 +7,7 @@
 - **`stele init` on a new Spec Kit, OpenSpec or Kiro project** keeps the spec layout in `stele.yaml` when there is no spec yet, instead of reporting it as unreadable and leaving it out.
 - **Checks on Codex run at medium reasoning effort** unless `translate.effort` in `stele.yaml` or `--effort` says otherwise. They ran at the user's own Codex default: at high, a six-requirement Spec Kit change took 7 to 20 minutes, calls stalling past the request limit and retried whole; at medium, 3 to 5 minutes with no stall, and readings as good.
 - **`stele init` says when Node.js is missing.** The Claude Code and Codex hooks run with `node`; without it they failed and nothing said why.
+- **A new attribute of an entity is not a change to the step that creates it.** A change that gave plots a holder made adding a plot "write" the holder, and the owner was asked, twice, whether adding a plot changed meaning; no approved rule reads a new attribute.
 - **Rules a change adds to an existing step read reports as reports.** "Listing the tools also shows each lent tool's due date" made the listing write the tool's id and lent date: the fix in v0.1.5 covered new steps only.
 
 ## v0.1.5 - 2026-11-05

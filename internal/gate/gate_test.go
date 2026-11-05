@@ -339,3 +339,44 @@ assert: self.locked
 		t.Fatalf("errors %v", res.Errors)
 	}
 }
+
+// TestNewAttributeOfCreatedEntity: an attribute a change adds to an entity
+// is set by the step that creates it, which needs no approval; a step that
+// does not create the entity and starts writing it does.
+func TestNewAttributeOfCreatedEntity(t *testing.T) {
+	const base = `context: c
+formatVersion: 1
+---
+entity: Plot
+context: c
+createdBy: [Plot.add]
+attributes:
+  number: { type: int }
+---
+operation: Plot.add
+context: c
+default: allow
+writes: [Plot.number]
+---
+operation: Plot.rename
+context: c
+default: allow
+writes: [Plot.number]
+---
+id: positive
+kind: invariant
+on: Plot.add
+assert: self.number > 0
+`
+	grown := strings.Replace(base, "  number: { type: int }\n", "  number: { type: int }\n  holder: { type: optional<string> }\n", 1)
+	grown += "---\nid: holder\nkind: invariant\nassert: isSet(self.holder) implies self.number > 0\n"
+	res := gate(t, base, grown)
+	if len(res.NeedsApproval) != 0 {
+		t.Errorf("a new attribute of a created plot needs no approval: %+v", res.NeedsApproval)
+	}
+	renames := strings.Replace(grown, "writes: [Plot.number]\n---\nid:", "writes: [Plot.number, Plot.holder]\n---\nid:", 1)
+	res = gate(t, base, renames)
+	if len(res.NeedsApproval) != 1 || res.NeedsApproval[0].Kind != "writes-changed" || res.NeedsApproval[0].Symbol != "Plot.rename" {
+		t.Errorf("renaming that now writes the holder needs approval: %+v", res.NeedsApproval)
+	}
+}

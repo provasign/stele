@@ -368,7 +368,7 @@ func opChanges(head *ir.Registry, b, h *ir.Operation) []Change {
 	if strings.Join(bw, ",") != strings.Join(hw, ",") {
 		var changed []string
 		for _, n := range hw {
-			if !slices.Contains(bw, n) {
+			if !slices.Contains(bw, n) && !newOfCreated(b, h, n) {
 				changed = append(changed, n)
 			}
 		}
@@ -397,7 +397,9 @@ func opChanges(head *ir.Registry, b, h *ir.Operation) []Change {
 				}
 			}
 		}
-		out = append(out, Change{Kind: "writes-changed", Symbol: h.Name, Detail: strings.Join(bw, ", ") + " -> " + strings.Join(hw, ", "), Affected: keys(affected)})
+		if len(changed) > 0 {
+			out = append(out, Change{Kind: "writes-changed", Symbol: h.Name, Detail: strings.Join(bw, ", ") + " -> " + strings.Join(hw, ", "), Affected: keys(affected)})
+		}
 	}
 	effect := func(op *ir.Operation) string {
 		var parts []string
@@ -414,6 +416,23 @@ func opChanges(head *ir.Registry, b, h *ir.Operation) []Change {
 		out = append(out, Change{Kind: "effect-changed", Symbol: h.Name, Detail: effect(b) + " -> " + effect(h), Affected: ofOp()})
 	}
 	return out
+}
+
+// newOfCreated reports whether write n of the step h is an attribute its
+// entity did not have before, which h sets because it creates the entity:
+// no approved rule reads it, so the step means what it meant. A trial's
+// booking gave plots a holder, and the owner was asked twice whether adding
+// a plot changed (a developer trial, 2026-11-05).
+func newOfCreated(b, h *ir.Operation, n string) bool {
+	if h.Entity == nil || b.Entity == nil || !slices.Contains(h.Entity.CreatedBy, h.Name) {
+		return false
+	}
+	ent, attr, _ := strings.Cut(n, ".")
+	if ent != b.Entity.Name {
+		return false
+	}
+	attr = strings.TrimSuffix(attr, "?")
+	return b.Entity.Attrs[attr] == nil && b.Entity.Relations[attr] == nil
 }
 
 func keys(m map[string]bool) []string {
