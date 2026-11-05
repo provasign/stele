@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.1.5 - 2026-11-03
+## v0.1.5 - 2026-11-05
 
 Found by three developer trials (ten features each, built with Claude Code and Stele from the owner's requests) and a code review.
 
@@ -38,6 +38,7 @@ Found by three developer trials (ten features each, built with Claude Code and S
 - **Processes and timeouts.** Solvers share one set of warm z3 processes per binary, so a long-running `stele serve` no longer gains z3 processes with every check. The glossary and code-evidence model calls of `stele change` have the per-request timeout, like translation.
 - **Coverage failures are told.** A requirement the coverage check could not judge is a "not judged" finding in the approval, and is judged again on the next check.
 - **Translation.** The coverage judge reads a listing of the items that meet a condition as exactly those. Translation reads a refused step as changing nothing, a record as kept on the step's own instance, and an output of an optional value as optional.
+- **Grove v0.63.27.** The index folder ignores itself, so `git add -A` no longer commits it; the release also memoizes the Python re-export walk (v0.63.26).
 - Watch tests no longer flake on a half-written file.
 
 ## v0.1.4 - 2026-11-03

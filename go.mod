@@ -4,7 +4,7 @@ go 1.26.3
 
 require (
 	github.com/anthropics/anthropic-sdk-go v1.84.0
-	github.com/provasign/grove v0.63.25
+	github.com/provasign/grove v0.63.27
 	gopkg.in/yaml.v3 v3.0.1
 )
 
