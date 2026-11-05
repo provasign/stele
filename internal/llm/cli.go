@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // CLIs run in an empty temporary directory, so project files and
@@ -105,6 +106,61 @@ type codexCLI struct{ model, effort string }
 func (c *codexCLI) Name() string { return "codex-cli:" + orDefault(c.model) + withEffort(c.effort) }
 
 func (c *codexCLI) Complete(ctx context.Context, req Request) (*Reply, error) {
+	return hedge(ctx, codexHedgeAfter, func(ctx context.Context) (*Reply, error) { return c.once(ctx, req) })
+}
+
+// codexHedgeAfter is how long a Codex call runs before the same request is
+// sent again. A few calls stall: in a developer trial at medium effort, 2 of
+// 8 ran into the 3-minute request limit, and the same request sent again
+// answered in 30 to 45 seconds; most calls answer within 90 seconds.
+const codexHedgeAfter = 100 * time.Second
+
+// hedge runs call, and once more if it has not answered after the given
+// time; the first answer is used and the other call is cancelled. A call
+// that fails before then fails at once: retrying is the caller's.
+func hedge(ctx context.Context, after time.Duration, call func(context.Context) (*Reply, error)) (*Reply, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	type answer struct {
+		r   *Reply
+		err error
+	}
+	answers := make(chan answer, 2)
+	start := func() {
+		go func() {
+			r, err := call(ctx)
+			answers <- answer{r, err}
+		}()
+	}
+	start()
+	timer := time.NewTimer(after)
+	defer timer.Stop()
+	running, hedged := 1, false
+	var firstErr error
+	for {
+		select {
+		case <-timer.C:
+			if !hedged {
+				hedged = true
+				running++
+				start()
+			}
+		case a := <-answers:
+			running--
+			if a.err == nil {
+				return a.r, nil
+			}
+			if firstErr == nil {
+				firstErr = a.err
+			}
+			if running == 0 {
+				return nil, firstErr
+			}
+		}
+	}
+}
+
+func (c *codexCLI) once(ctx context.Context, req Request) (*Reply, error) {
 	dir, err := os.MkdirTemp("", "stele-codex-")
 	if err != nil {
 		return nil, err
