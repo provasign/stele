@@ -14,9 +14,14 @@ const otherInstance = "otherInstance"
 // Those instances were otherwise in no state the invariants describe:
 // "every tool's id is positive" held for the tool a step acts on and not
 // for the tools a uniqueness or overdue rule counts (ISSUES 81). Only
-// invariants that read the instance's own attributes and quantify over
-// nothing are restated: one about every other instance would compare an
-// instance with itself. It is nil when the entity has no such relation.
+// invariants that read the instance's own attributes, and quantify over
+// nothing or over the instances of other entities, are restated: one about
+// every other instance of its own entity would compare an instance with
+// itself. Over another entity's instances it holds as written, or weaker
+// in a step whose own instance those leave out: "a member on the waitlist
+// holds no plot" kept the first member waiting from holding a plot already
+// when a plot was released (a developer trial, 2026-11-05). It is nil when
+// the entity has no such relation.
 func (r *Registry) ForOtherInstances(x *Rule) *Rule {
 	if x.Kind != Invariant || x.On != "" || x.Assert == nil {
 		return nil
@@ -29,7 +34,7 @@ func (r *Registry) ForOtherInstances(x *Rule) *Rule {
 		if e == nil {
 			continue
 		}
-		if quantifies(e) {
+		if quantifiesOver(e, subject) {
 			return nil
 		}
 		for _, p := range Paths(e) {
@@ -57,25 +62,31 @@ func (r *Registry) ForOtherInstances(x *Rule) *Rule {
 
 var selfPath = regexp.MustCompile(`(^|[^A-Za-z0-9_.])self\.`)
 
-// quantifies reports whether e ranges over a collection.
-func quantifies(e Expr) bool {
+// quantifiesOver reports whether e ranges over a collection other than the
+// instances of an entity that is not subject.
+func quantifiesOver(e Expr, subject *Entity) bool {
+	q := func(x Expr) bool { return quantifiesOver(x, subject) }
 	switch e := e.(type) {
 	case *Quant:
-		return true
+		p, ok := e.Coll.(*Path)
+		if !ok || len(p.Segs) != 2 || p.Segs[1] != InstancesRelation || p.Segs[0] == lowerFirst(subject.Name) {
+			return true
+		}
+		return q(e.Body)
 	case *Binary:
-		return quantifies(e.L) || quantifies(e.R)
+		return q(e.L) || q(e.R)
 	case *Not:
-		return quantifies(e.X)
+		return q(e.X)
 	case *Call:
-		return slices.ContainsFunc(e.Args, quantifies)
+		return slices.ContainsFunc(e.Args, q)
 	case *Scale:
-		return quantifies(e.X)
+		return q(e.X)
 	case *Index:
-		return quantifies(e.X) || quantifies(e.K)
+		return q(e.X) || q(e.K)
 	case *Set:
-		return slices.ContainsFunc(e.Elems, quantifies)
+		return slices.ContainsFunc(e.Elems, q)
 	case *ListLit:
-		return slices.ContainsFunc(e.Elems, quantifies)
+		return slices.ContainsFunc(e.Elems, q)
 	}
 	return false
 }

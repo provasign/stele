@@ -463,3 +463,53 @@ source: { statementId: s-never-warn }
 	}
 	t.Fatalf("vacuous = %+v, conflicts = %v; want W avoided because of N", res.Vacuous, cores(res))
 }
+
+// TestInvariantOverOtherEntityHoldsForOthers: "a member on the waitlist
+// holds no plot" ranges over plots; restated for the other members a
+// release looks at, the first member waiting holds no plot already, and
+// handing them the released plot keeps "a member holds at most one plot".
+func TestInvariantOverOtherEntityHoldsForOthers(t *testing.T) {
+	src := `context: c
+formatVersion: 1
+---
+entity: Plot
+context: c
+attributes:
+  holder: { type: optional<string> }
+---
+entity: Member
+context: c
+attributes:
+  email: { type: string }
+  waiting: { type: bool }
+---
+operation: Plot.release
+context: c
+default: allow
+writes: [Plot.holder]
+---
+id: onePlot
+kind: invariant
+subject: Plot
+when: isSet(self.holder)
+assert: 'all(p in instances(Plot): p.holder != self.holder)'
+status: active
+---
+id: waitingHoldsNone
+kind: invariant
+subject: Member
+when: self.waiting
+assert: 'all(p in instances(Plot): p.holder != self.email)'
+status: active
+---
+id: toFirstWaiting
+kind: invariant
+on: Plot.release
+when: 'any(m in instances(Member): m.waiting)'
+assert: 'any(m in instances(Member): m.waiting and self.holder = m.email)'
+status: active
+`
+	if res := check(t, writeRegistry(t, src), lower.Options{}); res.Verdict != Pass {
+		t.Errorf("got %s, want pass: %+v", res.Verdict, res.Conflicts)
+	}
+}

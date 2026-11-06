@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **A state rule over another entity's instances holds for the other instances a step looks at.** "A member on the waitlist holds no plot" held for the member a step acted on, not for the first member waiting when a plot was released, and the owner was asked whether that member could already hold a plot.
 - **Approved steps can be corrected.** A registry approved before Stele learned to tell a value a step reports from one it writes kept those writes, and nothing corrected them: a listing could change any tool, so clashes no step reaches stood and steps went undecided. When a change check meets such a step (the change's rules are on it, or a clash or an undecided check is in it), it asks the agent whether the step changes each value it only shows in its result. The answer "keeps" is recorded in the change's registry (`extend: Op` with `keeps: [...]`), and the approval names it. Found in all three trial registries (every listing), and once in 160 benchmark registries.
 - **`stele init` on a Codex-only machine** sets Codex as the translation model: it chose the claude CLI whatever was installed, and every translation failed. It picks the claude CLI, else the codex CLI, else an API key's provider, and says what to install when there is none.
 - **`stele init` on a new Spec Kit, OpenSpec or Kiro project** keeps the spec layout in `stele.yaml` when there is no spec yet, instead of reporting it as unreadable and leaving it out.
