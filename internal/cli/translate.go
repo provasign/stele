@@ -67,11 +67,14 @@ func cmdTranslate(args []string, out io.Writer) int {
 	var clients []llm.Client
 	for _, b := range strings.Split(*backend, ",") {
 		b = strings.TrimSpace(b)
-		e := *effort
+		e, md := *effort, *model
 		if e == "" {
 			e = translationEffort[b]
 		}
-		client, err := llm.New(llm.Config{Backend: b, Model: *model, Effort: e, Command: *command})
+		if md == "" {
+			md = translationModel[b]
+		}
+		client, err := llm.New(llm.Config{Backend: b, Model: md, Effort: e, Command: *command})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "stele translate: %v\n", err)
 			return 2

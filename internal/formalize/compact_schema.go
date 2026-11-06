@@ -61,36 +61,6 @@ func compactSchema() (string, error) {
 	return string(js), err
 }
 
-const compactInstructions = `
-# Compact reply contract (replaces the rule output format above)
-
-Use the short statement_id shown in this request in both rules and vocabulary
-statement_ids. The compiler restores the original IDs and source text.
-Use kind invariant, permission, precondition or derivation for rules. Do not
-emit outcome, rule explanations, or fields not in that kind's schema.
-overrides lists the statement_ids a rule takes precedence over where it
-applies, only when its own text says so: it names the other statement ("per
-FR-005, MUST NOT apply when --raw-fields") or the behavior it overrides
-("regardless of the --color=always flag"). A statement this request does not
-include is named by the label its text uses ("FR-005"). Otherwise give an
-empty list: never resolve a conflict the text does not resolve.
-For a requirement about the code or the development process (tests exist,
-regressions are caught, CI runs, a function has a signature) use kind
-obligation with a short rationale: it is checked against the repository.
-What the running system does (what it accepts, rejects, selects, merges,
-prints or exits with, and in what order) is never an obligation, however
-hard to express: write its rules, and use needs_vocabulary with the
-missing terms only for the part the rule language cannot express.
-For an informal part (a judgment no check decides) use kind informal with a
-short rationale. For a part the
-rule language cannot express use kind needs_vocabulary, rationale and
-missing_terms. Do not omit such parts or replace them with unrelated flags.
-Propose only new vocabulary actually needed by these statements. Never repeat
-an existing declaration or change a symbol's meaning to remove a contradiction.
-The provided vocabulary is shared across all documents. Reuse it whenever the
-meaning matches. Reply for every requested statement, including all its parts.
-`
-
 type compactReply struct {
 	vocab.Proposal
 	Rules []translate.Candidate `json:"rules"`

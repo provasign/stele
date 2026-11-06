@@ -42,6 +42,13 @@ func compactRule(id, expr string) string {
 	return `{"statement_id":"` + id + `","kind":"invariant","subject":"","on":"","when":"","assert":"` + expr + `"}`
 }
 
+// sharedVocabulary is the vocabulary a compact request shows, before its
+// statements.
+func sharedVocabulary(req llm.Request) string {
+	v, _, _ := strings.Cut(req.Turns[0].Text, "\n# Statements\n")
+	return v
+}
+
 func TestCompactRepairsOnlyUnresolvedStatementsAndResumes(t *testing.T) {
 	dir, stmts, opt := compactFixture(t)
 	stmts[0].ID = "long-document.md#requirements/orders/first"
@@ -59,7 +66,7 @@ func TestCompactRepairsOnlyUnresolvedStatementsAndResumes(t *testing.T) {
 			// S2 has one valid and one invalid part: it must be retried as a unit.
 			return compactFixtureReply(true, compactRule("s1", "order.paid = true")+","+compactRule("s2", "order.paid = true")+","+compactRule("s2", "order.missing = false")), nil
 		}
-		if len(req.Turns) != 1 || strings.Contains(req.Turns[0].Text, stmts[0].Prose) || !strings.Contains(req.Turns[0].Text, "order.missing") || !strings.Contains(req.System, "paid") {
+		if len(req.Turns) != 1 || strings.Contains(req.Turns[0].Text, stmts[0].Prose) || !strings.Contains(req.Turns[0].Text, "order.missing") || !strings.Contains(sharedVocabulary(req), "paid") {
 			t.Fatalf("repair should contain only S2 and its diagnostics: %+v", req)
 		}
 		if calls == 2 {
@@ -189,7 +196,7 @@ func TestCompactFindsCrossDocumentConflict(t *testing.T) {
 		if calls == 1 {
 			return compactFixtureReply(true, compactRule("s1", "order.paid = true")), nil
 		}
-		if !strings.Contains(req.System, "paid") {
+		if !strings.Contains(sharedVocabulary(req), "paid") {
 			t.Fatal("shared vocabulary missing")
 		}
 		return compactFixtureReply(false, compactRule("s1", "order.paid = false")), nil
@@ -495,6 +502,9 @@ func TestCompactParallelWaves(t *testing.T) {
 		mu.Unlock()
 		defer func() { mu.Lock(); inFlight--; mu.Unlock() }()
 		text := req.Turns[0].Text
+		if req.System != compactPrompt {
+			t.Error("every request must have the same system prompt, so that it caches, whatever the vocabulary")
+		}
 		if n <= 3 {
 			select { // the first wave must be in flight together
 			case <-all:
@@ -507,7 +517,7 @@ func TestCompactParallelWaves(t *testing.T) {
 			}
 			return compactFixtureReply(true, compactRule("s1", "order.paid = true")), nil
 		}
-		if !strings.Contains(text, "c.md") || !strings.Contains(text, "kept its definitions of Order.paid") || !strings.Contains(req.System, "paid") {
+		if !strings.Contains(text, "c.md") || !strings.Contains(text, "kept its definitions of Order.paid") || !strings.Contains(sharedVocabulary(req), "paid") {
 			t.Errorf("second wave should repair only S3 against the merged vocabulary: %s", text)
 		}
 		return compactFixtureReply(false, compactRule("s1", "order.paid = true")), nil
@@ -701,7 +711,7 @@ assert: self.exitCode = 141
 	stmts := []translate.Statement{{ID: "NEW", Source: "pager.md#L1", Prose: "When the pager exits early and the write fails with a broken pipe, the application MUST exit with status 0."}}
 	opt := Options{VocabFiles: []string{filepath.Join(dir, "base-vocabulary.yaml")}, Context: "shop", Compact: true, Retrieve: 1, NoConsolidate: true, NoCover: true, Rounds: -1}
 	m := completionFunc(func(req llm.Request) (*llm.Reply, error) {
-		if !strings.Contains(req.System, "exitCode") || strings.Contains(req.System, "palette") {
+		if v := sharedVocabulary(req); !strings.Contains(v, "exitCode") || strings.Contains(v, "palette") {
 			t.Errorf("prompt should show the related exitCode, not the unrelated palette")
 		}
 		return &llm.Reply{JSON: `{"entities":[],"extensions":[],"operations":[],"rules":[` + `{"statement_id":"s1","kind":"invariant","subject":"","on":"Pager.close","when":"self.brokenPipe","assert":"self.exitCode = 0"}` + `]}`}, nil

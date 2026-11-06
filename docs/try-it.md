@@ -5,7 +5,7 @@ This is the preview guide: an hour with Stele on a small project of your own, an
 ## What you need
 
 - **git**, and a repository you can experiment in. A new one is best for a first try.
-- **A coding agent:** [Claude Code](https://claude.com/claude-code) or [Codex](https://github.com/openai/codex), signed in. Stele uses the same CLI to read your specs, so its model spend lands on that account. In the trials, on Claude, Stele's own calls cost about $0.20 to $0.60 for a feature that read cleanly the first time (2 to 7 calls), and up to $2.60 for one that needed many rereads, on top of what the agent itself spends.
+- **A coding agent:** [Claude Code](https://claude.com/claude-code) or [Codex](https://github.com/openai/codex), signed in. Stele uses the same CLI to read your specs, so its model spend lands on that account. On Claude, Stele's calls run on Sonnet 5.5 (set `translate.model` in `stele.yaml` for another model). Measured on a 60-requirement set, that is about 2 cents per requirement, so a feature of 5 to 15 requirements costs about $0.10 to $0.30 of Stele's own calls, on top of what the agent itself spends; a feature that needs many rereads costs more.
 - **[Z3](https://github.com/Z3Prover/z3)**, the solver: `brew install z3`, or your system's package (`apt install z3`).
 - **[Node.js](https://nodejs.org)**, which runs Stele's agent hooks.
 - **Optional:** [Spec Kit](https://github.com/github/spec-kit), [OpenSpec](https://github.com/Fission-AI/OpenSpec) or [Kiro](https://kiro.dev), if you already write specs with one. Without one, plain Markdown requirements work, and so do requests declared with [Shale](https://github.com/provasign/shale).

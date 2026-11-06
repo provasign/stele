@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **Checks on the claude CLI run on Sonnet 5.5** unless `translate.model` in `stele.yaml` or `--model` says otherwise. On a 60-requirement held-out set Sonnet read the whole set, rereads included, for $1.34 in 5 minutes; Opus cost $5.03 and 21 minutes of model time, and the same judge scored Sonnet's rules at 111 clauses covered to 55 uncovered against Opus's 122 to 26. Set `translate.model: claude-opus-5-5` for the stronger reading.
+- **The translation prompt is 14,000 characters instead of 23,900, the same in every call, with the vocabulary sent with the requirements.** The fixed part now comes from the model's cache on every call (about 400 tokens written per call instead of 6,300); a held-out comparison read as well as before (101 clauses covered to 50 uncovered, against 95 to 49). Low reasoning effort was tried and dropped: it covered 53.
+- **A relation to many that the model also marks optional loads,** instead of costing a repair call: a relation to many may be empty already.
+
 ## v0.1.6 - 2026-11-06
 
 - **A step's rule is about the instance the step names, unless it says otherwise.** When a step's rules tie the instance to a request field of the same name (`request.number = self.number`), a rule on that step that reads the instance and nothing of that request field is read for the named instance only. "A released plot with a holder goes to the first member waiting" was read for every held plot, and clashed with "releasing an unknown number is rejected"; five rereads and a rewording did not settle it.

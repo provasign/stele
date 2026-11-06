@@ -100,7 +100,8 @@ func TestCodexTranslatesAtMediumEffort(t *testing.T) {
 	for _, tc := range []struct{ got, want string }{
 		{name(llmFlags, "--llm", "codex"), "codex-cli:default@medium"},
 		{name(llmFlags, "--llm", "codex", "--effort", "high"), "codex-cli:default@high"},
-		{name(llmFlags, "--llm", "claude"), "claude-cli:default"},
+		{name(llmFlags, "--llm", "claude"), "claude-cli:claude-sonnet-5-5"},
+		{name(llmFlags, "--llm", "claude", "--model", "claude-opus-5-5"), "claude-cli:claude-opus-5-5"},
 		{name(review, "--llm", "codex"), "codex-cli:default"},
 		{name(review, "--llm", "claude"), "claude-cli:default@high"},
 	} {

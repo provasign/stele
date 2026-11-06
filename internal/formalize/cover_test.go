@@ -438,7 +438,7 @@ func TestCompactFactsFirst(t *testing.T) {
 		case strings.Contains(req.Schema, `"merges"`):
 			return &llm.Reply{JSON: `{"merges":[]}`}, nil
 		case strings.Contains(req.Schema, `"rules"`):
-			compactSystems = append(compactSystems, req.System)
+			compactSystems = append(compactSystems, sharedVocabulary(req))
 			return compactFixtureReply(false, compactRule("s1", "order.paid = true")), nil
 		default: // operations
 			return &llm.Reply{JSON: `{"entities":[],"extensions":[],"operations":[]}`}, nil

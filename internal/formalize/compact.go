@@ -101,7 +101,7 @@ func compactPass(ctx context.Context, m llm.Client, stmts []translate.Statement,
 		if err != nil {
 			return err
 		}
-		system := onePassPrompt + translate.RenderVocabulary(cur) + compactInstructions + codeContext(opt.CodeContext)
+		shared := translate.RenderVocabulary(cur)
 		var g *graph.Graph
 		if opt.Retrieve > 0 {
 			g = graph.Build(cur)
@@ -116,7 +116,14 @@ func compactPass(ctx context.Context, m llm.Client, stmts []translate.Statement,
 		for i, part := range parts {
 			aliases := map[string]string{}
 			var req strings.Builder
-			req.WriteString("Translate only the requested statements. Propose only vocabulary they need beyond the shared vocabulary.\n\n")
+			vocabulary := shared
+			if g != nil {
+				vocabulary = translate.RenderVocabulary(g.Subset(retrieved(g, part, st.Proposal, opt.Retrieve)))
+			}
+			// The system prompt is the same in every request, so it caches;
+			// the vocabulary, which grows with every reply, comes here.
+			req.WriteString("# Shared vocabulary\n\n" + vocabulary + codeContext(opt.CodeContext) + "\n# Statements\n\n")
+			req.WriteString("Translate only these statements. Propose only vocabulary they need beyond the shared vocabulary.\n\n")
 			for k, s := range part {
 				attempts[s.ID]++
 				alias := fmt.Sprintf("s%d", k+1)
@@ -136,15 +143,11 @@ func compactPass(ctx context.Context, m llm.Client, stmts []translate.Statement,
 				req.WriteString("\n")
 			}
 			results[i].aliases = aliases
-			sys := system
-			if g != nil {
-				sys = onePassPrompt + translate.RenderVocabulary(g.Subset(retrieved(g, part, st.Proposal, opt.Retrieve))) + compactInstructions + codeContext(opt.CodeContext)
-			}
 			wg.Add(1)
-			go func(i int, text, sys string) {
+			go func(i int, text string) {
 				defer wg.Done()
-				results[i].reply, results[i].err = m.Complete(ctx, llm.Request{System: sys, Turns: []llm.Turn{{Role: "user", Text: text}}, Schema: schema})
-			}(i, req.String(), sys)
+				results[i].reply, results[i].err = m.Complete(ctx, llm.Request{System: compactPrompt, Turns: []llm.Turn{{Role: "user", Text: text}}, Schema: schema})
+			}(i, req.String())
 		}
 		fmt.Fprintf(opt.Log, "  compact: %d statement(s) in %d request(s), %d already accepted\n", len(pending), len(parts), len(accepted))
 		wg.Wait()

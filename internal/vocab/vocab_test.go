@@ -112,3 +112,17 @@ func TestSameWritesNeedSameVerb(t *testing.T) {
 		t.Errorf("flags = %v, want only haltIdle against stop", got)
 	}
 }
+
+func TestOptionalRelationToManyLoads(t *testing.T) {
+	p := Proposal{Entities: []Entity{
+		{Name: "Theme", Relations: []Relation{{Name: "colors", To: "Color", Many: true, Optional: true}}},
+		{Name: "Color", Attributes: []Attribute{{Name: "hex", Type: "string", SetBy: "system"}}},
+	}}
+	reg, err := Load(Options{Context: "main"}, p)
+	if err != nil {
+		t.Fatalf("a relation to many marked optional should load: %v", err)
+	}
+	if r := reg.Entities["Theme"].Relations["colors"]; r == nil || !r.Many || r.Optional {
+		t.Fatalf("colors should be a relation to many, not optional: %+v", r)
+	}
+}

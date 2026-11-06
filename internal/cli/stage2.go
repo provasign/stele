@@ -71,10 +71,19 @@ func cmdImport(args []string, out io.Writer) int {
 }
 
 // llmFlags registers the backend flags shared by translate and review, with
-// the translation efforts as defaults.
+// the translation models and efforts as defaults.
 func llmFlags(fs *flag.FlagSet) func() (llm.Client, error) {
-	return llmFlagsEffort(fs, translationEffort)
+	return llmFlagsDefaults(fs, translationModel, translationEffort)
 }
+
+// translationModel is the model translation asks a backend for when neither
+// --model nor stele.yaml gives one. On the claude CLI it is Sonnet: on a
+// 60-requirement held-out set it read the whole set, rereads included, for
+// $1.34 in 5 minutes, where Opus cost $5.03 and took 21 minutes of model
+// time, and the Opus judge scored Sonnet's rules at 111 clauses covered to
+// 55 uncovered against Opus's 122 to 26 (2026-11-06); the owner put cost and
+// speed first. Codex keeps the user's own default model.
+var translationModel = map[string]string{"claude": "claude-sonnet-5-5"}
 
 // translationEffort is the reasoning effort translation asks a backend for
 // when neither --effort nor stele.yaml gives one. Codex otherwise runs at
@@ -85,10 +94,17 @@ func llmFlags(fs *flag.FlagSet) func() (llm.Client, error) {
 var translationEffort = map[string]string{"codex": "medium"}
 
 // llmFlagsEffort is llmFlags with a reasoning effort per backend when
-// --effort is not given (the anthropic backend has its own default).
+// --effort is not given (the anthropic backend has its own default), and
+// the backend's own default model.
 func llmFlagsEffort(fs *flag.FlagSet, effortDefault map[string]string) func() (llm.Client, error) {
+	return llmFlagsDefaults(fs, nil, effortDefault)
+}
+
+// llmFlagsDefaults is llmFlags with a model and a reasoning effort per
+// backend, used when --model and --effort are not given.
+func llmFlagsDefaults(fs *flag.FlagSet, modelDefault, effortDefault map[string]string) func() (llm.Client, error) {
 	backend := fs.String("llm", "anthropic", "LLM backend: anthropic, openai (API keys), claude, codex (local CLIs), cmd")
-	model := fs.String("model", "", "model for the backend (anthropic defaults to claude-opus-5-5; CLIs use their own default)")
+	model := fs.String("model", "", "model for the backend (anthropic defaults to claude-opus-5-5, the claude CLI to claude-sonnet-5-5 for translation; codex uses its own default)")
 	effort := fs.String("effort", "", "reasoning effort: low, medium, high, xhigh, max (anthropic, claude); codex takes its own levels, e.g. minimal, low, medium, high")
 	command := fs.String("llm-cmd", "", "for --llm cmd: shell command that reads the prompt on stdin and prints the reply")
 	return func() (llm.Client, error) {
@@ -97,6 +113,9 @@ func llmFlagsEffort(fs *flag.FlagSet, effortDefault map[string]string) func() (l
 		}
 		if *effort == "" {
 			*effort = effortDefault[*backend]
+		}
+		if *model == "" {
+			*model = modelDefault[*backend]
 		}
 		return llm.New(llm.Config{Backend: *backend, Model: *model, Effort: *effort, Command: *command})
 	}

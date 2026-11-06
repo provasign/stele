@@ -286,7 +286,10 @@ func YAML(p Proposal, context string) ([]byte, error) {
 			if r.Many {
 				d["many"] = true
 			}
-			if r.Optional {
+			// A relation to many may be empty already, so optional says
+			// nothing more; a proposal that sets both is not sent back for
+			// it (a held-out run, 2026-11-06, spent two repair calls on it).
+			if r.Optional && !r.Many {
 				d["optional"] = true
 			}
 			m[r.Name] = d
