@@ -6,6 +6,8 @@ Stele keeps a project's specs consistent with each other. It reads the requireme
 
 It works inside the coding agent the project already uses. The agent runs Stele when it edits specs and asks the owner only what needs a person.
 
+**Preview:** to try it on a project of your own, follow [Try Stele](docs/try-it.md): an hour, and what to send back.
+
 **Status:** experimental. The commands below work end to end on real repositories; measured accuracy is uneven, and is stated in [what to expect](#what-to-expect). Stele is part of the [Provasign](https://provasign.dev) tool family and stands alone: one `stele` binary, with Z3 for the solver.
 
 ## Why
