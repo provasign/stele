@@ -128,3 +128,27 @@ func TestRun(t *testing.T) {
 		t.Errorf("resume translated again: %d -> %d", before, m.translations)
 	}
 }
+
+func TestOverrideOfAnotherSpecsLabel(t *testing.T) {
+	stmts := []translate.Statement{
+		{ID: "005/FR-006", Source: "specs/005-waitlist/spec.md#L40", Prose: "FR-006: A released plot goes to the first member waiting."},
+		{ID: "007/FR-006", Source: "specs/007-fee/spec.md#L50", Prose: "FR-006: Paying for an unknown email is rejected."},
+		{ID: "007/FR-007", Source: "specs/007-fee/spec.md#L51", Prose: "FR-007: Paying twice is rejected."},
+		{ID: "007/FR-008", Source: "specs/007-fee/spec.md#L52", Prose: "FR-008: A released plot goes to the first member waiting who has paid (see 004-release). This is an exception to FR-006 of the waitlist spec (005-waitlist)."},
+	}
+	cands := []translate.Candidate{
+		{StatementID: "007/FR-008", Overrides: []string{"FR-006"}},
+		{StatementID: "007/FR-007", Overrides: []string{"FR-006"}},
+		{StatementID: "007/FR-008", Overrides: []string{"007/FR-006"}},
+	}
+	resolveOverrides(stmts, cands)
+	if got := cands[0].Overrides; len(got) != 1 || got[0] != "005/FR-006" {
+		t.Errorf("named with its spec: overrides = %v, want [005/FR-006]", got)
+	}
+	if got := cands[1].Overrides; len(got) != 1 || got[0] != "007/FR-006" {
+		t.Errorf("named alone: overrides = %v, want [007/FR-006]", got)
+	}
+	if got := cands[2].Overrides; len(got) != 1 || got[0] != "005/FR-006" {
+		t.Errorf("resolved in the wrong spec: overrides = %v, want [005/FR-006]", got)
+	}
+}

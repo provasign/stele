@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -772,13 +773,22 @@ func (c *cache) translate(ctx context.Context, opt Options, todo []translate.Sta
 			return err
 		}
 	}
-	n := len(c.Links)
+	prefix := fmt.Sprintf("world-%s-", safe(opt.Change))
+	n := lastNumber(c.Links, prefix)
+	seen := map[string]bool{}
+	for i := range c.Links { // numbered twice before lastNumber
+		if seen[c.Links[i].RuleID] {
+			n++
+			c.Links[i].RuleID = fmt.Sprintf("%s%d", prefix, n)
+		}
+		seen[c.Links[i].RuleID] = true
+	}
 	for _, l := range fr.LinkCands {
 		if l.Error != "" {
 			continue
 		}
 		n++
-		l.RuleID = fmt.Sprintf("world-%s-%d", safe(opt.Change), n)
+		l.RuleID = fmt.Sprintf("%s%d", prefix, n)
 		l.StatementID = ""
 		c.addLinks([]translate.Candidate{l})
 	}
@@ -789,6 +799,20 @@ func (c *cache) translate(ctx context.Context, opt Options, todo []translate.Sta
 	}
 	c.Merges = append(c.Merges, fr.Merges...)
 	return nil
+}
+
+// lastNumber is the highest n of the links with ID prefix+n. New world facts
+// are numbered after it: by their count, a fact added after one was
+// rejected took the ID of the last, and the change's registry no longer
+// loaded ("rule world-main-3 declared twice").
+func lastNumber(links []translate.Candidate, prefix string) int {
+	n := 0
+	for _, l := range links {
+		if k, err := strconv.Atoi(strings.TrimPrefix(l.RuleID, prefix)); err == nil && strings.HasPrefix(l.RuleID, prefix) {
+			n = max(n, k)
+		}
+	}
+	return n
 }
 
 // contextOf is the context most of the registry's entities belong to:

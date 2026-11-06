@@ -1836,28 +1836,44 @@ func writeLinks(dir string, links []translate.Candidate) ([]string, error) {
 }
 
 // resolveOverrides turns an override that names a requirement by the label
-// its text uses ("FR-005") into that statement's ID: the statement of the
-// same document whose ID or text starts with the label, when exactly one
-// does. An override that names no statement is dropped.
+// its text uses ("FR-005") into that statement's ID: the statement whose ID
+// or text starts with the label, when exactly one does, in the document the
+// text names next to the label ("FR-006 of the waitlist spec
+// (005-waitlist)"), else in the statement's own. An override that names no
+// statement is dropped.
 func resolveOverrides(stmts []translate.Statement, cands []translate.Candidate) {
 	ids := map[string]bool{}
 	doc := map[string]string{}
+	prose := map[string]string{}
 	for _, s := range stmts {
 		ids[s.ID] = true
 		doc[s.ID], _, _ = strings.Cut(s.Source, "#")
+		prose[s.ID] = s.Prose
 	}
+	docs := slices.Sorted(maps.Values(doc))
 	for i := range cands {
 		c := &cands[i]
 		var kept []string
 		for _, ref := range c.Overrides {
+			label := strings.Trim(ref, " []*")
+			in := doc[c.StatementID]
 			if ids[ref] {
+				// An ID the text's label resolved to in the wrong document.
+				if _, tail, ok := strings.Cut(ref, "/"); ok && tail != "" {
+					label = tail
+				}
+				in = doc[ref]
+			}
+			if d := docNamedAt(prose[c.StatementID], label, docs); d != "" && label != "" {
+				in = d
+			}
+			if ids[ref] && in == doc[ref] {
 				kept = append(kept, ref)
 				continue
 			}
-			label := strings.Trim(ref, " []*")
 			var found []string
 			for _, s := range stmts {
-				if s.ID == c.StatementID || doc[s.ID] != doc[c.StatementID] {
+				if s.ID == c.StatementID || doc[s.ID] != in {
 					continue
 				}
 				_, tail, _ := strings.Cut(s.ID, "/")
@@ -1865,12 +1881,59 @@ func resolveOverrides(stmts []translate.Statement, cands []translate.Candidate) 
 					found = append(found, s.ID)
 				}
 			}
-			if len(found) == 1 && !slices.Contains(kept, found[0]) {
+			switch {
+			case len(found) == 1 && !slices.Contains(kept, found[0]):
 				kept = append(kept, found[0])
+			case len(found) != 1 && ids[ref]:
+				kept = append(kept, ref)
 			}
 		}
 		c.Overrides = kept
 	}
+}
+
+// docNamedAt is the document of docs that text names in the sentence where
+// it mentions label, nearest to it, by its folder or file name ("FR-006 of
+// the waitlist spec (005-waitlist)"), or "" when it names none.
+func docNamedAt(text, label string, docs []string) string {
+	best, dist := "", -1
+	for _, sentence := range strings.Split(text, ". ") {
+		at := strings.Index(sentence, label)
+		if at < 0 {
+			continue
+		}
+		for _, d := range docs {
+			for _, name := range docNames(d) {
+				k := strings.Index(sentence, name)
+				if k < 0 {
+					continue
+				}
+				if n := max(at-k, k-at); dist < 0 || n < dist {
+					best, dist = d, n
+				}
+			}
+		}
+	}
+	return best
+}
+
+// docNames are the names a text may call a document by: its folder, and its
+// file name when that is not a generic one such as spec.md.
+func docNames(path string) []string {
+	dir, file := filepath.Split(filepath.Clean(path))
+	stem := strings.TrimSuffix(file, filepath.Ext(file))
+	var out []string
+	if d := filepath.Base(dir); d != "." && d != "/" && len(d) > 3 {
+		out = append(out, d)
+	}
+	switch strings.ToLower(stem) {
+	case "spec", "requirements", "design", "tasks", "readme", "proposal":
+	default:
+		if len(stem) > 3 {
+			out = append(out, stem)
+		}
+	}
+	return out
 }
 
 var increment = regexp.MustCompile(`([\w.]+)\s*=\s*\(?\s*old\(\s*([\w.]+)\s*\)\s*\+`)

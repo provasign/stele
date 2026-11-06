@@ -1678,3 +1678,10 @@ func TestFailedCoverageIsToldAndRetried(t *testing.T) {
 		t.Errorf("findings after a healthy check %q", res.Findings["res/Erasure"])
 	}
 }
+
+func TestNewWorldFactAfterRejectedOne(t *testing.T) {
+	links := []translate.Candidate{{RuleID: "world-main-1"}, {RuleID: "world-main-3"}, {RuleID: "world-def-0a1b2c3d"}}
+	if n := lastNumber(links, "world-main-"); n != 3 {
+		t.Errorf("lastNumber = %d, want 3", n)
+	}
+}
