@@ -25,7 +25,7 @@ func TestInitAsksForDrafts(t *testing.T) {
 	if err != nil || c == nil {
 		t.Fatalf("stele.yaml not readable: %v", err)
 	}
-	if c.Translate.Drafts != 1 || c.Translate.LLM != "claude" || c.Registry != ".stele/registry" {
+	if c.Translate.Drafts != 1 || c.Translate.LLM != "agent" || c.Registry != ".stele/registry" {
 		t.Errorf("config = %+v", c)
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".stele/registry/context.yaml")); err != nil {
@@ -53,7 +53,7 @@ func TestInitNonInteractiveUsesFlagsAndDefaults(t *testing.T) {
 		t.Errorf("asked a question without a terminal:\n%s", out.String())
 	}
 	c, _ := config.Find(dir)
-	if c.Translate.Drafts != 5 || c.Translate.LLM != "claude" {
+	if c.Translate.Drafts != 5 || c.Translate.LLM != "agent" {
 		t.Errorf("config = %+v", c)
 	}
 	if code := cmdInit([]string{t.TempDir(), "--drafts", "0", "--yes"}, strings.NewReader(""), &out, false); code != 0 {
@@ -125,7 +125,7 @@ func TestInitSetsUpAgents(t *testing.T) {
 	if code := cmdInit([]string{dir, "--yes", "--hook"}, strings.NewReader(""), &out, false); code != 0 || !strings.Contains(out.String(), "already set up") {
 		t.Fatalf("refresh: %d %s", code, out.String())
 	}
-	if strings.Count(read(".claude/settings.json"), "stele-hook.js") != 2 || !strings.Contains(read(".claude/settings.json"), "UserPromptSubmit") {
+	if strings.Count(read(".claude/settings.json"), "stele-hook.js") != 4 || !strings.Contains(read(".claude/settings.json"), "UserPromptSubmit") {
 		t.Fatal("the hook was added twice, or not for each event")
 	}
 	if read(".codex/hooks.json") != codex || strings.Contains(out.String(), "/hooks") {
@@ -204,7 +204,7 @@ func TestInitNewSpecKitProjectOnCodex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Translate.LLM != "codex" || c.Specs == nil || c.Specs.Format != "speckit" {
+	if c.Translate.LLM != "agent" || c.Specs == nil || c.Specs.Format != "speckit" {
 		t.Fatalf("llm %q specs %+v\n%s", c.Translate.LLM, c.Specs, out.String())
 	}
 	if !strings.Contains(out.String(), "no specs yet") {

@@ -93,3 +93,26 @@ test('Claude post-edit hook reminds the agent of a request the owner has not app
   const again = invoke();
   assert.ok(!again || !/not approved by the owner/.test(again.hookSpecificOutput.additionalContext), 'the reminder repeated');
 });
+
+test('Claude hook records the agent and the model in use for Stele\'s own calls', t => {
+  const f = fixture(); t.after(() => f.dispose());
+  const binary = process.env.STELE_TEST_BIN || path.resolve(__dirname, '../../bin/stele-sync');
+  const cache = path.join(f.project, 'cache'); fs.mkdirSync(cache);
+  const invoke = input => {
+    const result = spawnSync(process.execPath, [path.join(__dirname, 'stele-hook.js')], {
+      input: JSON.stringify({ cwd: f.project, session_id: 's1', ...input }),
+      env: { ...process.env, STELE_BIN: binary, STELE_HOOK_CACHE: cache }, encoding: 'utf8', timeout: 5000
+    });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim();
+  };
+  const record = () => JSON.parse(fs.readFileSync(path.join(f.project, '.stele', 'cache', 'agent.json'), 'utf8'));
+  assert.equal(invoke({ hook_event_name: 'SessionStart', source: 'startup', model: 'claude-opus-5-5' }), '', 'session start said something');
+  assert.deepEqual(record(), { agent: 'claude', model: 'claude-opus-5-5', session: 's1' });
+  invoke({ hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: {} });
+  assert.equal(record().model, 'claude-opus-5-5', 'an event without a model forgot it');
+  assert.equal(invoke({ hook_event_name: 'PostModelSwitch', from_model: 'claude-opus-5-5', to_model: 'claude-sonnet-5-5' }), '');
+  assert.equal(record().model, 'claude-sonnet-5-5');
+  invoke({ hook_event_name: 'SessionStart', source: 'startup', session_id: 's2' });
+  assert.deepEqual(record(), { agent: 'claude', model: '', session: 's2' }, 'a new session kept the old model');
+});

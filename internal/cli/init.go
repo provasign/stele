@@ -88,14 +88,15 @@ func cmdInit(args []string, in io.Reader, out io.Writer, interactive bool) int {
 	case !ask:
 		var ok bool
 		if c.Translate.LLM, ok = availableLLM(c.Translate.LLM); !ok {
-			fmt.Fprintln(out, "No model found to translate specs with: Stele needs the claude or codex CLI on PATH, or ANTHROPIC_API_KEY or OPENAI_API_KEY. Install one and set translate.llm in stele.yaml (claude, codex, anthropic or openai).")
+			fmt.Fprintln(out, "No model found to translate specs with: Stele needs the claude or codex CLI on PATH, or ANTHROPIC_API_KEY or OPENAI_API_KEY. Install one and set translate.llm in stele.yaml (agent, claude, codex, anthropic or openai).")
 		}
 	}
 	switch {
 	case *llmFlag != "":
 	case ask:
 		fmt.Fprintln(out, "Which LLM should translate spec prose into rules?")
-		fmt.Fprintln(out, "  claude, codex     use the CLI you already have installed")
+		fmt.Fprintln(out, "  agent             the coding agent you run Stele from (Claude Code or Codex), and the model it is using")
+		fmt.Fprintln(out, "  claude, codex     always that CLI, at its own default model")
 		fmt.Fprintln(out, "  anthropic, openai use an API key (ANTHROPIC_API_KEY or OPENAI_API_KEY)")
 		if c.Translate.LLM, err = prompt("LLM", c.Translate.LLM); err != nil {
 			return fail(err)
@@ -329,15 +330,16 @@ func installGitHook(dir string) (path, note string, err error) {
 	return path, "", os.WriteFile(path, []byte(gitHookScript), 0o755)
 }
 
-// availableLLM is the translation backend this machine can run: the
-// claude CLI, else the codex CLI, else an API key's provider, else def. A
-// machine with Codex alone was set up for the claude CLI, and every
-// translation failed (a developer trial, 2026-11-05). It reports whether
-// any was found.
+// availableLLM is the translation backend this machine can run: agent when
+// the claude or codex CLI is installed (Stele's calls then run on the agent
+// the developer uses at the time, and its model), else an API key's
+// provider, else def. A machine with Codex alone was set up for the claude
+// CLI, and every translation failed (a developer trial, 2026-11-05). It
+// reports whether any was found.
 func availableLLM(def string) (string, bool) {
 	for _, cli := range []string{"claude", "codex"} {
 		if _, err := exec.LookPath(cli); err == nil {
-			return cli, true
+			return "agent", true
 		}
 	}
 	switch {
@@ -447,6 +449,8 @@ func writeSteleIgnore(dir string) error {
 // llmLabel names a translation backend for people.
 func llmLabel(backend string) string {
 	switch backend {
+	case "agent":
+		return "the coding agent you run Stele from, and the model it is using"
 	case "claude":
 		return "your Claude Code CLI"
 	case "codex":

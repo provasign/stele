@@ -12,6 +12,26 @@ const { spawnSync } = require('node:child_process');
 
 let event = 'PostToolUse';
 
+// The agent this hook runs in and the model it is using, recorded for
+// Stele's own calls (translate.llm: agent) under the project. Codex names
+// the model in every event; Claude Code at session start (not always) and
+// on a model switch, so the model stands until the same session names
+// another. The agent is known from where `stele init` put the script.
+function recordAgent(project, input) {
+  const agent = __dirname.split(path.sep).includes('.codex') ? 'codex' : 'claude';
+  const file = path.join(project, '.stele', 'cache', 'agent.json');
+  let previous = {};
+  try { previous = JSON.parse(fs.readFileSync(file, 'utf8')); } catch {}
+  const session = input.session_id || '';
+  const kept = previous.agent === agent && previous.session === session ? previous.model : '';
+  const record = { agent, model: input.to_model || input.model || kept || '', session };
+  if (['agent', 'model', 'session'].every(k => previous[k] === record[k])) return;
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(record) + '\n');
+  } catch {} // a read-only checkout: Stele falls back to the CLI it finds
+}
+
 function main() {
   const input = JSON.parse(fs.readFileSync(0, 'utf8'));
   event = input.hook_event_name || event;
@@ -21,6 +41,8 @@ function main() {
     if (parent === project) return;
     project = parent;
   }
+  recordAgent(project, input);
+  if (event === 'SessionStart' || event === 'PostModelSwitch') return;
   if (input.hook_event_name === 'UserPromptSubmit') {
     // Prevention, never blocking: say nothing when the request touches no
     // approved requirement, or when Stele cannot answer.

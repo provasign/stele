@@ -71,19 +71,16 @@ func cmdImport(args []string, out io.Writer) int {
 }
 
 // llmFlags registers the backend flags shared by translate and review, with
-// the translation models and efforts as defaults.
+// the translation efforts as defaults. There is no model default: on the
+// backend agent the model is the one the developer's agent is using at the
+// time, and on a CLI named outright the CLI's own default. (Sonnet 5.5 was
+// the claude CLI's default for a day: on a 60-requirement held-out set it
+// read the whole set for $1.34 in 5 minutes where Opus cost $5.03 and 21
+// minutes of model time, at 111 clauses covered to 55 uncovered against
+// Opus's 122 to 26; the owner then asked for the model in use, 2026-11-06.)
 func llmFlags(fs *flag.FlagSet) func() (llm.Client, error) {
-	return llmFlagsDefaults(fs, translationModel, translationEffort)
+	return llmFlagsDefaults(fs, nil, translationEffort)
 }
-
-// translationModel is the model translation asks a backend for when neither
-// --model nor stele.yaml gives one. On the claude CLI it is Sonnet: on a
-// 60-requirement held-out set it read the whole set, rereads included, for
-// $1.34 in 5 minutes, where Opus cost $5.03 and took 21 minutes of model
-// time, and the Opus judge scored Sonnet's rules at 111 clauses covered to
-// 55 uncovered against Opus's 122 to 26 (2026-11-06); the owner put cost and
-// speed first. Codex keeps the user's own default model.
-var translationModel = map[string]string{"claude": "claude-sonnet-5-5"}
 
 // translationEffort is the reasoning effort translation asks a backend for
 // when neither --effort nor stele.yaml gives one. Codex otherwise runs at
@@ -103,14 +100,20 @@ func llmFlagsEffort(fs *flag.FlagSet, effortDefault map[string]string) func() (l
 // llmFlagsDefaults is llmFlags with a model and a reasoning effort per
 // backend, used when --model and --effort are not given.
 func llmFlagsDefaults(fs *flag.FlagSet, modelDefault, effortDefault map[string]string) func() (llm.Client, error) {
-	backend := fs.String("llm", "anthropic", "LLM backend: anthropic, openai (API keys), claude, codex (local CLIs), cmd")
-	model := fs.String("model", "", "model for the backend (anthropic defaults to claude-opus-5-5, the claude CLI to claude-sonnet-5-5 for translation; codex uses its own default)")
+	backend := fs.String("llm", "anthropic", "LLM backend: agent (the coding agent this runs from, and its model), anthropic, openai (API keys), claude, codex (local CLIs), cmd")
+	model := fs.String("model", "", "model for the backend (agent: the one the coding agent is using; anthropic: claude-opus-5-5; claude, codex: the CLI's own default)")
 	effort := fs.String("effort", "", "reasoning effort: low, medium, high, xhigh, max (anthropic, claude); codex takes its own levels, e.g. minimal, low, medium, high")
 	command := fs.String("llm-cmd", "", "for --llm cmd: shell command that reads the prompt on stdin and prints the reply")
 	return func() (llm.Client, error) {
 		if *command != "" && !flagSet(fs, "llm") {
 			*backend = "cmd" // --llm-cmd alone selects the command backend
 		}
+		// The agent's CLI is resolved first, so that the defaults are its.
+		b, m, err := llm.Resolve(*backend, *model)
+		if err != nil {
+			return nil, err
+		}
+		*backend, *model = b, m
 		if *effort == "" {
 			*effort = effortDefault[*backend]
 		}

@@ -63,7 +63,10 @@ type Client interface {
 
 // Config selects a backend.
 type Config struct {
-	Backend string // anthropic | openai | claude | codex | cmd
+	// Backend is anthropic | openai | claude | codex | cmd, or agent: the
+	// coding agent Stele is run from and the model it is using, see
+	// ResolveAgent.
+	Backend string
 	Model   string // passed to the backend; empty uses the backend's default
 	Command string // for cmd: shell command that reads the prompt on stdin
 	// Effort is the reasoning effort: low | medium | high | xhigh | max for
@@ -77,6 +80,12 @@ func New(cfg Config) (Client, error) {
 	// would reach a model it was meant to avoid.
 	if cfg.Command != "" && cfg.Backend != "cmd" {
 		return nil, fmt.Errorf("--llm-cmd is used only by backend cmd, not %s: pass --llm cmd or drop --llm-cmd", cfg.Backend)
+	}
+	if cfg.Backend == "agent" {
+		var err error
+		if cfg.Backend, cfg.Model, err = Resolve("agent", cfg.Model); err != nil {
+			return nil, err
+		}
 	}
 	switch cfg.Backend {
 	case "anthropic":
@@ -93,7 +102,24 @@ func New(cfg Config) (Client, error) {
 		}
 		return &commandCLI{command: cfg.Command}, nil
 	}
-	return nil, fmt.Errorf("unknown LLM backend %q (anthropic, openai, claude, codex, cmd)", cfg.Backend)
+	return nil, fmt.Errorf("unknown LLM backend %q (agent, anthropic, openai, claude, codex, cmd)", cfg.Backend)
+}
+
+// Resolve is backend and model with the backend agent stood in for: the
+// agent Stele is run from and its model, when model names none (see
+// ResolveAgent). Any other backend is returned as given.
+func Resolve(backend, model string) (string, string, error) {
+	if backend != "agent" {
+		return backend, model, nil
+	}
+	b, m, ok := ResolveAgent(".")
+	if !ok {
+		return "", "", fmt.Errorf("backend agent: no coding agent to run on: Stele is not run from Claude Code or Codex, and finds neither CLI on PATH nor an API key (ANTHROPIC_API_KEY, OPENAI_API_KEY); set translate.llm in stele.yaml")
+	}
+	if model == "" {
+		model = m
+	}
+	return b, model, nil
 }
 
 // renderPrompt flattens a request into one prompt for backends that take a

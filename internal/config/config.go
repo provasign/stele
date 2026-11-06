@@ -45,8 +45,8 @@ func (c *Config) SnapshotFile() string { return filepath.Join(c.dir, c.Specs.Sna
 
 // Translate holds the defaults for `stele translate`.
 type Translate struct {
-	LLM    string `yaml:"llm"`              // one backend: anthropic, openai, claude, codex or cmd
-	Model  string `yaml:"model,omitempty"`  // empty uses the backend's default
+	LLM    string `yaml:"llm"`              // one backend: agent (the coding agent Stele runs from, and its model), anthropic, openai, claude, codex or cmd
+	Model  string `yaml:"model,omitempty"`  // empty uses the agent's model (agent) or the backend's default
 	Effort string `yaml:"effort,omitempty"` // reasoning effort; empty uses Stele's default for the backend
 	Drafts int    `yaml:"drafts"`           // drafts per requirement; above 1, disagreements become questions
 }
@@ -61,7 +61,7 @@ type Vocab struct {
 
 // Default is what `stele init --yes` writes.
 func Default() Config {
-	return Config{FormatVersion: 1, Registry: "specs/registry", Translate: Translate{LLM: "claude", Drafts: 3}}
+	return Config{FormatVersion: 1, Registry: "specs/registry", Translate: Translate{LLM: "agent", Drafts: 3}}
 }
 
 // Find looks for stele.yaml in dir and its parents. It returns nil, nil when
@@ -118,9 +118,9 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("translate.drafts must be at least 1")
 	}
 	switch c.Translate.LLM {
-	case "anthropic", "openai", "claude", "codex", "cmd":
+	case "agent", "anthropic", "openai", "claude", "codex", "cmd":
 	default:
-		return fmt.Errorf("translate.llm %q: use anthropic, openai, claude, codex or cmd", c.Translate.LLM)
+		return fmt.Errorf("translate.llm %q: use agent, anthropic, openai, claude, codex or cmd", c.Translate.LLM)
 	}
 	return nil
 }
@@ -140,8 +140,11 @@ func Write(dir string, c Config) error {
 	header := "# Stele settings. See docs/04-data-model.md for the registry layout.\n" +
 		"# translate.drafts: drafts per requirement. 1 is cheapest. Above 1, readings are\n" +
 		"# compared by the solver and disagreements become questions for the spec author.\n" +
-		"# translate.model: the model (unset: claude-sonnet-5-5 on the claude CLI, which read a\n" +
-		"# held-out set for a quarter of Opus's cost in a third of the time; codex uses its own).\n" +
+		"# translate.llm: agent runs Stele's calls on the coding agent you run it from (Claude\n" +
+		"# Code or Codex) and the model it is using; claude, codex, anthropic, openai, cmd name one.\n" +
+		"# translate.model: pins a model (unset: the agent's, or the CLI's own default). On a\n" +
+		"# 60-requirement set, claude-sonnet-5-5 read for a quarter of Opus's cost in a third\n" +
+		"# of the time, with more clauses left unchecked.\n" +
 		"# translate.effort: the model's reasoning effort (unset: medium on codex, the CLI's\n" +
 		"# default otherwise). Higher is slower and was not more accurate on codex.\n"
 	return os.WriteFile(filepath.Join(dir, FileName), append([]byte(header), src...), 0o644)

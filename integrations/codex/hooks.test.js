@@ -38,3 +38,19 @@ test('Codex hook commands find the script from a subdirectory and answer in Code
   assert.equal(drift.hookSpecificOutput.hookEventName, 'PostToolUse');
   assert.match(drift.hookSpecificOutput.additionalContext, /1 stale rules/);
 });
+
+test('Codex hook records Codex and the model of every event', t => {
+  const f = fixture(); t.after(() => f.dispose());
+  const binary = process.env.STELE_TEST_BIN || path.resolve(__dirname, '../../bin/stele-sync');
+  const script = path.join(f.project, '.codex', 'hooks', 'stele-hook.js');
+  fs.mkdirSync(path.dirname(script), { recursive: true });
+  fs.copyFileSync(path.join(__dirname, '..', 'claude', 'stele-hook.js'), script);
+  const cache = path.join(f.project, 'cache'); fs.mkdirSync(cache);
+  const result = spawnSync(process.execPath, [script], {
+    input: JSON.stringify({ hook_event_name: 'UserPromptSubmit', cwd: f.project, session_id: 's', model: 'gpt-5.5', turn_id: 't', prompt: 'hello' }),
+    env: { ...process.env, STELE_BIN: binary, STELE_HOOK_CACHE: cache }, encoding: 'utf8', timeout: 5000
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(f.project, '.stele', 'cache', 'agent.json'), 'utf8')),
+    { agent: 'codex', model: 'gpt-5.5', session: 's' });
+});

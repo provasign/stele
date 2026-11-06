@@ -37,14 +37,14 @@ It reads every requirement once and checks them against each other. Its JSON is 
      stele change speckit . --base main --json     # or: stele change kiro . --base main --json
      ```
 
-     The change is named after the branch; use that name as `<change-id>` below.
-   - **Shale requests** (`stele.yaml` has `format: shale`): each `shale intent` is a requirement. Right after you declare one, before the first edit, check the branch's requests:
+     The change is named after the branch (`<branch>-2` and on once a change of that name is approved); use the `change` field of the JSON as `<change-id>` below.
+   - **Shale requests** (`stele.yaml` has `format: shale`): each `shale intent` is a requirement. Word it as the owner would, saying what must be true when you are done, and leave out how you build it (file names, stores, "tests included"): Stele reads every clause as a requirement the product keeps. Right after you declare one, before the first edit, check the branch's requests:
 
      ```sh
      stele change shale . --base main --json
      ```
 
-     The base is chosen as for Spec Kit. A request that only tidies or documents (no behaviour to check) comes back unchecked, and nothing is asked about it.
+     The base is chosen as for Spec Kit. A request that only tidies or documents (no behaviour to check) comes back with one question for the owner: a requirement to keep, or a one-off task to set aside.
 2. Read the result. If the command fails without printing JSON (a configuration or setup error), report the error to the owner in one line and stop: it is not a question for them.
 
    Progress goes to stderr; the JSON on stdout has `status`, `next` and `questions`.
@@ -52,6 +52,8 @@ It reads every requirement once and checks them against each other. Its JSON is 
    - `clean`: nothing to decide. Tell the owner in one line.
    - `approved`: the owner already approved this change as it reads. Do not check it again; commit the registry with the change.
    - `broken`: the change's rules do not compile together (`errors`). This is Stele's problem, not the owner's: report it briefly and stop.
+   - `failed`: the model could not translate the requirements under `failed`, so nothing was checked for them; the error says why (not logged in, a sandbox that blocks the model command, no network). Never report this as checked. Tell the owner the error in one line and what would fix it, and run the same command again once it is fixed: the failures are retried, not reused.
+   - `undecided`: the solver could not settle what a step must do, and other questions are open. Answer them first. The approval then says which step it leaves unchecked: tell the owner, and offer a simpler wording of the requirement behind it if they would rather have it checked.
    - `questions`: go to step 4.
    - `ready`: only the approval question is left. Go to step 6.
 4. For each question, in order:
@@ -67,7 +69,7 @@ It reads every requirement once and checks them against each other. Its JSON is 
      ```
 
      Options with `needs_note` need the owner's words: ask what Stele got wrong and pass it as `--note`. Any other answer may carry the owner's explanation as `--note` too (for "that situation cannot happen", why it cannot). Record the answers you give yourself (`ask_owner` false) with `--by agent`; the owner's answers use the default, their git name.
-   - Do what the printed `Next:` says. When you write an exception into the spec, name the requirement it takes precedence over by its label or title ("regardless of `--color` (FR-003b)"), so Stele can record the precedence. For `change`, `update_old`, `exception` and `reword`, you edit the change's spec files yourself, showing the owner the new wording before saving it. In OpenSpec, edit only the change folder (a MODIFIED or REMOVED requirement for `update_old`), never `openspec/specs/`. In Spec Kit and Kiro, edit the spec files on the branch. For Shale requests, never edit `.shale/`: for `change`, declare the request again with `shale intent "<title>" --body "..."`; for `exception`, the answer retires the earlier request, and you declare this one again stating the whole rule with its exception ("at most 5 books, or up to 10 during the summer program"); `update_old` needs no edit, since the answer retires the earlier request. Commit `.stele/retired-intents.yaml` with the change. Never edit the registry.
+   - Do what the printed `Next:` says. When you write an exception into the spec, name the requirement it takes precedence over by its label or title ("regardless of `--color` (FR-003b)"), so Stele can record the precedence. For `change`, `update_old`, `exception` and `reword`, you edit the change's spec files yourself, showing the owner the new wording before saving it. In OpenSpec, edit only the change folder (a MODIFIED or REMOVED requirement for `update_old`), never `openspec/specs/`. In Spec Kit and Kiro, edit the spec files on the branch. For Shale requests, never edit `.shale/`: for `change`, declare the request again with `shale intent "<title>" --body "..."`; for `exception`, the answer retires the earlier request with all its rules, and you declare this one again stating the whole rule with its exception ("at most 5 books, or up to 10 during the summer program") and every other clause of the earlier request; say so to the owner before they choose it; `update_old` needs no edit, since the answer retires the earlier request; `precedence` (both requests stand, the new one prevailing where they meet) needs none either, since Stele reads the new request again with the precedence, and it is usually lighter than `exception` when a request adds a case to an approved one; `task` (the owner says a request is a one-off task, not a requirement) needs none either, since the answer sets it aside. Commit `.stele/retired-intents.yaml` with the change. When the work for a Shale request is done, run `shale done` before committing: it closes the request (the next one you declare is then a request of its own, not a rewording of this one) and stages its evidence for the commit. Never edit the registry.
 5. Once every question of the round is answered and recorded (yours and the owner's), run the check again if any `Next:` said to; one run covers them all. Earlier translations of unchanged requirements are reused, so this is cheap. Repeat until the status is `ready` or `clean`.
 6. Before the approval, review Stele's readings. Stele already checks each reading against its text and has read a flagged requirement once more: what it still finds is in the approval question's `requirements[].findings` (a clause no rule checks, a rule broader than the text, a rule that blocks a step), beside `requirements[].reading` and `requirements[].text`. Also compare each reading with its text yourself. Where a reading says less than the text (a MUST read as a MAY, a missing case such as "whether or not stdout is a terminal") or more (a condition dropped, so it applies more widely), and Stele's finding or your own reading says so, record a re-read yourself, quoting the text:
 
@@ -90,7 +92,7 @@ It reads every requirement once and checks them against each other. Its JSON is 
 
 ## What Stele learns
 
-The owner's answers teach Stele about the project: "the same thing", "that situation cannot happen", and what Stele misread are saved as lessons in the registry's `lessons/` (the result's `new_lessons`), and every later check is read with them. When the approval question names lessons, say in one line what Stele will remember. Remind the owner to commit `lessons/` with the registry. If the owner tells you something about the project no question asked ("on this project, a VM is a Node"), record it: `stele lesson add --kind term|fact|scope --says "<their words>"`. Answers you give yourself (`--by agent`) teach nothing, by design.
+The owner's answers teach Stele about the project: "the same thing", "that situation cannot happen", and what Stele misread are saved as lessons in the registry's `lessons/` (the result's `new_lessons`), and every later check is read with them. When the approval question names lessons, say in one line what Stele will remember; describe only the lessons it lists, and when it lists none, say Stele learned nothing new. Remind the owner to commit `lessons/` with the registry. If the owner tells you something about the project no question asked ("on this project, a VM is a Node"), record it: `stele lesson add --kind term|fact|scope --says "<their words>"`. Answers you give yourself (`--by agent`) teach nothing, by design.
 
 ## Rules
 
