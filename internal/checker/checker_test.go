@@ -513,3 +513,55 @@ status: active
 		t.Errorf("got %s, want pass: %+v", res.Verdict, res.Conflicts)
 	}
 }
+
+func TestStepRuleIsAboutTheInstanceItActsOn(t *testing.T) {
+	src := `context: c
+formatVersion: 1
+---
+entity: Plot
+context: c
+attributes:
+  number: { type: string }
+  holder: { type: optional<string> }
+---
+extend: Request
+context: c
+attributes:
+  number: { type: string, setBy: world }
+---
+operation: Plot.release
+context: c
+default: allow
+writes: [Plot.holder]
+---
+id: unknown
+kind: invariant
+on: Plot.release
+when: 'not (self.number = request.number) and not any(p in instances(Plot): p.number = request.number)'
+assert: self.holder = old(self.holder)
+status: active
+---
+id: freed
+kind: invariant
+on: Plot.release
+when: isSet(self.holder)
+assert: not isSet(self.holder)
+status: active
+`
+	// Read for every held plot, freeing it clashes with leaving every plot
+	// as it was when no plot has the number.
+	if res := check(t, writeRegistry(t, src), lower.Options{}); res.Verdict != Fail {
+		t.Errorf("without a tie: got %s, want fail", res.Verdict)
+	}
+	tied := src + `---
+id: named
+kind: permission
+operation: Plot.release
+effect: possible
+when: request.number = self.number
+status: active
+`
+	if res := check(t, writeRegistry(t, tied), lower.Options{}); res.Verdict != Pass {
+		t.Errorf("with a tie: got %s, want pass: %+v", res.Verdict, res.Conflicts)
+	}
+}

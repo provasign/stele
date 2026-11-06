@@ -250,6 +250,10 @@ type lowerer struct {
 	// lifted holds state invariants restated over the other instances of
 	// their entity (forOtherInstances), nil where one cannot be.
 	lifted map[string]*ir.Rule
+	// targets holds each operation's Target, and targeted its rules read
+	// for the instance it acts on (forTarget).
+	targets  map[string]*ir.Binary
+	targeted map[[2]string]*ir.Rule
 
 	// per unit
 	vars   map[string]*Var
@@ -261,7 +265,7 @@ type lowerer struct {
 
 // Lower lowers reg. It returns an error listing every type error found.
 func Lower(reg *ir.Registry, opt Options) (*Program, error) {
-	lw := &lowerer{reg: reg, opt: opt, sorts: map[*ir.Attr]string{}, prog: &Program{}, before: map[string]*Formula{}, lifted: map[string]*ir.Rule{}}
+	lw := &lowerer{reg: reg, opt: opt, sorts: map[*ir.Attr]string{}, prog: &Program{}, before: map[string]*Formula{}, lifted: map[string]*ir.Rule{}, targets: map[string]*ir.Binary{}, targeted: map[[2]string]*ir.Rule{}}
 	lw.prog.Warnings = append(lw.prog.Warnings, reg.Notes...)
 
 	retired := map[string]string{}
@@ -364,6 +368,7 @@ func (lw *lowerer) stepUnit(op *ir.Operation, live []*ir.Rule, superseded map[st
 		if !x.AppliesTo(op.Name) {
 			continue
 		}
+		x = lw.forTarget(x)
 		subject, err := lw.reg.SubjectOf(x)
 		if err != nil {
 			lw.errs = append(lw.errs, err.Error())
@@ -672,6 +677,7 @@ func (lw *lowerer) override(f *Formula, x *ir.Rule) {
 		if !same {
 			continue
 		}
+		w = lw.forTarget(w)
 		subject, err := lw.reg.SubjectOf(w)
 		if err != nil {
 			continue
@@ -2189,6 +2195,25 @@ func orTrue(set string) string {
 		return "true"
 	}
 	return set
+}
+
+// forTarget is reg.ForTarget for the current step, made once per rule.
+func (lw *lowerer) forTarget(x *ir.Rule) *ir.Rule {
+	if lw.op == nil {
+		return x
+	}
+	k := [2]string{lw.op.Name, x.ID}
+	if r, ok := lw.targeted[k]; ok {
+		return r
+	}
+	tie, ok := lw.targets[lw.op.Name]
+	if !ok {
+		tie = lw.reg.Target(lw.op.Name)
+		lw.targets[lw.op.Name] = tie
+	}
+	r := lw.reg.ForTarget(lw.op.Name, tie, x)
+	lw.targeted[k] = r
+	return r
 }
 
 // forOtherInstances is reg.ForOtherInstances, made once per rule.

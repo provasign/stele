@@ -518,6 +518,9 @@ func BuildWith(reg *ir.Registry, withDecisions, assumeDefaults bool) (*Model, er
 			if !same {
 				continue
 			}
+			if c.op != nil {
+				w = reg.ForTarget(c.op.Name, reg.Target(c.op.Name), w)
+			}
 			ws, err := reg.SubjectOf(w)
 			if err != nil {
 				continue
@@ -693,10 +696,13 @@ func BuildWith(reg *ir.Registry, withDecisions, assumeDefaults bool) (*Model, er
 			}
 		}
 		var allows, denies, pres []pred
+		tie := reg.Target(name)
 		for _, x := range live {
 			if !x.AppliesTo(name) {
 				continue
 			}
+			// As the checker reads it: for the instance the step acts on.
+			x = reg.ForTarget(name, tie, x)
 			subject, err := reg.SubjectOf(x)
 			if err != nil {
 				return nil, err
