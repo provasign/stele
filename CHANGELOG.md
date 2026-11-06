@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.1.6 - 2026-11-06
 
 - **A step's rule is about the instance the step names, unless it says otherwise.** When a step's rules tie the instance to a request field of the same name (`request.number = self.number`), a rule on that step that reads the instance and nothing of that request field is read for the named instance only. "A released plot with a holder goes to the first member waiting" was read for every held plot, and clashed with "releasing an unknown number is rejected"; five rereads and a rewording did not settle it.
 - **An exception names the requirement in the spec its text names.** "An exception to FR-006 of the waitlist spec (005-waitlist)" overrode the new spec's own FR-006, and the clash the owner had settled as an exception came back.
