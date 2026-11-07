@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **A check reads its prompt from the cache in every wave.** The vocabulary a check starts from goes in the cached system prompt, and the terms its own earlier waves added go in each request, so repairs and rereads read the same cached prompt instead of writing a new one. Before, every new term changed the prompt: a two-requirement check on v0.1.6 sent a 15,000-token prompt five times and read none of it from the cache. On a two-requirement check with Sonnet it cost $0.12 instead of $0.17, in 40 seconds instead of 48.
+- **Translation replies group rules under their requirement,** which names its overrides once. Replies are about 3% shorter per rule. With the cache change, three runs of the 60-requirement held-out set cost $1.12 to $1.21 (before: $1.34 to $1.50), with 12 to 19 clauses unchecked (before: 9 to 24); one of the three left 17 requirements needing vocabulary where the others left 0 and 5.
+- Sonnet at medium effort cost no less ($1.50) than at its default, so translation effort stays as it was.
+
 ## v0.1.7 - 2026-11-06
 
 - **Stele's calls run on the coding agent you are using, and its model.** `translate.llm: agent`, which `stele init` now writes when Claude Code or Codex is installed, resolves at each run to the agent Stele is run from: Claude Code by its environment, Codex and Claude Code by a record the hook keeps under `.stele/cache/` on every prompt and model switch. The model is the one that agent is using at the time (Codex names it in every hook event; Claude Code at session start and on `/model`), else the CLI's own default. Outside any agent, in CI or a shell, `agent` runs on the installed CLI, else an API key's provider. `claude`, `codex`, `anthropic`, `openai` and `cmd` still name one outright, and `translate.model` still pins a model: on a 60-requirement held-out set `claude-sonnet-5-5` read the whole set, rereads included, for $1.34 in 5 minutes where Opus cost $5.03 and 21 minutes of model time, and the same judge scored Sonnet's rules at 111 clauses covered to 55 uncovered against Opus's 122 to 26. Reasoning effort stays Stele's own (the agent's low effort would cut what the rules cover).

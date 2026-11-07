@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -809,3 +810,76 @@ type cachingFunc func(llm.Request) (*llm.Reply, error)
 func (f cachingFunc) Complete(_ context.Context, req llm.Request) (*llm.Reply, error) { return f(req) }
 func (f cachingFunc) Name() string                                                    { return "caching" }
 func (f cachingFunc) CachesPrompts() bool                                             { return true }
+
+// Terms a wave adds go in the next wave's request, so its system prompt
+// stays the one the first wave cached.
+func TestCompactKeepsTheCachedPromptWhenAWaveAddsTerms(t *testing.T) {
+	dir, stmts, opt := compactFixture(t)
+	stmts = append(stmts[:1], translate.Statement{ID: "S2", Source: "b.md#L1", Prose: "Orders MUST be paid before shipping."})
+	opt.Parallel = 1
+	var systems, requests []string
+	m := cachingFunc(func(req llm.Request) (*llm.Reply, error) {
+		systems = append(systems, req.System)
+		requests = append(requests, req.Turns[0].Text)
+		if len(systems) == 1 {
+			return compactFixtureReply(true, compactRule("s1", "order.paid = true")), nil
+		}
+		return compactFixtureReply(false, compactRule("s1", "order.paid = true")), nil
+	})
+	if _, err := Run(context.Background(), m, stmts, dir, opt); err != nil {
+		t.Fatal(err)
+	}
+	if len(systems) < 2 || systems[0] != systems[1] {
+		t.Fatalf("%d requests; the second wave must keep the first wave's system prompt", len(systems))
+	}
+	if added, _, _ := strings.Cut(requests[1], "# Statements"); !strings.Contains(added, "# Vocabulary added in this run") || !strings.Contains(added, "paid: bool") {
+		t.Errorf("the second request must show the term the first added:\n%s", requests[1])
+	}
+	if strings.Contains(systems[1], "paid: bool") {
+		t.Error("a term this run added is in the system prompt")
+	}
+}
+
+func TestVocabularyDeltaKeepsHeadingsOfChangedEntries(t *testing.T) {
+	base := "Entity Order (context shop)\n  total: int [set by the environment]\n\nOperations:\n  Order.place (default allow; writes Order.total)\n"
+	cur := "Entity Order (context shop)\n  paid: bool [written by Order.pay]\n  total: int [set by the environment]\nEntity Refund (context shop)\n  amount: int [set by the environment]\n\nOperations:\n  Order.pay (default allow; writes Order.paid)\n  Order.place (default allow; writes Order.total)\n"
+	want := "Entity Order (context shop)\n  paid: bool [written by Order.pay]\nEntity Refund (context shop)\n  amount: int [set by the environment]\nOperations:\n  Order.pay (default allow; writes Order.paid)\n"
+	if got := vocabularyDelta(base, cur); got != want {
+		t.Errorf("got\n%s\nwant\n%s", got, want)
+	}
+	if got := vocabularyDelta(cur, cur); got != "" {
+		t.Errorf("an unchanged vocabulary adds %q", got)
+	}
+}
+
+// A reply groups rules under their statement, which names its overrides
+// once; each rule then reads as if it named them itself.
+func TestDecodeCompactReadsRulesGroupedByStatement(t *testing.T) {
+	aliases := map[string]string{"s1": "orders.md#paid", "s2": "orders.md#tone"}
+	reply := `{"entities":[],"extensions":[],"operations":[],"statements":[
+		{"statement_id":"s1","overrides":["FR-005"],"rules":[{"kind":"invariant","subject":"","on":"","when":"","assert":"order.paid = true"},{"kind":"informal","rationale":"a judgment"}]},
+		{"statement_id":"s2","overrides":[],"rules":[{"kind":"informal","rationale":"tone of voice"}]}]}`
+	out, err := decodeCompact(reply, aliases)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Rules) != 3 || out.Rules[0].StatementID != "orders.md#paid" || out.Rules[2].StatementID != "orders.md#tone" {
+		t.Fatalf("rules: %+v", out.Rules)
+	}
+	if !slices.Equal(out.Rules[0].Overrides, []string{"FR-005"}) || out.Rules[1].Overrides != nil {
+		t.Errorf("overrides go to the rules that take them: %v, %v", out.Rules[0].Overrides, out.Rules[1].Overrides)
+	}
+	if _, err := decodeCompact(`{"entities":[],"extensions":[],"operations":[],"statements":[{"statement_id":"s1","overrides":[],"rules":[{"statement_id":"s2","kind":"informal","rationale":"x"}]}]}`, aliases); err == nil {
+		t.Error("a rule that names another statement was accepted")
+	}
+	schema, err := compactSchema()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var top struct {
+		Required []string `json:"required"`
+	}
+	if err := json.Unmarshal([]byte(schema), &top); err != nil || !slices.Contains(top.Required, "statements") || slices.Contains(top.Required, "rules") {
+		t.Errorf("the reply must require statements, not a flat rules list: %v %v", top.Required, err)
+	}
+}

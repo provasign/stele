@@ -51,6 +51,13 @@ func compactPass(ctx context.Context, m llm.Client, stmts []translate.Statement,
 		return err
 	}
 	defer os.RemoveAll(validationDir)
+	// The vocabulary the run starts from stays the same through all its
+	// waves, and from one check to the next until the registry changes.
+	startReg, err := vocab.Load(vocab.Options{VocabFiles: opt.VocabFiles, Context: opt.Context}, vocab.Proposal{})
+	if err != nil {
+		return err
+	}
+	base := translate.RenderVocabulary(startReg)
 	if st.CompactErrors == nil {
 		st.CompactErrors = map[string]string{}
 	}
@@ -119,9 +126,19 @@ func compactPass(ctx context.Context, m llm.Client, stmts []translate.Statement,
 		// requests read it (only an identical system prompt is read from the
 		// cache; the same text at the start of the request is written again,
 		// measured 2026-11-06). A vocabulary retrieved per request goes in it.
-		system := compactPrompt
+		// What this run added goes in the request instead when that costs
+		// less: the system prompt then stays the one earlier waves and checks
+		// wrote, and only the additions are paid for again in each request.
+		// A two-requirement check sent a 15,000-token prompt five times, its
+		// new terms changing it every wave, and read none of it from the
+		// cache (2026-11-07).
+		system, added := compactPrompt, ""
 		if g == nil {
-			system += "\n\n# Shared vocabulary\n\n" + shared + codeContext(opt.CodeContext)
+			added = vocabularyDelta(base, shared)
+			if len(parts)*len(added) > len(compactPrompt)+len(shared) {
+				base, added = shared, "" // later waves add to what this one caches
+			}
+			system += "\n\n# Shared vocabulary\n\n" + base + codeContext(opt.CodeContext)
 		}
 		if r := llm.Warm(ctx, m, len(parts), llm.Request{System: system, Turns: []llm.Turn{{Role: "user", Text: warmCompact}}, Schema: schema}); r != nil {
 			st.Usage.Add(r.Usage)
@@ -133,6 +150,9 @@ func compactPass(ctx context.Context, m llm.Client, stmts []translate.Statement,
 			if g != nil {
 				vocabulary := translate.RenderVocabulary(g.Subset(retrieved(g, part, st.Proposal, opt.Retrieve)))
 				req.WriteString("# Shared vocabulary\n\n" + vocabulary + codeContext(opt.CodeContext) + "\n")
+			}
+			if added != "" {
+				req.WriteString("# Vocabulary added in this run\n\nThese entries are part of the shared vocabulary; where one names an entity, attribute or operation listed above, it replaces that line.\n\n" + added + "\n")
 			}
 			req.WriteString("# Statements\n\n")
 			req.WriteString("Translate only these statements. Propose only vocabulary they need beyond the shared vocabulary.\n\n")
@@ -226,6 +246,39 @@ func compactPass(ctx context.Context, m llm.Client, stmts []translate.Statement,
 	}
 }
 
+// vocabularyDelta is what cur, a rendered vocabulary, says that base does
+// not: each line base lacks, under its entity or section heading. A line
+// that changed (an attribute a new operation writes) is in it whole.
+func vocabularyDelta(base, cur string) string {
+	have := map[string]bool{}
+	for _, l := range strings.Split(base, "\n") {
+		have[l] = true
+	}
+	var b strings.Builder
+	heading, shown := "", false
+	for _, l := range strings.Split(cur, "\n") {
+		if l == "" {
+			continue
+		}
+		if !strings.HasPrefix(l, " ") {
+			heading, shown = l, false
+			if have[l] {
+				continue
+			}
+		} else if have[l] {
+			continue
+		}
+		if !shown {
+			b.WriteString(heading + "\n")
+			shown = true
+		}
+		if l != heading {
+			b.WriteString(l + "\n")
+		}
+	}
+	return b.String()
+}
+
 // warmCompact is the warm-up request of a translation wave (llm.Warm).
 const warmCompact = "This request has no statements: translate nothing, and return every list empty."
 
@@ -243,7 +296,8 @@ func thinReply(js string, n int) bool {
 			Rationale string `json:"rationale"`
 		} `json:"rules"`
 	}
-	if json.Unmarshal([]byte(js), &out) != nil {
+	js, err := flatCompact(js)
+	if err != nil || json.Unmarshal([]byte(js), &out) != nil {
 		return false
 	}
 	thin := map[string]bool{}

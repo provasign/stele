@@ -4,16 +4,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 
 	"github.com/provasign/stele/internal/translate"
 	"github.com/provasign/stele/internal/vocab"
 )
 
-var compactKinds = []struct {
+type compactKind struct {
 	kind string
 	keys []string
-}{
+}
+
+var compactKinds = []compactKind{
 	{"invariant", []string{"subject", "on", "when", "assert", "overrides"}},
 	{"permission", []string{"operation", "effect", "when", "overrides"}},
 	{"precondition", []string{"operation", "when", "overrides"}},
@@ -24,8 +27,12 @@ var compactKinds = []struct {
 }
 
 // compactSchema keeps the vocabulary contract, but uses a tagged union for
-// rules: the model emits only fields meaningful for that kind. Short request
-// IDs replace long source anchors; the compiler restores provenance locally.
+// rules: the model emits only fields meaningful for that kind. Rules come
+// grouped under their statement, which names its statement_id and its
+// overrides once rather than in every rule: the statement_id, the kind
+// and an empty overrides list were a fifth of a reply's rules (measured
+// 2026-11-07). Short request IDs replace long source anchors; the
+// compiler restores provenance locally.
 func compactSchema() (string, error) {
 	combined, err := combinedSchema()
 	if err != nil {
@@ -35,29 +42,88 @@ func compactSchema() (string, error) {
 	if err := json.Unmarshal([]byte(combined), &schema); err != nil {
 		return "", err
 	}
-	rules := schema["properties"].(map[string]any)["rules"].(map[string]any)
-	fields := rules["items"].(map[string]any)["properties"].(map[string]any)
+	props := schema["properties"].(map[string]any)
+	fields := props["rules"].(map[string]any)["items"].(map[string]any)["properties"].(map[string]any)
 	var variants []any
 	for _, v := range compactKinds {
-		props := map[string]any{
-			"statement_id": fields["statement_id"],
-			"kind":         map[string]any{"type": "string", "enum": []string{v.kind}},
-		}
-		required := []string{"statement_id", "kind"}
+		vp := map[string]any{"kind": map[string]any{"type": "string", "enum": []string{v.kind}}}
+		required := []string{"kind"}
 		for _, k := range v.keys {
-			props[k] = fields[k]
 			if k == "overrides" {
-				props[k] = map[string]any{"type": "array", "items": map[string]any{"type": "string"}}
+				continue // the statement's
 			}
+			vp[k] = fields[k]
 			required = append(required, k)
 		}
 		if v.kind == "permission" {
-			props["effect"] = map[string]any{"type": "string", "enum": []string{"allow", "deny", "possible"}}
+			vp["effect"] = map[string]any{"type": "string", "enum": []string{"allow", "deny", "possible"}}
 		}
-		variants = append(variants, map[string]any{"type": "object", "additionalProperties": false, "required": required, "properties": props})
+		variants = append(variants, map[string]any{"type": "object", "additionalProperties": false, "required": required, "properties": vp})
 	}
-	rules["items"] = map[string]any{"anyOf": variants}
+	delete(props, "rules")
+	props["statements"] = map[string]any{"type": "array", "items": map[string]any{
+		"type": "object", "additionalProperties": false, "required": []string{"statement_id", "overrides", "rules"},
+		"properties": map[string]any{
+			"statement_id": fields["statement_id"],
+			"overrides":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"rules":        map[string]any{"type": "array", "items": map[string]any{"anyOf": variants}},
+		},
+	}}
+	var required []any
+	for _, r := range schema["required"].([]any) {
+		if r != "rules" {
+			required = append(required, r)
+		}
+	}
+	schema["required"] = append(required, "statements")
 	js, err := json.Marshal(schema)
+	return string(js), err
+}
+
+// flatCompact turns a reply's statements, each with its rules, into the
+// flat rules list (each rule with its statement_id and overrides) the rest
+// of the compiler reads. A reply that already has rules is left as it is.
+func flatCompact(text string) (string, error) {
+	var reply map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(text), &reply); err != nil {
+		return "", err
+	}
+	grouped, ok := reply["statements"]
+	if !ok {
+		return text, nil
+	}
+	var statements []struct {
+		StatementID string                       `json:"statement_id"`
+		Overrides   []string                     `json:"overrides"`
+		Rules       []map[string]json.RawMessage `json:"rules"`
+	}
+	if err := json.Unmarshal(grouped, &statements); err != nil {
+		return "", fmt.Errorf("statements: %w", err)
+	}
+	rules := []map[string]json.RawMessage{}
+	for _, s := range statements {
+		id, _ := json.Marshal(s.StatementID)
+		for _, r := range s.Rules {
+			if _, ok := r["statement_id"]; ok {
+				return "", fmt.Errorf("a rule of %s names its own statement_id", s.StatementID)
+			}
+			if _, ok := r["overrides"]; ok {
+				return "", fmt.Errorf("a rule of %s has its own overrides: they are the statement's", s.StatementID)
+			}
+			r["statement_id"] = id
+			var kind string
+			_ = json.Unmarshal(r["kind"], &kind)
+			if len(s.Overrides) > 0 && slices.ContainsFunc(compactKinds, func(v compactKind) bool {
+				return v.kind == kind && slices.Contains(v.keys, "overrides")
+			}) {
+				r["overrides"], _ = json.Marshal(s.Overrides)
+			}
+			rules = append(rules, r)
+		}
+	}
+	delete(reply, "statements")
+	reply["rules"], _ = json.Marshal(rules)
+	js, err := json.Marshal(reply)
 	return string(js), err
 }
 
@@ -68,6 +134,10 @@ type compactReply struct {
 
 func decodeCompact(text string, aliases map[string]string) (compactReply, error) {
 	var out compactReply
+	text, err := flatCompact(text)
+	if err != nil {
+		return out, err
+	}
 	// Unknown fields must not silently discard a condition or other constraint.
 	dec := json.NewDecoder(strings.NewReader(text))
 	dec.DisallowUnknownFields()

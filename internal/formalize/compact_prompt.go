@@ -84,8 +84,8 @@ In a rule about an operation, self is the operation's instance and request its i
 
 # Reply
 
-Use the short statement_id shown in the request, in rules and in vocabulary statement_ids; the compiler restores the original IDs. Give each rule its kind and only that kind's fields.
-- overrides lists the statement_ids a rule takes precedence over where it applies, only when its own text says so: it names the other statement ("per FR-005, MUST NOT apply when --raw-fields") or the behavior it overrides ("regardless of the --color=always flag"). A statement not in the request is named by the label its text uses ("FR-005"). Otherwise it is empty: never resolve a conflict the text does not resolve.
+List each requested statement under statements, with the short statement_id shown in the request (use it in vocabulary statement_ids too; the compiler restores the original IDs), its overrides, and its rules. Give each rule its kind and only that kind's fields.
+- overrides lists the statement_ids the statement's rules take precedence over where they apply, only when its own text says so: it names the other statement ("per FR-005, MUST NOT apply when --raw-fields") or the behavior it overrides ("regardless of the --color=always flag"). A statement not in the request is named by the label its text uses ("FR-005"). Otherwise it is empty: never resolve a conflict the text does not resolve.
 - obligation, with a short rationale, is for a requirement about the code or the development process (tests exist, CI runs, a function has a signature): it is checked against the repository. What the running system does (what it accepts, rejects, selects, prints or exits with, and in what order) is never an obligation, however hard to express.
 - informal, with a short rationale, is for a part no check decides (a judgment, prose).
 - needs_vocabulary, with a rationale and missing_terms, is only for a part the rule language cannot express. Never omit a part or replace it with an unrelated flag.
