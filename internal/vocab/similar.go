@@ -103,14 +103,17 @@ type Link struct {
 // under two names (a merge), two facts one of which constrains the other
 // by their nature (a link), or neither. Up to parallel batches are asked at
 // once; with more than one, the pairs are spread so every call gets a share,
-// down to 10 pairs per call. Answers are combined in pair order.
+// down to 30 pairs per call: each call pays for the prompt and for every
+// attribute it describes, and spread 10 to a call, the 25 pairs of a
+// two-requirement check took three calls and $0.22 of the check's $1.31 to
+// find nothing (v0.1.6, 2026-11-07). Answers are combined in pair order.
 func ConsolidatePairs(ctx context.Context, m llm.Client, base *ir.Registry, used []Used, pairs [][2]int, batch, parallel int, rep *Report) ([]Merge, []Link, error) {
 	if batch <= 0 {
 		batch = 60
 	}
 	parallel = max(1, parallel)
 	if parallel > 1 && len(pairs) > 0 {
-		batch = min(batch, max(10, (len(pairs)+parallel-1)/parallel))
+		batch = min(batch, max(30, (len(pairs)+parallel-1)/parallel))
 	}
 	desc := func(u Used) string {
 		var b strings.Builder

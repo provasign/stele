@@ -104,7 +104,7 @@ func compactPass(ctx context.Context, m llm.Client, stmts []translate.Statement,
 			ri, rj := st.CompactErrors[pending[i].ID] != "", st.CompactErrors[pending[j].ID] != ""
 			return ri && !rj
 		})
-		parts := packCompact(pending, batch, byteLimit, parallel, opt.AcrossDocuments)
+		parts := packCompact(pending, batch, byteLimit, parallel, opt.AcrossDocuments, st.CompactErrors)
 		cur, err := vocab.Load(vocab.Options{VocabFiles: opt.VocabFiles, Context: opt.Context}, st.Proposal)
 		if err != nil {
 			return err
@@ -347,8 +347,12 @@ const backendFailed = "backend: "
 // packCompact splits pending statements into at most n batches of at most
 // size statements and limit source bytes, each from one document unless
 // across is set. A single oversized statement stays intact. Statements that
-// do not fit wait for the next wave.
-func packCompact(pending []translate.Statement, size, limit, n int, across bool) [][]translate.Statement {
+// do not fit wait for the next wave. The note a repair or reread carries
+// (issues, from CompactErrors) counts towards the limit: a reread's note
+// is longer than its statement, and packed like first readings, the
+// rereads of a 60-requirement run went in two calls of 70 to 80 seconds
+// where its first readings took three of 50 to 60 (2026-11-07).
+func packCompact(pending []translate.Statement, size, limit, n int, across bool, issues map[string]string) [][]translate.Statement {
 	var parts [][]translate.Statement
 	open := map[string]int{} // document -> index of its batch with room
 	bytes := map[int]int{}
@@ -358,6 +362,9 @@ func packCompact(pending []translate.Statement, size, limit, n int, across bool)
 			doc = ""
 		}
 		sz := len(s.Prose) + len(s.Source) + len(strings.Join(s.Notes, "\n"))
+		if issue := issues[s.ID]; !strings.HasPrefix(issue, backendFailed) {
+			sz += len(issue)
+		}
 		if i, ok := open[doc]; ok && len(parts[i]) < size && bytes[i]+sz <= limit {
 			parts[i] = append(parts[i], s)
 			bytes[i] += sz

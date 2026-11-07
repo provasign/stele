@@ -545,7 +545,7 @@ func TestPackCompact(t *testing.T) {
 	}
 	parts := packCompact([]translate.Statement{
 		s("a1", "a.md#1", 10), s("b1", "b.md#1", 10), s("a2", "a.md#2", 10), s("a3", "a.md#3", 10), s("c1", "c.md#1", 10),
-	}, 2, 1000, 3, false)
+	}, 2, 1000, 3, false, nil)
 	var got [][]string
 	for _, p := range parts {
 		var ids []string
@@ -558,11 +558,19 @@ func TestPackCompact(t *testing.T) {
 	if want := [][]string{{"a1", "a2"}, {"b1"}, {"a3"}}; !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
-	if p := packCompact([]translate.Statement{s("a1", "a.md#1", 10), s("b1", "b.md#1", 10)}, 5, 1000, 1, true); len(p) != 1 || len(p[0]) != 2 {
+	if p := packCompact([]translate.Statement{s("a1", "a.md#1", 10), s("b1", "b.md#1", 10)}, 5, 1000, 1, true, nil); len(p) != 1 || len(p[0]) != 2 {
 		t.Errorf("across documents, one batch should hold both: %v", p)
 	}
-	if p := packCompact([]translate.Statement{s("big", "a.md#1", 50), s("next", "a.md#2", 1)}, 5, 20, 2, false); len(p) != 2 || len(p[0]) != 1 {
+	if p := packCompact([]translate.Statement{s("big", "a.md#1", 50), s("next", "a.md#2", 1)}, 5, 20, 2, false, nil); len(p) != 2 || len(p[0]) != 1 {
 		t.Errorf("an oversized statement must stay alone and intact: %v", p)
+	}
+	// A repair or reread note counts towards the limit; a backend failure does not.
+	two := []translate.Statement{s("a1", "a.md#1", 10), s("a2", "a.md#2", 10)}
+	if p := packCompact(two, 5, 40, 2, false, map[string]string{"a2": backendFailed + "timed out"}); len(p) != 1 {
+		t.Errorf("without a note both fit in 40 bytes: %v", p)
+	}
+	if p := packCompact(two, 5, 40, 2, false, map[string]string{"a2": "the current rules are: ..."}); len(p) != 2 {
+		t.Errorf("with its reread note a2 no longer fits: %v", p)
 	}
 }
 

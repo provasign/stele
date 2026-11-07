@@ -4,7 +4,9 @@
 
 - **A check reads its prompt from the cache in every wave.** The vocabulary a check starts from goes in the cached system prompt, and the terms its own earlier waves added go in each request, so repairs and rereads read the same cached prompt instead of writing a new one. Before, every new term changed the prompt: a two-requirement check on v0.1.6 sent a 15,000-token prompt five times and read none of it from the cache. On a two-requirement check with Sonnet it cost $0.12 instead of $0.17, in 40 seconds instead of 48.
 - **Translation replies group rules under their requirement,** which names its overrides once. Replies are about 3% shorter per rule. With the cache change, three runs of the 60-requirement held-out set cost $1.12 to $1.21 (before: $1.34 to $1.50), with 12 to 19 clauses unchecked (before: 9 to 24); one of the three left 17 requirements needing vocabulary where the others left 0 and 5.
-- Sonnet at medium effort cost no less ($1.50) than at its default, so translation effort stays as it was.
+- **Rereads run in smaller parallel calls.** The request-size limit now counts the reread note, which is longer than its requirement, so the rereads of a 60-requirement set went in four calls of up to 35 seconds instead of two of 72 to 79; the whole read took 3:01 instead of 3:49 to 4:56, for $1.10 with the readings in the earlier range.
+- **The synonym check asks about at least 30 pairs per call** instead of 10: a two-requirement check against a 137-attribute vocabulary asked about 25 pairs in three calls, $0.22 of its $1.31 on v0.1.6, to find nothing.
+- Tried and not kept, measured on the same set: Sonnet at medium effort cost no less ($1.50); batches of 10 requirements with 8 calls in parallel cost more ($1.43), left 11 requirements needing vocabulary and invented two names for one fact; a reread that names the rules it keeps instead of writing them out saved a quarter of the reread but recovered 7 of 32 requirements where the full rewrite recovers 16 to 25.
 
 ## v0.1.7 - 2026-11-06
 

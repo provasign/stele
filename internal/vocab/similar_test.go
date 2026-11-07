@@ -70,12 +70,12 @@ func (p *pairEcho) Complete(_ context.Context, req llm.Request) (*llm.Reply, err
 }
 
 func TestConsolidatePairsParallel(t *testing.T) {
-	used := make([]Used, 26)
+	used := make([]Used, 76)
 	for i := range used {
 		used[i] = Used{Name: fmt.Sprintf("E.a%d", i), Type: "bool"}
 	}
 	var pairs [][2]int
-	for i := 0; i < 25; i++ {
+	for i := 0; i < 75; i++ {
 		pairs = append(pairs, [2]int{i, i + 1})
 	}
 	m := &pairEcho{release: make(chan struct{})}
@@ -84,12 +84,12 @@ func TestConsolidatePairsParallel(t *testing.T) {
 	if err != nil || m.calls != 3 || rep.Rounds != 3 {
 		t.Fatalf("calls %d rounds %d err %v", m.calls, rep.Rounds, err)
 	}
-	// 25 pairs over 3 calls is 9 each, raised to the floor of 10: 1, 11, 21.
+	// 75 pairs over 3 calls is 25 each, raised to the floor of 30: 1, 31, 61.
 	var got []string
 	for _, mg := range merges {
 		got = append(got, mg.From)
 	}
-	if strings.Join(got, " ") != "p1 p11 p21" {
+	if strings.Join(got, " ") != "p1 p31 p61" {
 		t.Errorf("answers not combined in pair order: %v", got)
 	}
 }
