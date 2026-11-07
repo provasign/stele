@@ -78,9 +78,19 @@ function main() {
     // waiting requests; an agent once built a feature and asked after.
     const waiting = (status.pending || []).map(s => ({ id: String(s.ID ?? s.id), prose: String(s.Prose ?? s.prose ?? '') })).filter(s => s.id.startsWith('intent/'));
     if (waiting.length > 0 && changed('-requests', waiting.map(s => s.id).join('\n')).now) {
-      notes.push(`Stele: ${waiting.length === 1 ? 'this request is' : 'these requests are'} not approved by the owner yet: ` +
-        waiting.map(s => `"${s.prose.split('\n')[0].slice(0, 120)}"`).join('; ') +
-        `. Before more edits for ${waiting.length === 1 ? 'it' : 'them'}, run ${status.next ? '`' + status.next + '`' : 'Stele\'s change check'} and put its questions, and the approval, to the owner.`);
+      // This session's requests by name (a request's ID carries the session
+      // it was declared in), the others as a count: 25 waiting requests
+      // were all listed each time one was added (2026-11-06).
+      const session = String(input.session_id || '');
+      let named = session ? waiting.filter(s => s.id.includes(session)) : [];
+      if (named.length === 0) named = waiting.slice(-3);
+      named = named.slice(-3);
+      const others = waiting.length - named.length;
+      const command = /`([^`]+)`/.exec(status.next || '');
+      notes.push(`Stele: ${named.length === 1 ? 'this request is' : 'these requests are'} not approved by the owner yet: ` +
+        named.map(s => `"${s.prose.split('\n')[0].slice(0, 120)}"`).join('; ') +
+        (others > 0 ? ` (and ${others} other${others === 1 ? '' : 's'})` : '') +
+        `. Before more edits for ${named.length === 1 && others === 0 ? 'it' : 'them'}, run ${command ? '`' + command[1] + '`' : 'Stele\'s change check'} and put its questions, and the approval, to the owner.`);
     }
     const seen = changed('', result.stdout);
     if (seen.now && status.in_sync) {

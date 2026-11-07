@@ -45,8 +45,8 @@ func compactRule(id, expr string) string {
 // sharedVocabulary is the vocabulary a compact request shows, before its
 // statements.
 func sharedVocabulary(req llm.Request) string {
-	v, _, _ := strings.Cut(req.Turns[0].Text, "\n# Statements\n")
-	return v
+	v, _, _ := strings.Cut(req.Turns[0].Text, "# Statements\n")
+	return strings.TrimPrefix(req.System, compactPrompt) + "\n" + v
 }
 
 func TestCompactRepairsOnlyUnresolvedStatementsAndResumes(t *testing.T) {
@@ -502,8 +502,8 @@ func TestCompactParallelWaves(t *testing.T) {
 		mu.Unlock()
 		defer func() { mu.Lock(); inFlight--; mu.Unlock() }()
 		text := req.Turns[0].Text
-		if req.System != compactPrompt {
-			t.Error("every request must have the same system prompt, so that it caches, whatever the vocabulary")
+		if !strings.HasPrefix(req.System, compactPrompt) {
+			t.Error("every request must start with the translation prompt")
 		}
 		if n <= 3 {
 			select { // the first wave must be in flight together
@@ -769,3 +769,43 @@ func recorded(t *testing.T, env string) ([]byte, error) {
 	}
 	return os.ReadFile(path)
 }
+
+// On a backend that caches, a wave of several requests is preceded by one
+// that asks for nothing, with the same system prompt, holding the shared
+// vocabulary: the wave's requests then read it from the cache.
+func TestCompactWarmsTheCacheBeforeAWave(t *testing.T) {
+	dir, stmts, opt := compactFixture(t)
+	stmts = append(stmts[:1], translate.Statement{ID: "S2", Source: "b.md#L1", Prose: "Orders MUST be paid before shipping."})
+	opt.Parallel = 2
+	var mu sync.Mutex
+	var systems []string
+	warm := 0
+	m := cachingFunc(func(req llm.Request) (*llm.Reply, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		systems = append(systems, req.System)
+		if req.Turns[0].Text == warmCompact {
+			warm++
+			if len(systems) != 1 {
+				t.Error("the warm-up must go before the wave")
+			}
+			return &llm.Reply{JSON: `{"entities":[],"extensions":[],"operations":[],"rules":[]}`}, nil
+		}
+		if strings.Contains(req.Turns[0].Text, "# Shared vocabulary") {
+			t.Error("the shared vocabulary must be in the system prompt, which caches")
+		}
+		return compactFixtureReply(true, compactRule("s1", "order.paid = true")), nil
+	})
+	if _, err := Run(context.Background(), m, stmts, dir, opt); err != nil {
+		t.Fatal(err)
+	}
+	if warm != 1 || len(systems) < 3 || systems[0] != systems[1] || systems[1] != systems[2] {
+		t.Errorf("%d warm-up(s) over %d requests; the wave must share the warm-up's system prompt", warm, len(systems))
+	}
+}
+
+type cachingFunc func(llm.Request) (*llm.Reply, error)
+
+func (f cachingFunc) Complete(_ context.Context, req llm.Request) (*llm.Reply, error) { return f(req) }
+func (f cachingFunc) Name() string                                                   { return "caching" }
+func (f cachingFunc) CachesPrompts() bool                                            { return true }

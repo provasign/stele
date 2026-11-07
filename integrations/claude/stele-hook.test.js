@@ -90,8 +90,15 @@ test('Claude post-edit hook reminds the agent of a request the owner has not app
   };
   const output = invoke();
   assert.match(output.hookSpecificOutput.additionalContext, /not approved by the owner yet: "Lock the door at night"/);
+  assert.doesNotMatch(output.hookSpecificOutput.additionalContext, /run `run /, 'the next step was wrapped in a second run');
   const again = invoke();
   assert.ok(!again || !/not approved by the owner/.test(again.hookSpecificOutput.additionalContext), 'the reminder repeated');
+  // Many waiting: the session's own by name, the rest as a count.
+  for (let i = 2; i <= 6; i++) fs.writeFileSync(path.join(f.project, '.shale', `old${i}.yaml`), `id: old${i}\nintent:\n    title: Earlier request ${i}\n`);
+  fs.writeFileSync(path.join(f.project, '.shale', 'request-test.yaml'), 'id: request-test\nintent:\n    title: Open the gate at dawn\n');
+  const many = invoke().hookSpecificOutput.additionalContext;
+  assert.match(many, /not approved by the owner yet: "Open the gate at dawn" \(and 6 others\)/);
+  assert.doesNotMatch(many, /Earlier request/);
 });
 
 test('Claude hook records the agent and the model in use for Stele\'s own calls', t => {

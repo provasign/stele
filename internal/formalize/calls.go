@@ -95,6 +95,9 @@ func newCallJournal(m llm.Client, dir string, opt Options) (*callJournal, error)
 
 func (j *callJournal) close() { j.file.Close() }
 
+// CachesPrompts is the journaled backend's (llm.Warm).
+func (j *callJournal) CachesPrompts() bool { return llm.CachesPrompts(j.Client) }
+
 func (j *callJournal) stats() CallStats {
 	j.mu.Lock()
 	defer j.mu.Unlock()

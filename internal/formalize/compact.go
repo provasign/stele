@@ -112,17 +112,28 @@ func compactPass(ctx context.Context, m llm.Client, stmts []translate.Statement,
 			err     error
 		}
 		results := make([]result, len(parts))
+		// The shared vocabulary and the code's structure are the same in
+		// every request of the wave, so they go in the system prompt, which
+		// the backend caches: a warm-up call writes it once and the wave's
+		// requests read it (only an identical system prompt is read from the
+		// cache; the same text at the start of the request is written again,
+		// measured 2026-11-06). A vocabulary retrieved per request goes in it.
+		system := compactPrompt
+		if g == nil {
+			system += "\n\n# Shared vocabulary\n\n" + shared + codeContext(opt.CodeContext)
+		}
+		if r := llm.Warm(ctx, m, len(parts), llm.Request{System: system, Turns: []llm.Turn{{Role: "user", Text: warmCompact}}, Schema: schema}); r != nil {
+			st.Usage.Add(r.Usage)
+		}
 		var wg sync.WaitGroup
 		for i, part := range parts {
 			aliases := map[string]string{}
 			var req strings.Builder
-			vocabulary := shared
 			if g != nil {
-				vocabulary = translate.RenderVocabulary(g.Subset(retrieved(g, part, st.Proposal, opt.Retrieve)))
+				vocabulary := translate.RenderVocabulary(g.Subset(retrieved(g, part, st.Proposal, opt.Retrieve)))
+				req.WriteString("# Shared vocabulary\n\n" + vocabulary + codeContext(opt.CodeContext) + "\n")
 			}
-			// The system prompt is the same in every request, so it caches;
-			// the vocabulary, which grows with every reply, comes here.
-			req.WriteString("# Shared vocabulary\n\n" + vocabulary + codeContext(opt.CodeContext) + "\n# Statements\n\n")
+			req.WriteString("# Statements\n\n")
 			req.WriteString("Translate only these statements. Propose only vocabulary they need beyond the shared vocabulary.\n\n")
 			for k, s := range part {
 				attempts[s.ID]++
@@ -146,7 +157,7 @@ func compactPass(ctx context.Context, m llm.Client, stmts []translate.Statement,
 			wg.Add(1)
 			go func(i int, text string) {
 				defer wg.Done()
-				results[i].reply, results[i].err = m.Complete(ctx, llm.Request{System: compactPrompt, Turns: []llm.Turn{{Role: "user", Text: text}}, Schema: schema})
+				results[i].reply, results[i].err = m.Complete(ctx, llm.Request{System: system, Turns: []llm.Turn{{Role: "user", Text: text}}, Schema: schema})
 			}(i, req.String())
 		}
 		fmt.Fprintf(opt.Log, "  compact: %d statement(s) in %d request(s), %d already accepted\n", len(pending), len(parts), len(accepted))
@@ -204,6 +215,9 @@ func compactPass(ctx context.Context, m llm.Client, stmts []translate.Statement,
 		}
 	}
 }
+
+// warmCompact is the warm-up request of a translation wave (llm.Warm).
+const warmCompact = "This request has no statements: translate nothing, and return every list empty."
 
 // thinReply reports a reply for n statements (at least 8) in which most
 // statements are only informal, each with a reason of three words or fewer:

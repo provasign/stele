@@ -64,7 +64,7 @@ func (p *pairEcho) Complete(_ context.Context, req llm.Request) (*llm.Reply, err
 	}
 	p.mu.Unlock()
 	<-p.release // all three are in flight before any answers
-	first := strings.Fields(req.Turns[0].Text[strings.Index(req.Turns[0].Text, "\npair "):])[1]
+	first := strings.TrimSuffix(strings.Fields(req.Turns[0].Text[strings.Index(req.Turns[0].Text, "\npair "):])[1], ":")
 	time.Sleep(time.Duration(4-n) * 10 * time.Millisecond)
 	return &llm.Reply{JSON: `{"merges":[{"from":"p` + first + `","into":"x","reason":""}],"links":[]}`}, nil
 }

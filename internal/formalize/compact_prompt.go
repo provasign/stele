@@ -1,12 +1,10 @@
 package formalize
 
-// compactPrompt is the system prompt of every compact request. It is the
-// same text in every request of every run, so the model's prompt cache reads
-// it instead of writing it again; what varies (the shared vocabulary, the
-// code's structure, the statements) goes in the request. It says what
-// onePassPrompt and the compact reply instructions said, in 14,000
-// characters instead of 23,900; with the vocabulary inside them, each call
-// wrote its whole prompt to the cache (a developer trial, 2026-11-06).
+// compactPrompt starts the system prompt of every compact request; the
+// wave's shared vocabulary and the code's structure follow it, and one
+// warm-up call per wave writes them to the cache for the wave's requests
+// (llm.Warm). It says what onePassPrompt and the compact reply
+// instructions said, in 14,000 characters instead of 23,900.
 const compactPrompt = `You build a Stele registry from software requirements: the vocabulary they talk about, and typed rules over it that an SMT solver checks for requirements that cannot all hold. A wrong rule hides a real contradiction or invents a false one, so each rule must say exactly what its statement says. Two statements can be compared only if their rules use the same symbol for the same fact: name each fact once and use that name in every rule about it.
 
 # Vocabulary

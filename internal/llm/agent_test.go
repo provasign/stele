@@ -25,6 +25,7 @@ func TestResolveAgentFollowsTheAgentInUse(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	t.Chdir(sub) // Resolve reads the record of the project it runs in
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	t.Setenv("OPENAI_API_KEY", "")
 	t.Setenv("PATH", t.TempDir()) // no CLI installed

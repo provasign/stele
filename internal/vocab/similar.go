@@ -133,13 +133,34 @@ func ConsolidatePairs(ctx context.Context, m llm.Client, base *ir.Registry, used
 	}
 	answers := make([]answer, len(starts))
 	system := consolidatePrompt + translate.RenderVocabulary(base)
+	// Every batch has this system prompt: one call that asks about no pair
+	// writes it to the cache for the batches (llm.Warm). Sent together, the
+	// four to six batches of a 60-requirement run each wrote 13,000 to
+	// 20,000 tokens of it, a quarter of the run's cost (2026-11-06).
+	if r := llm.Warm(ctx, m, len(starts), llm.Request{System: system, Turns: []llm.Turn{{Role: "user", Text: "There are no pairs in this request: return both lists empty."}}, Schema: pairsSchema}); r != nil {
+		rep.Usage.Add(r.Usage)
+	}
 	slots := make(chan struct{}, parallel)
 	var wg sync.WaitGroup
 	for k, i := range starts {
+		// Each attribute is described once, and the pairs name them: an
+		// attribute is in several pairs, and its description and examples
+		// were repeated in each, most of a call's prompt (2026-11-06).
 		var req strings.Builder
 		req.WriteString(pairsRequest)
+		req.WriteString("Attributes:\n\n")
+		described := map[int]bool{}
+		for _, p := range pairs[i:min(i+batch, len(pairs))] {
+			for _, x := range p {
+				if !described[x] {
+					described[x] = true
+					fmt.Fprintf(&req, "- %s\n", desc(used[x]))
+				}
+			}
+		}
+		req.WriteString("\nPairs:\n\n")
 		for j, p := range pairs[i:min(i+batch, len(pairs))] {
-			fmt.Fprintf(&req, "pair %d\n  A %s\n  B %s\n\n", i+j+1, desc(used[p[0]]), desc(used[p[1]]))
+			fmt.Fprintf(&req, "pair %d: A %s, B %s\n", i+j+1, used[p[0]].Name, used[p[1]].Name)
 		}
 		wg.Add(1)
 		go func(k int, text string) {
@@ -185,7 +206,7 @@ func ConsolidatePairs(ctx context.Context, m llm.Client, base *ir.Registry, used
 	return merges, links, nil
 }
 
-const pairsRequest = `Each pair below holds two attributes the translated requirements use, with requirements that use them. Requirements can only contradict each other through facts they share, so decide for each pair which of these it is:
+const pairsRequest = `Each pair below holds two attributes the translated requirements use; the attributes are described first, with requirements that use them. Requirements can only contradict each other through facts they share, so decide for each pair which of these it is:
 
 - The same fact under two names: the same thing about the same object, perhaps seen from two components, as a flag on one entity and an enum value on another, or one the negation of the other. Return a merge of the narrower or less descriptive attribute into the other. Merge only when every requirement using the source can be stated with the target.
 - Two facts, one of which constrains the other by what the things are: one lives inside or is part of the other (a process's environment is part of its machine's environment), one exists only while the other does (files on a machine's disk survive only while the machine exists), one is defined by the other. Return a link: an invariant over the two attributes that holds in every state, in "assert" (with "when" empty, or holding the condition under which it applies). Write paths from each entity's root in lower camel case (order.status, paymentRecord.captured), with =, !=, in {..}, not, and, or, implies. A link states how the world is, never what a requirement wants: if it holds only because some requirement says so, it is not a link.
