@@ -62,6 +62,7 @@ commands:
   watch                  synchronize saved-spec diagnostics and pending work (CLI, hooks, CI)
   lsp                    language server for saved-spec sync diagnostics in IDEs
   serve                  keep registries, solver and results in memory; stele check uses it when it runs
+  keep [request]         keep a request declared with shale intent as a requirement (default: the newest); --drop makes it a task again
   rules [request]        the approved requirements a request touches (stdin or arguments), for planning
   touches                the approved requirements the current code change touches (the branch and working tree)
   precommit              the git pre-commit check stele init installs: blocks specs and approved rules that disagree
@@ -126,6 +127,8 @@ func Run(args []string) int {
 		return cmdRecall(args[1:], os.Stdout)
 	case "change":
 		return cmdChange(args[1:], os.Stdout)
+	case "keep":
+		return cmdKeep(args[1:], os.Stdout)
 	case "approve":
 		return cmdApprove(args[1:], os.Stdout)
 	case "lesson":

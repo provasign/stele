@@ -6,10 +6,6 @@ registry: .stele/registry
 translate:
     llm: claude
     drafts: 1
-specs:
-    root: .
-    format: shale
-    snapshot: .stele/accepted-statements.yaml
 harnesses:
     - claude
     - codex

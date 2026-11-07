@@ -66,11 +66,19 @@ function main() {
     fs.writeFileSync(cache, digest, { mode: 0o600 });
     return { now: previous !== digest, before: previous };
   };
-  const result = spawnSync(process.env.STELE_BIN || 'stele',
+  // A project whose stele.yaml names no specs has none to keep in sync:
+  // say nothing, rather than a failure on every command (2026-11-07).
+  let config = '';
+  try { config = fs.readFileSync(path.join(project, 'stele.yaml'), 'utf8'); } catch {}
+  const hasSpecs = /^specs:/m.test(config);
+  const result = hasSpecs ? spawnSync(process.env.STELE_BIN || 'stele',
     ['watch', '--project', project, '--once', '--json'],
-    { cwd: project, encoding: 'utf8', timeout: 10000, maxBuffer: 8 * 1024 * 1024 });
-  if (result.error || result.status !== 0) {
-    notes.push(`Stele could not check saved specs: ${result.error?.message || result.stderr || result.stdout}. Do not treat the specs as synchronized.`);
+    { cwd: project, encoding: 'utf8', timeout: 10000, maxBuffer: 8 * 1024 * 1024 }) : null;
+  if (!result) {
+    // no specs configured
+  } else if (result.error || result.status !== 0) {
+    const why = String(result.error?.message || result.stderr || result.stdout).trim();
+    if (changed('-error', why).now) notes.push(`Stele could not check saved specs: ${why}. Do not treat the specs as synchronized.`);
   } else {
     const status = JSON.parse(result.stdout);
     // A request declared with shale intent that the owner has not approved:

@@ -163,7 +163,7 @@ source:
 
 func TestAddedRequirementConflicts(t *testing.T) {
 	repo, registry := setup(t, "## ADDED Requirements\n\n### Requirement: Erasure\nErasure requests MUST always delete the resource.\n")
-	res, err := Run(context.Background(), Options{Repo: repo, Change: "c1", Registry: registry, Out: t.TempDir(),
+	res, err := runKept(context.Background(), Options{Repo: repo, Change: "c1", Registry: registry, Out: t.TempDir(),
 		Clients: []llm.Client{one("Erasure", map[string]any{"kind": "permission", "operation": "Resource.delete", "effect": "allow", "when": "request.kind = erasure"})}})
 	if err != nil {
 		t.Fatal(err)
@@ -185,7 +185,7 @@ func TestAddedRequirementConflicts(t *testing.T) {
 
 func TestModifiedRequirementReplacesRule(t *testing.T) {
 	repo, registry := setup(t, "## MODIFIED Requirements\n\n### Requirement: Delete guard\nThe system MUST NOT delete a resource with holds, unless the request is an erasure.\n")
-	res, err := Run(context.Background(), Options{Repo: repo, Change: "c1", Registry: registry, Out: t.TempDir(),
+	res, err := runKept(context.Background(), Options{Repo: repo, Change: "c1", Registry: registry, Out: t.TempDir(),
 		Clients: []llm.Client{one("unless", map[string]any{"kind": "permission", "operation": "Resource.delete", "effect": "deny", "when": "self.holds > 0 and request.kind != erasure"})}})
 	if err != nil {
 		t.Fatal(err)
@@ -211,7 +211,7 @@ func TestModifiedRequirementReplacesRule(t *testing.T) {
 
 func TestRemovedRequirementRetiresRule(t *testing.T) {
 	repo, registry := setup(t, "## REMOVED Requirements\n\n### Requirement: Delete guard\n**Reason**: holds are gone.\n")
-	res, err := Run(context.Background(), Options{Repo: repo, Change: "c1", Registry: registry, Out: t.TempDir()})
+	res, err := runKept(context.Background(), Options{Repo: repo, Change: "c1", Registry: registry, Out: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +234,7 @@ func TestNewTermReuseAndAnswer(t *testing.T) {
 		extensions: []map[string]any{{"name": "Resource", "statement_ids": []string{"s1"}, "attributes": []map[string]any{{"name": "locked", "type": "bool", "values": []string{}, "min": 0, "max": 0}}, "relations": []any{}}},
 	}}}
 	opt := Options{Repo: repo, Change: "c1", Registry: registry, Out: out, Clients: []llm.Client{locked}}
-	res, err := Run(context.Background(), opt)
+	res, err := runKept(context.Background(), opt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +251,7 @@ func TestNewTermReuseAndAnswer(t *testing.T) {
 
 	// The same inputs again: the translation is reused, nothing is asked of the model.
 	before := len(calls)
-	res, err = Run(context.Background(), opt)
+	res, err = runKept(context.Background(), opt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,7 +268,7 @@ func TestNewTermReuseAndAnswer(t *testing.T) {
 	}
 	locked.readings["Resource.holds"] = reading{rules: []map[string]any{{"kind": "permission", "operation": "Resource.delete", "effect": "deny", "when": "self.holds > 0"}}}
 	delete(locked.readings, "locked")
-	res, err = Run(context.Background(), opt)
+	res, err = runKept(context.Background(), opt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -282,7 +282,7 @@ func TestNewTermReuseAndAnswer(t *testing.T) {
 
 func TestQuestionsForConflicts(t *testing.T) {
 	repo, registry := setup(t, "## ADDED Requirements\n\n### Requirement: Erasure\nErasure requests MUST always delete the resource.\n")
-	res, err := Run(context.Background(), Options{Repo: repo, Change: "c1", Registry: registry, Out: t.TempDir(),
+	res, err := runKept(context.Background(), Options{Repo: repo, Change: "c1", Registry: registry, Out: t.TempDir(),
 		Clients: []llm.Client{one("Erasure", map[string]any{"kind": "permission", "operation": "Resource.delete", "effect": "allow", "when": "request.kind = erasure"})}})
 	if err != nil {
 		t.Fatal(err)
@@ -309,7 +309,7 @@ func TestSelfConflictIsReadAgainFirst(t *testing.T) {
 		{"kind": "permission", "operation": "Resource.delete", "effect": "deny", "when": "request.kind = erasure"},
 	}}}}
 	opt := Options{Repo: repo, Change: "c1", Registry: registry, Out: out, Clients: []llm.Client{twice}}
-	res, err := Run(context.Background(), opt)
+	res, err := runKept(context.Background(), opt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -321,7 +321,7 @@ func TestSelfConflictIsReadAgainFirst(t *testing.T) {
 		Statements: map[string]string{"res/Twice": translate.TextHash(res.Statements["res/Twice"])}}); err != nil {
 		t.Fatal(err)
 	}
-	res, err = Run(context.Background(), opt)
+	res, err = runKept(context.Background(), opt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -380,7 +380,7 @@ source:
 	}
 	opt := Options{Repo: repo, Change: "c1", Registry: registry, Out: out,
 		Clients: []llm.Client{one("default tenant", map[string]any{"kind": "invariant", "on": "Cluster.init", "subject": "Cluster", "assert": "self.tenant = default"})}}
-	res, err := Run(context.Background(), opt)
+	res, err := runKept(context.Background(), opt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -391,7 +391,7 @@ source:
 	if err := SaveAnswer(out, Answer{Question: q.ID, Kind: q.Kind, Choice: "creates", Term: q.Term, Existing: q.Existing}); err != nil {
 		t.Fatal(err)
 	}
-	if res, err = Run(context.Background(), opt); err != nil {
+	if res, err = runKept(context.Background(), opt); err != nil {
 		t.Fatal(err)
 	}
 	if !res.Gate.Accepted || len(res.Questions) != 1 || res.Questions[0].Kind != "approve" {
@@ -406,7 +406,7 @@ source:
 	if err := SaveAnswer(out, Answer{Question: "creates-gone", Kind: "creates", Choice: "creates", Term: "Plot.add", Existing: "Plot"}); err != nil {
 		t.Fatal(err)
 	}
-	if res, err = Run(context.Background(), opt); err != nil {
+	if res, err = runKept(context.Background(), opt); err != nil {
 		t.Fatalf("a stale answer broke the change: %v", err)
 	}
 	if _, err := ir.LoadDir(res.Head); err != nil {
@@ -473,7 +473,7 @@ source:
 	}
 	opt := Options{Repo: repo, Change: "c1", Registry: registry, Out: out,
 		Clients: []llm.Client{one("how many", map[string]any{"kind": "invariant", "on": "Tool.list", "subject": "Tool", "assert": "result.count >= 0"})}}
-	res, err := Run(context.Background(), opt)
+	res, err := runKept(context.Background(), opt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -484,7 +484,7 @@ source:
 	if err := SaveAnswer(out, Answer{Question: q.ID, Kind: q.Kind, Choice: "keeps", By: "agent", Term: q.Term, Existing: q.Existing}); err != nil {
 		t.Fatal(err)
 	}
-	if res, err = Run(context.Background(), opt); err != nil {
+	if res, err = runKept(context.Background(), opt); err != nil {
 		t.Fatal(err)
 	}
 	if len(res.Questions) != 1 || res.Questions[0].Kind != "approve" || !strings.Contains(res.Questions[0].Text, "tool: list keeps tool: name") {
@@ -522,7 +522,7 @@ func TestNotesAccumulate(t *testing.T) {
 // write what it asserts, as formalize does for the steps it proposes.
 func TestRuleOnExistingStepInfersWrites(t *testing.T) {
 	repo, registry := setup(t, "## ADDED Requirements\n\n### Requirement: Release\nDeleting a resource MUST release its holds.\n")
-	res, err := Run(context.Background(), Options{Repo: repo, Change: "c1", Registry: registry, Out: t.TempDir(),
+	res, err := runKept(context.Background(), Options{Repo: repo, Change: "c1", Registry: registry, Out: t.TempDir(),
 		Clients: []llm.Client{one("release its holds", map[string]any{"kind": "invariant", "on": "Resource.delete", "subject": "Resource", "assert": "self.holds = 0 and old(self.holds) >= 0"})}})
 	if err != nil {
 		t.Fatal(err)
@@ -581,7 +581,7 @@ func TestSpecKitBranch(t *testing.T) {
 	if err := adopt.ApproveRules(reg, []string{"001/FR-001"}, "owner"); err != nil {
 		t.Fatal(err)
 	}
-	res, err := Run(context.Background(), Options{Repo: repo, Change: "erasure", Registry: registry, Out: t.TempDir(), Base: "main", Format: "speckit",
+	res, err := runKept(context.Background(), Options{Repo: repo, Change: "erasure", Registry: registry, Out: t.TempDir(), Base: "main", Format: "speckit",
 		Clients: []llm.Client{one("Erasure requests", map[string]any{"kind": "permission", "operation": "Resource.delete", "effect": "allow", "when": "request.kind = erasure"})}})
 	if err != nil {
 		t.Fatal(err)
@@ -634,7 +634,7 @@ func TestShaleBranch(t *testing.T) {
 		t.Fatal(err)
 	}
 	client := one("Erasure requests", map[string]any{"kind": "permission", "operation": "Resource.delete", "effect": "allow", "when": "request.kind = erasure"})
-	res, err := Run(context.Background(), Options{Repo: repo, Change: "erasure", Registry: registry, Out: t.TempDir(), Base: "main", Format: "shale", Clients: []llm.Client{client}})
+	res, err := runKept(context.Background(), Options{Repo: repo, Change: "erasure", Registry: registry, Out: t.TempDir(), Base: "main", Format: "shale", Clients: []llm.Client{client}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -657,7 +657,7 @@ func TestShaleBranch(t *testing.T) {
 	if err := importer.RetireIntents(repo, []importer.RetiredIntent{{ID: "intent/s1", By: "owner", For: "intent/s2"}}); err != nil {
 		t.Fatal(err)
 	}
-	res, err = Run(context.Background(), Options{Repo: repo, Change: "erasure", Registry: registry, Out: t.TempDir(), Base: "main", Format: "shale", Clients: []llm.Client{client}})
+	res, err = runKept(context.Background(), Options{Repo: repo, Change: "erasure", Registry: registry, Out: t.TempDir(), Base: "main", Format: "shale", Clients: []llm.Client{client}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -715,7 +715,7 @@ func TestShaleSameSessionOnBranch(t *testing.T) {
 	write(filepath.Join(repo, ".shale/local/s1.jsonl"), `{"kind":"intent","at":"2026-10-01T11:00:00Z","title":"Honour erasure requests","body":"Erasure requests always delete the resource."}`+"\n")
 	client := one("Erasure requests", map[string]any{"kind": "permission", "operation": "Resource.delete", "effect": "allow", "when": "request.kind = erasure"})
 	opt := Options{Repo: repo, Change: "feature-2", Registry: registry, Out: t.TempDir(), Base: "main", Format: "shale", Clients: []llm.Client{client}}
-	res, err := Run(context.Background(), opt)
+	res, err := runKept(context.Background(), opt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -729,7 +729,7 @@ func TestShaleSameSessionOnBranch(t *testing.T) {
 	if err := importer.RetireIntents(repo, []importer.RetiredIntent{{ID: "intent/s1", By: "owner", For: "intent/s1-c2"}}); err != nil {
 		t.Fatal(err)
 	}
-	if res, err = Run(context.Background(), opt); err != nil {
+	if res, err = runKept(context.Background(), opt); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Join(res.Removed, ",") != "intent/s1" || strings.Join(res.Retired, ",") != "intent/s1" {
@@ -746,7 +746,7 @@ func TestShaleSameSessionOnBranch(t *testing.T) {
 // reading the narrower requirement as an exception (ISSUES 56).
 func TestNarrowerRequirementIsRecommendedAsException(t *testing.T) {
 	repo, registry := setup(t, "## ADDED Requirements\n\n### Requirement: Erasure\nErasure requests MUST delete a resource even with holds.\n")
-	res, err := Run(context.Background(), Options{Repo: repo, Change: "c1", Registry: registry, Out: t.TempDir(),
+	res, err := runKept(context.Background(), Options{Repo: repo, Change: "c1", Registry: registry, Out: t.TempDir(),
 		Clients: []llm.Client{one("Erasure", map[string]any{"kind": "permission", "operation": "Resource.delete", "effect": "allow", "when": "self.holds > 0 and request.kind = erasure"})}})
 	if err != nil {
 		t.Fatal(err)
@@ -843,7 +843,7 @@ const renameDelta = "## RENAMED Requirements\n- FROM: `### Requirement: Delete g
 // A renamed requirement keeps its rule: no retirement, no new translation.
 func TestRenamedRequirementKeepsRule(t *testing.T) {
 	repo, registry := setup(t, renameDelta)
-	res, err := Run(context.Background(), Options{Repo: repo, Change: "c1", Registry: registry, Out: t.TempDir(), Clients: []llm.Client{fake{}}})
+	res, err := runKept(context.Background(), Options{Repo: repo, Change: "c1", Registry: registry, Out: t.TempDir(), Clients: []llm.Client{fake{}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -864,7 +864,7 @@ func TestRenamedRequirementKeepsRule(t *testing.T) {
 // stranger.
 func TestRenamedAndEditedRequirementVersionsRule(t *testing.T) {
 	repo, registry := setup(t, renameDelta+"\n## MODIFIED Requirements\n\n### Requirement: Hold guard\nThe system MUST NOT delete a resource with holds, unless the request is an erasure.\n")
-	res, err := Run(context.Background(), Options{Repo: repo, Change: "c1", Registry: registry, Out: t.TempDir(),
+	res, err := runKept(context.Background(), Options{Repo: repo, Change: "c1", Registry: registry, Out: t.TempDir(),
 		Clients: []llm.Client{one("unless", map[string]any{"kind": "permission", "operation": "Resource.delete", "effect": "deny", "when": "self.holds > 0 and request.kind != erasure"})}})
 	if err != nil {
 		t.Fatal(err)
@@ -892,7 +892,7 @@ func TestRewrittenRequirementWithoutRenameRecordAsks(t *testing.T) {
 	out := t.TempDir()
 	opt := Options{Repo: repo, Change: "c1", Registry: registry, Out: out,
 		Clients: []llm.Client{one("unless", map[string]any{"kind": "permission", "operation": "Resource.delete", "effect": "deny", "when": "self.holds > 0 and request.kind != erasure"})}}
-	res, err := Run(context.Background(), opt)
+	res, err := runKept(context.Background(), opt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -912,7 +912,7 @@ func TestRewrittenRequirementWithoutRenameRecordAsks(t *testing.T) {
 	if err := SaveAnswer(out, Answer{Question: q.ID, Kind: "renamed", Choice: "same", Term: q.Term, Existing: q.Existing, By: "owner"}); err != nil {
 		t.Fatal(err)
 	}
-	res, err = Run(context.Background(), opt)
+	res, err = runKept(context.Background(), opt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -939,7 +939,7 @@ func TestApprovalShowsFindings(t *testing.T) {
 	repo, registry := setup(t, "## MODIFIED Requirements\n\n### Requirement: Delete guard\nThe system MUST NOT delete a resource with holds, unless the request is an erasure.\n")
 	f := one("unless", map[string]any{"kind": "permission", "operation": "Resource.delete", "effect": "deny", "when": "self.holds > 0"})
 	f.uncovered = "unless the request is an erasure"
-	res, err := Run(context.Background(), Options{Repo: repo, Change: "c1", Registry: registry, Out: t.TempDir(), Clients: []llm.Client{f}})
+	res, err := runKept(context.Background(), Options{Repo: repo, Change: "c1", Registry: registry, Out: t.TempDir(), Clients: []llm.Client{f}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -991,7 +991,7 @@ func TestFirstApproval(t *testing.T) {
 	write(filepath.Join(repo, ".shale/local/s1.jsonl"), `{"kind":"intent","at":"2026-10-01T10:00:00Z","title":"Protect held resources","body":"The system must not delete a resource with holds."}`+"\n")
 	write(filepath.Join(registry, "vocabulary.yaml"), vocabYAML)
 	client := one("Protect held", map[string]any{"kind": "permission", "operation": "Resource.delete", "effect": "deny", "when": "self.holds > 0"})
-	res, err := Run(context.Background(), Options{Repo: repo, Change: "first", Registry: registry, Out: t.TempDir(), Base: "main", Format: "shale", Clients: []llm.Client{client}})
+	res, err := runKept(context.Background(), Options{Repo: repo, Change: "first", Registry: registry, Out: t.TempDir(), Base: "main", Format: "shale", Clients: []llm.Client{client}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1008,7 +1008,8 @@ func TestFirstApproval(t *testing.T) {
 
 // The owner's answer becomes a lesson in the head registry, approval
 // carries it into the registry, and a later change is read with it without
-// being asked; the agent's own answers teach nothing.
+// being asked; the agent's own answers, and notes that are not the owner's
+// own words, teach nothing.
 func TestAnswersBecomeLessons(t *testing.T) {
 	repo, registry := setup(t, "## ADDED Requirements\n\n### Requirement: Locks\nThe system MUST NOT delete a locked resource.\n")
 	out := t.TempDir()
@@ -1017,19 +1018,24 @@ func TestAnswersBecomeLessons(t *testing.T) {
 		rules: []map[string]any{{"kind": "permission", "operation": "Resource.delete", "effect": "deny", "when": "self.holds > 0"}},
 	}}}
 	opt := Options{Repo: repo, Change: "c1", Registry: registry, Out: out, Clients: []llm.Client{f}}
-	res, err := Run(context.Background(), opt)
+	res, err := runKept(context.Background(), opt)
 	if err != nil {
 		t.Fatal(err)
 	}
 	prose := res.Statements["res/Locks"]
 	pin := map[string]string{"res/Locks": translate.TextHash(prose)}
-	if err := SaveAnswer(out, Answer{Question: "reread-res/Locks", Kind: "reread", Choice: "reread", Note: "a locked resource is one with holds", By: "owner", Statements: pin}); err != nil {
+	if err := SaveAnswer(out, Answer{Question: "reread-res/Locks", Kind: "reread", Choice: "reread", Note: "a locked resource is one with holds", Quoted: true, By: "owner", Statements: pin}); err != nil {
+		t.Fatal(err)
+	}
+	// A note the agent wrote to explain the owner's one-word answer is not
+	// the owner's words, and teaches nothing.
+	if err := SaveAnswer(out, Answer{Question: "free-x", Kind: "free_setting", Choice: "fixed", Note: "three, the agent's explanation", By: "owner", Statements: pin}); err != nil {
 		t.Fatal(err)
 	}
 	if err := SaveAnswer(out, Answer{Question: "self-x", Kind: "self_conflict", Choice: "misread", Note: "Stele's own slip", By: "agent", Statements: pin}); err != nil {
 		t.Fatal(err)
 	}
-	if res, err = Run(context.Background(), opt); err != nil {
+	if res, err = runKept(context.Background(), opt); err != nil {
 		t.Fatal(err)
 	}
 	if len(res.NewLessons) != 1 || !strings.Contains(res.NewLessons[0], "a locked resource is one with holds") {
@@ -1060,7 +1066,7 @@ func TestAnswersBecomeLessons(t *testing.T) {
 		t.Fatal(err)
 	}
 	calls = nil
-	res, err = Run(context.Background(), Options{Repo: repo, Change: "c2", Registry: registry, Out: t.TempDir(), Clients: []llm.Client{f}})
+	res, err = runKept(context.Background(), Options{Repo: repo, Change: "c2", Registry: registry, Out: t.TempDir(), Clients: []llm.Client{f}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1108,7 +1114,7 @@ func TestFailedTranslationIsNotClean(t *testing.T) {
 	calls := 0
 	out := t.TempDir()
 	opt := Options{Repo: repo, Change: "c1", Registry: registry, Out: out, Clients: []llm.Client{down{&calls}}}
-	res, err := Run(context.Background(), opt)
+	res, err := runKept(context.Background(), opt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1121,13 +1127,13 @@ func TestFailedTranslationIsNotClean(t *testing.T) {
 		}
 	}
 	before := calls
-	if res, err = Run(context.Background(), opt); err != nil || len(res.Failed) != 1 || calls == before {
+	if res, err = runKept(context.Background(), opt); err != nil || len(res.Failed) != 1 || calls == before {
 		t.Fatalf("rerun: failed %v, %d new call(s), %v; want the model asked again", res.Failed, calls-before, err)
 	}
 
 	// The model is back: the same check translates it.
 	opt.Clients = []llm.Client{one("locked", map[string]any{"kind": "permission", "operation": "Resource.delete", "effect": "deny", "when": "self.holds > 0"})}
-	if res, err = Run(context.Background(), opt); err != nil || len(res.Failed) != 0 || len(res.Reused) != 0 {
+	if res, err = runKept(context.Background(), opt); err != nil || len(res.Failed) != 0 || len(res.Reused) != 0 {
 		t.Fatalf("after the backend recovered: failed %v, reused %v, %v", res.Failed, res.Reused, err)
 	}
 }
@@ -1162,7 +1168,7 @@ func TestShaleTaskIsSetAside(t *testing.T) {
 	client := fake{nothingCheckable: true, readings: map[string]reading{"quarterly": {rules: []map[string]any{{"kind": "informal", "rationale": "a one-off documentation task with nothing the system must do"}}}}}
 	out := t.TempDir()
 	opt := Options{Repo: repo, Change: "review", Registry: registry, Out: out, Base: "main", Format: "shale", Clients: []llm.Client{client}}
-	res, err := Run(context.Background(), opt)
+	res, err := runKept(context.Background(), opt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1181,7 +1187,7 @@ func TestShaleTaskIsSetAside(t *testing.T) {
 	if err := SaveAnswer(out, Answer{Question: task.ID, Kind: "task", Choice: "requirement"}); err != nil {
 		t.Fatal(err)
 	}
-	if res, err = Run(context.Background(), opt); err != nil {
+	if res, err = runKept(context.Background(), opt); err != nil {
 		t.Fatal(err)
 	}
 	for _, q := range res.Questions {
@@ -1195,7 +1201,7 @@ func TestShaleTaskIsSetAside(t *testing.T) {
 	if err := importer.RetireIntents(repo, []importer.RetiredIntent{{ID: "intent/s1", By: "owner", Why: "not a requirement"}}); err != nil {
 		t.Fatal(err)
 	}
-	if res, err = Run(context.Background(), opt); err != nil || len(res.Added) != 0 {
+	if res, err = runKept(context.Background(), opt); err != nil || len(res.Added) != 0 {
 		t.Fatalf("after setting it aside: added %v, %v", res.Added, err)
 	}
 }
@@ -1230,7 +1236,7 @@ func TestSkippedTranslationFails(t *testing.T) {
 	write(filepath.Join(registry, "vocabulary.yaml"), vocabYAML)
 	client := fake{uncovered: "Listing MUST show every saved resource", readings: map[string]reading{"saved": {rules: []map[string]any{{"kind": "informal", "rationale": "The requested rule translation is not provided in this response."}}}}}
 	out := t.TempDir()
-	res, err := Run(context.Background(), Options{Repo: repo, Change: "list", Registry: registry, Out: out, Base: "main", Format: "shale", Clients: []llm.Client{client}})
+	res, err := runKept(context.Background(), Options{Repo: repo, Change: "list", Registry: registry, Out: out, Base: "main", Format: "shale", Clients: []llm.Client{client}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1245,7 +1251,7 @@ func TestSkippedTranslationFails(t *testing.T) {
 
 	// Read with no rules again, it is unchecked: the owner sees each
 	// clause no rule checks and can approve.
-	res, err = Run(context.Background(), Options{Repo: repo, Change: "list", Registry: registry, Out: out, Base: "main", Format: "shale", Clients: []llm.Client{client}})
+	res, err = runKept(context.Background(), Options{Repo: repo, Change: "list", Registry: registry, Out: out, Base: "main", Format: "shale", Clients: []llm.Client{client}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1299,7 +1305,7 @@ func TestShaleMeasuredAgainstTheRegistry(t *testing.T) {
 		t.Fatal(err)
 	}
 	client := one("Erasure requests", map[string]any{"kind": "permission", "operation": "Resource.delete", "effect": "allow", "when": "request.kind = erasure"})
-	res, err := Run(context.Background(), Options{Repo: repo, Change: "main", Registry: registry, Out: t.TempDir(), Base: "main", Format: "shale", Clients: []llm.Client{client}})
+	res, err := runKept(context.Background(), Options{Repo: repo, Change: "main", Registry: registry, Out: t.TempDir(), Base: "main", Format: "shale", Clients: []llm.Client{client}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1341,7 +1347,7 @@ func TestWrongApprovedFactIsRetired(t *testing.T) {
 	}
 	client := one("Held resources", map[string]any{"kind": "invariant", "assert": "resource.holds > 0"})
 	opt := Options{Repo: repo, Change: "main", Registry: registry, Out: out, Base: "main", Format: "shale", Clients: []llm.Client{client}}
-	res, err := Run(context.Background(), opt)
+	res, err := runKept(context.Background(), opt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1352,7 +1358,7 @@ func TestWrongApprovedFactIsRetired(t *testing.T) {
 	q := res.Questions[i]
 	src, _ := json.Marshal([]Answer{{Question: q.ID, Kind: q.Kind, Choice: "wrong_fact", Link: q.Link, Links: q.Links, Facts: q.Facts}})
 	write(filepath.Join(out, answersFile), string(src))
-	if res, err = Run(context.Background(), opt); err != nil {
+	if res, err = runKept(context.Background(), opt); err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Contains(res.Retired, "world-old-1") {
@@ -1472,7 +1478,7 @@ func TestRestatementIsTheSameRequirement(t *testing.T) {
 		t.Fatal(err)
 	}
 	client := one("Protect held", map[string]any{"kind": "permission", "operation": "Resource.delete", "effect": "deny", "when": "self.holds > 0 and request.kind != erasure"})
-	res, err := Run(context.Background(), Options{Repo: repo, Change: "main", Registry: registry, Out: t.TempDir(), Base: "main", Format: "shale", Clients: []llm.Client{client}})
+	res, err := runKept(context.Background(), Options{Repo: repo, Change: "main", Registry: registry, Out: t.TempDir(), Base: "main", Format: "shale", Clients: []llm.Client{client}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1520,7 +1526,7 @@ func TestRenumberedRuleRestates(t *testing.T) {
 		t.Fatal(err)
 	}
 	client := one("Storage is tight", map[string]any{"kind": "permission", "operation": "Resource.delete", "effect": "deny", "when": "self.holds >= 2"})
-	res, err := Run(context.Background(), Options{Repo: repo, Change: "main", Registry: registry, Out: t.TempDir(), Base: "main", Format: "shale", Clients: []llm.Client{client}})
+	res, err := runKept(context.Background(), Options{Repo: repo, Change: "main", Registry: registry, Out: t.TempDir(), Base: "main", Format: "shale", Clients: []llm.Client{client}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1571,7 +1577,7 @@ func TestPrecedenceKeepsBothRequests(t *testing.T) {
 	}
 	reading := map[string]any{"kind": "permission", "operation": "Resource.delete", "effect": "allow", "when": "request.kind = erasure"}
 	opt := Options{Repo: repo, Change: "main", Registry: registry, Out: out, Base: "main", Format: "shale", Clients: []llm.Client{one("Erasure requests", reading)}}
-	res, err := Run(context.Background(), opt)
+	res, err := runKept(context.Background(), opt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1587,7 +1593,7 @@ func TestPrecedenceKeepsBothRequests(t *testing.T) {
 	write(filepath.Join(out, answersFile), string(src))
 	reading["overrides"] = []string{"intent/s1"} // the reading the note asks for
 	opt.Clients = []llm.Client{one("Erasure requests", reading)}
-	if res, err = Run(context.Background(), opt); err != nil {
+	if res, err = runKept(context.Background(), opt); err != nil {
 		t.Fatal(err)
 	}
 	for _, q := range res.Questions {
@@ -1670,7 +1676,7 @@ func TestFailedCoverageIsToldAndRetried(t *testing.T) {
 	out := t.TempDir()
 	run := func(c fake) *Result {
 		t.Helper()
-		res, err := Run(context.Background(), Options{Repo: repo, Change: "c1", Registry: registry, Out: out, Clients: []llm.Client{c}})
+		res, err := runKept(context.Background(), Options{Repo: repo, Change: "c1", Registry: registry, Out: out, Clients: []llm.Client{c}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1696,4 +1702,27 @@ func TestNewWorldFactAfterRejectedOne(t *testing.T) {
 	if n := lastNumber(links, "world-main-"); n != 3 {
 		t.Errorf("lastNumber = %d, want 3", n)
 	}
+}
+
+// runKept runs a check with every request declared with Shale kept as a
+// requirement, for the tests about what Stele does with requirements.
+func runKept(ctx context.Context, opt Options) (*Result, error) {
+	if opt.Format == "shale" {
+		if err := keepAll(opt.Repo); err != nil {
+			return nil, err
+		}
+	}
+	return Run(ctx, opt)
+}
+
+func keepAll(repo string) error {
+	reqs, err := importer.ShaleRequests(repo)
+	if err != nil {
+		return nil // no requests: nothing to keep
+	}
+	var ks []importer.KeptIntent
+	for _, r := range reqs {
+		ks = append(ks, importer.KeptIntent{ID: r.ID})
+	}
+	return importer.KeepIntents(repo, ks, nil)
 }

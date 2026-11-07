@@ -175,6 +175,13 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 		Statements: map[string]string{}, Sources: map[string]string{}}
 	var truth, after []translate.Statement
 	var err error
+	if opt.Format == "shale" && opt.Adopt == nil {
+		if reg, err := ir.LoadDir(opt.Registry); err == nil {
+			if err := importer.KeepApproved(opt.Repo, approvedStatements(reg)); err != nil {
+				return nil, err
+			}
+		}
+	}
 	switch {
 	case opt.Adopt != nil:
 		after = opt.Adopt
@@ -1212,6 +1219,15 @@ func removeIfExists(path string) error {
 func writeFile(path, src string) error { return os.WriteFile(path, []byte(src), 0o644) }
 
 // lessonsFrom turns the owner's answers into lessons for the registry.
+// approvedStatements are the statements the registry's rules come from.
+func approvedStatements(reg *ir.Registry) []string {
+	var ids []string
+	for _, r := range reg.Rules {
+		ids = append(ids, r.StatementID)
+	}
+	return ids
+}
+
 // Answers the agent gave itself correct Stele's own reading and stay notes
 // for this change; they teach nothing about the project.
 func lessonsFrom(as []Answer, change string) []ir.Lesson {
@@ -1226,6 +1242,8 @@ func lessonsFrom(as []Answer, change string) []ir.Lesson {
 		case a.Kind == "same_term" && a.Choice == "same" && a.Term != "" && a.Existing != "":
 			out = append(out, ir.Lesson{Kind: ir.LessonTerm, Says: fmt.Sprintf("%s and %s name the same thing; use %s and do not propose %s.", a.Term, a.Existing, a.Existing, a.Term),
 				Terms: []string{a.Term, a.Existing}, From: from, By: a.By, At: at})
+		case !a.Quoted:
+			// Only the owner's own words teach: see Answer.Quoted.
 		case a.Kind == "conflict" && a.Choice == "impossible" && strings.TrimSpace(a.Note) != "":
 			out = append(out, ir.Lesson{Kind: ir.LessonFact, Says: "This situation cannot happen in this project: " + strings.TrimSpace(a.Note),
 				From: from, By: a.By, At: at})

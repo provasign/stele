@@ -24,6 +24,9 @@ func TestFingerprintShale(t *testing.T) {
 		f.Close()
 	}
 	appendLine(`{"kind":"intent","at":"2026-10-01T09:00:00Z","title":"Orders ship within 2 days"}`)
+	if err := keepAll(repo); err != nil {
+		t.Fatal(err)
+	}
 	before, err := Fingerprint(filepath.Join(repo, ".shale"))
 	if err != nil {
 		t.Fatal(err)

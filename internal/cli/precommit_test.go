@@ -148,13 +148,23 @@ func TestPrecommitNoRequirements(t *testing.T) {
 	// later one: never "adopt". On a branch it waits for the merge.
 	branch(t, dir, "feature")
 	os.WriteFile(filepath.Join(dir, ".shale/s1.yaml"), []byte("id: s1\nintent:\n    title: Lock the door at night\n"), 0o644)
-	code, out := precommit(t, dir, ".shale/s1.yaml")
+	// A request not kept is a task: it waits for nothing, even on main.
+	branch(t, dir, "main")
+	if code, out := precommit(t, dir, ".shale/s1.yaml"); code != 0 || out != "" {
+		t.Errorf("a task blocked or spoke: %d %q", code, out)
+	}
+	branch(t, dir, "feature")
+	var kept bytes.Buffer
+	if code := cmdKeep([]string{"--project", dir, "--by", "agent"}, &kept); code != 0 || !strings.Contains(kept.String(), `Kept "Lock the door at night" (intent/s1)`) {
+		t.Fatalf("keep: %d %s", code, kept.String())
+	}
+	code, out := precommit(t, dir, ".shale/s1.yaml", ".stele/kept-intents.yaml")
 	if code != 0 || strings.Contains(out, "adopt") || !strings.Contains(out, "intent/s1 is not approved yet") || !strings.Contains(out, "stele change shale . --base") {
 		t.Errorf("first request: %d\n%s", code, out)
 	}
 	// On main the commit is the merge, so the request blocks it.
 	branch(t, dir, "main")
-	code, out = precommit(t, dir, ".shale/s1.yaml")
+	code, out = precommit(t, dir, ".shale/s1.yaml", ".stele/kept-intents.yaml")
 	if code != 1 || !strings.Contains(out, "blocked this commit to main") || !strings.Contains(out, "intent/s1 is not approved yet") {
 		t.Errorf("first request on main: %d\n%s", code, out)
 	}

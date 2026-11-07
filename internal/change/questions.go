@@ -91,6 +91,12 @@ type Answer struct {
 	Kind     string `json:"kind"`
 	Choice   string `json:"choice"`
 	Note     string `json:"note,omitempty"`
+	// Quoted says the note is the owner's own words, as they said them.
+	// Only such a note teaches Stele a lesson: a note the agent wrote, for
+	// itself or to explain the owner's one-word answer, guides this
+	// change's reading and is not the owner's (2026-11-07: the owner said
+	// "1", and the agent's explanation was about to be saved as theirs).
+	Quoted   bool   `json:"quoted,omitempty"`
 	By       string `json:"by,omitempty"`
 	Term     string `json:"term,omitempty"`
 	Existing string `json:"existing,omitempty"`
@@ -105,6 +111,22 @@ type Answer struct {
 	Statements map[string]string `json:"statements,omitempty"`
 	// Over are the requirements a "precedence" answer gives way to.
 	Over []string `json:"over,omitempty"`
+}
+
+// AgentReread reports whether the agent already had Stele read the
+// statement again in this change, by a reread note or a "misread" answer,
+// while its text was the one hashed. The agent gets one: a second note
+// chased the first, each reread fixing what it was told and reading
+// something else too wide (three runs, $3, twelve of twenty readings still
+// flagged on 2026-11-07). After one, the clause stays as Stele reads it
+// and the owner sees it at the approval.
+func AgentReread(as []Answer, id, hash string) bool {
+	for _, a := range as {
+		if a.By == "agent" && (a.Kind == "reread" || a.Choice == "misread") && a.Statements[id] == hash {
+			return true
+		}
+	}
+	return false
 }
 
 // LoadAnswers reads a change's recorded answers.

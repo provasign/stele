@@ -40,7 +40,7 @@ not json
 {"kind":"intent","at":"2026-10-03T10:02:00Z","title":"Summer reading program","body":"During it, members can have up to 10 books on loan."}
 `)
 
-	got, err := Shale(repo)
+	got, err := ShaleRequests(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ not json
 	if err != nil || len(rs) != 1 || rs[0].By != "owner" {
 		t.Fatalf("retired = %+v, %v; want the first retirement only", rs, err)
 	}
-	got, err = Shale(repo)
+	got, err = ShaleRequests(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +98,7 @@ func TestShaleContinuation(t *testing.T) {
 	write(".shale/local/s1.jsonl", `{"kind":"prompt","at":"2026-10-01T11:00:00Z","text":"..."}
 {"kind":"intent","at":"2026-10-01T11:00:05Z","title":"Orders ship within 3 days"}
 `)
-	got, err := Shale(repo)
+	got, err := ShaleRequests(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func TestShaleContinuation(t *testing.T) {
 	// takes the next name.
 	write(".shale/s1-c2.yaml", "id: s1-c2\nfinalized_at: 2026-10-01T11:10:00Z\nintent:\n    title: Orders ship within 3 days\n    declared_at: 2026-10-01T11:00:05Z\n")
 	write(".shale/local/s1.jsonl", `{"kind":"intent","at":"2026-10-01T12:00:00Z","title":"Orders ship the same day"}`+"\n")
-	got, err = Shale(repo)
+	got, err = ShaleRequests(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func TestShaleContinuation(t *testing.T) {
 }
 
 func TestShaleWithoutEvidence(t *testing.T) {
-	if _, err := Shale(t.TempDir()); !errors.Is(err, ErrNoSpecs) {
+	if _, err := ShaleRequests(t.TempDir()); !errors.Is(err, ErrNoSpecs) {
 		t.Fatalf("err = %v, want ErrNoSpecs", err)
 	}
 }
@@ -148,7 +148,7 @@ func TestShaleTasksInOneSession(t *testing.T) {
 {"kind":"prompt","at":"2026-11-03T03:54:00Z","text":"next: list"}
 {"kind":"intent","at":"2026-11-03T03:54:28Z","title":"List saved tasks"}
 `)
-	got, err := Shale(repo)
+	got, err := ShaleRequests(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ func TestShaleTasksInOneSession(t *testing.T) {
 	write(".shale/s1.yaml", "id: s1\nfinalized_at: 2026-11-03T04:00:00Z\nintent:\n    title: Create and persist tasks\n    declared_at: 2026-11-03T03:24:00Z\n")
 	write(".shale/s1-c2.yaml", "id: s1-c2\nfinalized_at: 2026-11-03T04:00:00Z\nintent:\n    title: List saved tasks\n    declared_at: 2026-11-03T03:54:28Z\n")
 	write(".shale/local/s1.jsonl", `{"kind":"intent","at":"2026-11-03T04:10:00Z","title":"Complete a task"}`+"\n")
-	if got, err = Shale(repo); err != nil {
+	if got, err = ShaleRequests(repo); err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 3 || got[0].ID != "intent/s1" || got[1].ID != "intent/s1-c2" || got[2].ID != "intent/s1-c3" {
@@ -189,7 +189,7 @@ func TestShaleOpenTaskAfterCommitTimeRecord(t *testing.T) {
 {"kind":"intent","at":"2026-11-03T10:10:00Z","title":"List tasks"}
 {"kind":"session_close","at":"2026-11-03T10:40:00Z"}
 `)
-	got, err := Shale(repo)
+	got, err := ShaleRequests(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,11 +216,47 @@ func TestShaleResumedSessionRestates(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repo, ".shale", "local", "s1.jsonl"), []byte(log), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got, err := Shale(repo)
+	got, err := ShaleRequests(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 1 || got[0].ID != "intent/s1" || got[0].Prose != "Limit loans to 3 at a time" {
 		t.Fatalf("got %+v; want the restated request alone", got)
+	}
+}
+
+// A request is a task until it is kept: only kept requests are specs, and
+// the requests a project approved before are kept the first time.
+func TestShaleReadsOnlyKeptRequests(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".shale", "local"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	log := `{"kind":"intent","at":"2026-10-01T09:00:00Z","title":"Review the codebase"}
+{"kind":"completion","at":"2026-10-01T09:30:00Z"}
+{"kind":"intent","at":"2026-10-01T10:00:00Z","title":"Orders ship within 2 days"}
+`
+	if err := os.WriteFile(filepath.Join(repo, ".shale", "local", "s1.jsonl"), []byte(log), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := Shale(repo); err != nil || len(got) != 0 {
+		t.Fatalf("nothing kept: got %v, %v; want no specs", got, err)
+	}
+	if err := KeepApproved(repo, []string{"intent/s1-c2", "res/Other"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Shale(repo)
+	if err != nil || len(got) != 1 || got[0].ID != "intent/s1-c2" {
+		t.Fatalf("after carrying the approved over: got %v, %v; want intent/s1-c2", got, err)
+	}
+	// The file exists now: a later approval list changes nothing by itself.
+	if err := KeepApproved(repo, []string{"intent/s1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := KeepIntents(repo, []KeptIntent{{ID: "intent/s1"}}, []string{"intent/s1-c2"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := Shale(repo); len(got) != 1 || got[0].ID != "intent/s1" {
+		t.Fatalf("after keeping s1 and dropping s1-c2: got %v", got)
 	}
 }

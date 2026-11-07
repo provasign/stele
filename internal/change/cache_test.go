@@ -91,7 +91,7 @@ func TestGlossaryDefinitionSettlesConflict(t *testing.T) {
 	m := glossary{one("Cleared", map[string]any{"kind": "permission", "operation": "Resource.delete", "effect": "allow", "when": "self.cleared"}), &asked}
 	out := t.TempDir()
 	for run := 1; run <= 2; run++ {
-		res, err := Run(context.Background(), Options{Repo: repo, Change: "c1", Registry: registry, Out: out, Clients: []llm.Client{m}, NoCode: true})
+		res, err := runKept(context.Background(), Options{Repo: repo, Change: "c1", Registry: registry, Out: out, Clients: []llm.Client{m}, NoCode: true})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -191,11 +191,11 @@ func TestChangeCostBudgetKeepsWork(t *testing.T) {
 	n := 0
 	m := priced{one("Erasure", map[string]any{"kind": "permission", "operation": "Resource.delete", "effect": "allow", "when": "request.kind = erasure"}), &n}
 	out := t.TempDir()
-	_, err := Run(context.Background(), Options{Repo: repo, Change: "c1", Registry: registry, Out: out, Clients: []llm.Client{m}, NoCode: true, MaxCost: 0.5})
+	_, err := runKept(context.Background(), Options{Repo: repo, Change: "c1", Registry: registry, Out: out, Clients: []llm.Client{m}, NoCode: true, MaxCost: 0.5})
 	if err == nil || !strings.Contains(err.Error(), "cost budget") {
 		t.Fatalf("capped run: %v", err)
 	}
-	res, err := Run(context.Background(), Options{Repo: repo, Change: "c1", Registry: registry, Out: out, Clients: []llm.Client{m}, NoCode: true})
+	res, err := runKept(context.Background(), Options{Repo: repo, Change: "c1", Registry: registry, Out: out, Clients: []llm.Client{m}, NoCode: true})
 	if err != nil {
 		t.Fatal(err)
 	}

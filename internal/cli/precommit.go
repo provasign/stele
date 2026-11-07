@@ -65,6 +65,8 @@ func cmdPrecommit(args []string, out io.Writer) int {
 			return strings.HasPrefix(f, d+"/") && !strings.HasPrefix(f, regRel+"/")
 		})
 	}
+	// Keeping a request as a requirement changes a Shale project's specs.
+	touchesSpecs = touchesSpecs || cfg.Specs != nil && cfg.Specs.Format == "shale" && slices.Contains(files, importer.KeptIntentsFile)
 	if !touchesReg && !touchesSpecs {
 		return 0
 	}
@@ -267,7 +269,7 @@ func stagedTree(root string, cfg *config.Config, rel func(string) string) (strin
 	if cfg.Specs.Format == "shale" {
 		specs = filepath.ToSlash(filepath.Join(specs, ".shale"))
 	}
-	listed, err := git("ls-files", "-z", "--", specs, rel(cfg.SnapshotFile()), rel(cfg.RegistryDir()), importer.RetiredIntentsFile)
+	listed, err := git("ls-files", "-z", "--", specs, rel(cfg.SnapshotFile()), rel(cfg.RegistryDir()), importer.RetiredIntentsFile, importer.KeptIntentsFile)
 	if err != nil {
 		cleanup()
 		return "", nil, err

@@ -36,8 +36,51 @@ type RetiredIntent struct {
 	Why string `yaml:"why,omitempty"`
 }
 
-// Shale reads the requests a project's coding agents declared with
-// `shale intent`: one statement per task, `intent/<session id>` and
+// KeptIntentsFile lists the Shale requests kept as requirements, relative
+// to the repository root. A request an agent declares with `shale intent`
+// is a task, what the agent is about to do, until it is kept: only kept
+// requests are the project's specs. Read as specs, every request was a
+// requirement, so chores (a review, a trial, a write-up) and the agent's
+// working notes became questions for the owner, 29 of them waiting at
+// once on 2026-11-07 (the owner: "Stele is getting confused between
+// actual requirement and human agent back and forth").
+const KeptIntentsFile = ".stele/kept-intents.yaml"
+
+// KeptIntent is one kept request: which, its title when kept, who kept
+// it and when.
+type KeptIntent struct {
+	ID    string `yaml:"id"`
+	Title string `yaml:"title,omitempty"`
+	By    string `yaml:"by,omitempty"`
+	At    string `yaml:"at,omitempty"`
+}
+
+// Shale reads the requests kept as requirements (KeptIntentsFile) among
+// those ShaleRequests reads. A request not kept is a task and says nothing.
+func Shale(repo string) ([]translate.Statement, error) {
+	all, err := shale(repo)
+	if err != nil {
+		return nil, err
+	}
+	ks, err := KeptIntents(repo)
+	if err != nil {
+		return nil, err
+	}
+	kept := map[string]bool{}
+	for _, k := range ks {
+		kept[k.ID] = true
+	}
+	var out []translate.Statement
+	for _, s := range all {
+		if kept[s.ID] {
+			out = append(out, s)
+		}
+	}
+	return out, nil
+}
+
+// ShaleRequests reads the requests a project's coding agents declared with
+// `shale intent`, kept or not: one statement per task, `intent/<session id>` and
 // `intent/<session id>-c<n>` for a session's later tasks, whose prose is the
 // intent's title, then its body. A completion (shale done) closes a task. Finalized sessions are read
 // from .shale/<id>.yaml; a session still open, from the latest intent in
@@ -51,7 +94,7 @@ type RetiredIntent struct {
 // asked for something new in the same conversation) is a request of its
 // own: Shale folds it into a continuation, .shale/<id>-c2.yaml and on, and
 // it reads as `intent/<id>-c2`.
-func Shale(repo string) ([]translate.Statement, error) {
+func ShaleRequests(repo string) ([]translate.Statement, error) {
 	return shale(repo)
 }
 
@@ -277,6 +320,82 @@ func RetireIntents(repo string, add []RetiredIntent) error {
 		return err
 	}
 	head := "# Requests the owner set aside: replaced by a later one (stele change answer ... update_old), or not a requirement (... task).\n"
+	return os.WriteFile(path, append([]byte(head), src...), 0o644)
+}
+
+// KeepApproved carries a project's approved requests over to
+// KeptIntentsFile the first time Stele reads it with kept requests: before,
+// every request was a spec, and one the owner approved stays a
+// requirement. approved are the statements of the approved rules; nothing
+// happens once the file exists, or when none is a request.
+func KeepApproved(repo string, approved []string) error {
+	if _, err := os.Stat(filepath.Join(repo, KeptIntentsFile)); !errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	var add []KeptIntent
+	seen := map[string]bool{}
+	for _, id := range approved {
+		if strings.HasPrefix(id, "intent/") && !seen[id] {
+			add, seen[id] = append(add, KeptIntent{ID: id, By: "approved before kept requests"}), true
+		}
+	}
+	if len(add) == 0 {
+		return nil
+	}
+	return KeepIntents(repo, add, nil)
+}
+
+// KeptIntents reads KeptIntentsFile; none is no error.
+func KeptIntents(repo string) ([]KeptIntent, error) {
+	src, err := os.ReadFile(filepath.Join(repo, KeptIntentsFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var ks []KeptIntent
+	if err := yaml.Unmarshal(src, &ks); err != nil {
+		return nil, fmt.Errorf("%s: %w", KeptIntentsFile, err)
+	}
+	return ks, nil
+}
+
+// KeepIntents adds requests to KeptIntentsFile, one already kept left as it
+// was, and removes those in drop.
+func KeepIntents(repo string, add []KeptIntent, drop []string) error {
+	ks, err := KeptIntents(repo)
+	if err != nil {
+		return err
+	}
+	gone := map[string]bool{}
+	for _, id := range drop {
+		gone[id] = true
+	}
+	have := map[string]bool{}
+	var out []KeptIntent
+	for _, k := range ks {
+		if !gone[k.ID] && !have[k.ID] {
+			out, have[k.ID] = append(out, k), true
+		}
+	}
+	for _, k := range add {
+		if !have[k.ID] {
+			out, have[k.ID] = append(out, k), true
+		}
+	}
+	src, err := yaml.Marshal(out)
+	if err != nil {
+		return err
+	}
+	if len(out) == 0 {
+		src = []byte("[]\n")
+	}
+	path := filepath.Join(repo, KeptIntentsFile)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	head := "# Requests declared with shale intent that are kept as requirements (stele keep); the others are tasks.\n"
 	return os.WriteFile(path, append([]byte(head), src...), 0o644)
 }
 

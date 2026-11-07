@@ -6,6 +6,7 @@ import (
 	"github.com/provasign/stele/internal/change"
 	"github.com/provasign/stele/internal/gate"
 	"github.com/provasign/stele/internal/ir"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -221,6 +222,9 @@ func TestChangeHangingModelAnswersInJSON(t *testing.T) {
 		}
 	}
 	os.WriteFile(filepath.Join(dir, ".shale", "local", "s1.jsonl"), []byte(`{"kind":"intent","at":"2026-11-02T10:00:00Z","title":"Close the door at night"}`+"\n"), 0o644)
+	if code := cmdKeep([]string{"--project", dir}, io.Discard); code != 0 {
+		t.Fatalf("keep: %d", code)
+	}
 	wd, _ := os.Getwd()
 	defer os.Chdir(wd)
 	os.Chdir(dir)

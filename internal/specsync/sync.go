@@ -94,7 +94,13 @@ func Evaluate(o Options) (*Result, error) {
 	case "kiro":
 		current, err = importer.Kiro(o.Root, exclude...)
 	case "shale":
-		current, err = importer.Shale(o.Root)
+		var approved []string
+		for _, r := range reg.Rules {
+			approved = append(approved, r.StatementID)
+		}
+		if err = importer.KeepApproved(o.Root, approved); err == nil {
+			current, err = importer.Shale(o.Root)
+		}
 	}
 	missing := errors.Is(err, fs.ErrNotExist)
 	if err != nil && !errors.Is(err, importer.ErrNoSpecs) && !missing {

@@ -271,6 +271,11 @@ func summarize(res *change.Result, outDir string) changeSummary {
 		s.Status, s.Next = "ready", "ask the owner the approval question; answer with `stele change answer`"
 	case len(res.Questions) > 0:
 		s.Status, s.Next = "questions", "answer the questions with ask_owner false yourself; ask the owner the others in their words; record each with `stele change answer`, act on its result, then run `stele change` again"
+		// Ten questions landed on an owner at once, with no word of how
+		// many or what about (2026-11-07): say so before the first.
+		if n := ownerQuestions(res.Questions); n > 1 {
+			s.Next = fmt.Sprintf("answer the questions with ask_owner false yourself; %d questions wait for the owner: before the first, tell them in one sentence how many there are and what they are about, then ask them one at a time in their words; record each with `stele change answer`, act on its result, then run `stele change` again", n)
+		}
 	case res.Gate.Accepted:
 		s.Status, s.Next = "clean", "nothing to decide or approve"
 	case res.Gate.Check != nil && len(res.Gate.Check.Undecided) > 0:
@@ -293,6 +298,17 @@ func summarize(res *change.Result, outDir string) changeSummary {
 		}
 	}
 	return s
+}
+
+// ownerQuestions counts the questions for the owner.
+func ownerQuestions(qs []change.Question) int {
+	n := 0
+	for _, q := range qs {
+		if q.AskOwner {
+			n++
+		}
+	}
+	return n
 }
 
 // forAdoption names adoption's own command where a next step says to run

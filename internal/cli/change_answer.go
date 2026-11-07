@@ -28,9 +28,10 @@ func cmdChangeAnswer(args []string, out io.Writer) int {
 	fs := flag.NewFlagSet("change answer", flag.ExitOnError)
 	outDir := fs.String("out", "", "the check's work directory (default .stele/change/<id>)")
 	note := fs.String("note", "", "the owner's words, for an answer that needs them")
+	quoted := fs.Bool("quoted", false, "the note is the owner's own words, as they said them: only such a note teaches Stele a lesson")
 	by := fs.String("by", "", "who answers (default: git user.name)")
 	undo := fs.Bool("undo", false, "remove the recorded answer to the question; the next check asks it again")
-	usage := "usage: stele change answer <change-id> <question-id> (<choice> | --undo) [--note TEXT] [--by NAME] [--out DIR]\n"
+	usage := "usage: stele change answer <change-id> <question-id> (<choice> | --undo) [--note TEXT [--quoted]] [--by NAME] [--out DIR]\n"
 	if len(args) < 2 {
 		fmt.Fprint(os.Stderr, usage)
 		return 2
@@ -84,7 +85,7 @@ func cmdChangeAnswer(args []string, out io.Writer) int {
 		return failf("change answer", fmt.Errorf("question %s takes one of: %s", qid, strings.Join(cs, ", ")))
 	}
 	opt := q.Options[k]
-	a := change.Answer{Question: q.ID, Kind: q.Kind, Choice: choice, Note: *note, By: *by, Term: q.Term, Existing: q.Existing, Link: q.Link, Links: q.Links, Facts: q.Facts, Statements: map[string]string{}}
+	a := change.Answer{Question: q.ID, Kind: q.Kind, Choice: choice, Note: *note, Quoted: *quoted && strings.TrimSpace(*note) != "", By: *by, Term: q.Term, Existing: q.Existing, Link: q.Link, Links: q.Links, Facts: q.Facts, Statements: map[string]string{}}
 	if opt.Note && strings.TrimSpace(a.Note) == "" {
 		return failf("change answer", fmt.Errorf("%q needs the owner's words: pass --note", opt.Label))
 	}
@@ -103,6 +104,17 @@ func cmdChangeAnswer(args []string, out io.Writer) int {
 			a.Statements[r.ID] = translate.TextHash(r.Text)
 		} else if choice == "precedence" {
 			a.Over = append(a.Over, r.ID)
+		}
+	}
+	if *by == "agent" && choice == "misread" {
+		as, err := change.LoadAnswers(*outDir)
+		if err != nil {
+			return failf("change answer", err)
+		}
+		for id, h := range a.Statements {
+			if change.AgentReread(as, id, h) {
+				return failf("change answer", fmt.Errorf(agentRereadDone, id))
+			}
 		}
 	}
 	switch {
@@ -126,6 +138,9 @@ func cmdChangeAnswer(args []string, out io.Writer) int {
 			set = append(set, importer.RetiredIntent{ID: id, By: *by, At: time.Now().UTC().Format("2006-01-02"), Why: "not a requirement"})
 		}
 		if err := importer.RetireIntents(res.Repo, set); err != nil {
+			return failf("change answer", err)
+		}
+		if err := importer.KeepIntents(res.Repo, nil, q.Statements); err != nil {
 			return failf("change answer", err)
 		}
 	}
@@ -211,6 +226,10 @@ func owner() string {
 	return os.Getenv("USER")
 }
 
+// agentRereadDone refuses the agent a second reread of one requirement in
+// a change (change.AgentReread).
+const agentRereadDone = "Stele already read %s again once at the agent's note in this change, and does not again: the clause stays as Stele reads it, and the owner sees it among the findings at the approval. If the reading is wrong in a way that matters, ask the owner"
+
 // cmdChangeReread records the owner's note that Stele misread one
 // requirement of the change, outside any question: the next check reads
 // that requirement again with the note.
@@ -218,6 +237,7 @@ func cmdChangeReread(args []string, out io.Writer) int {
 	fs := flag.NewFlagSet("change reread", flag.ExitOnError)
 	outDir := fs.String("out", "", "the check's work directory (default .stele/change/<id>)")
 	note := fs.String("note", "", "what Stele got wrong, in the owner's words (required)")
+	quoted := fs.Bool("quoted", false, "the note is the owner's own words, as they said them: only such a note teaches Stele a lesson")
 	by := fs.String("by", "", "who says so (default: git user.name)")
 	if len(args) < 2 {
 		fmt.Fprint(os.Stderr, "usage: stele change reread <change-id> <requirement> --note TEXT\n")
@@ -261,8 +281,17 @@ func cmdChangeReread(args []string, out io.Writer) int {
 	if text == "" {
 		return failf("change reread", fmt.Errorf("no text recorded for %s; run `stele change` again", found[0]))
 	}
-	a := change.Answer{Question: "reread-" + found[0], Kind: "reread", Choice: "reread", Note: *note, By: *by,
+	a := change.Answer{Question: "reread-" + found[0], Kind: "reread", Choice: "reread", Note: *note, Quoted: *quoted, By: *by,
 		Statements: map[string]string{found[0]: translate.TextHash(text)}}
+	if *by == "agent" {
+		as, err := change.LoadAnswers(*outDir)
+		if err != nil {
+			return failf("change reread", err)
+		}
+		if change.AgentReread(as, found[0], a.Statements[found[0]]) {
+			return failf("change reread", fmt.Errorf(agentRereadDone, found[0]))
+		}
+	}
 	if err := change.SaveAnswer(*outDir, a); err != nil {
 		return failf("change reread", err)
 	}
