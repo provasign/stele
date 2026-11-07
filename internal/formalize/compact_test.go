@@ -807,5 +807,5 @@ func TestCompactWarmsTheCacheBeforeAWave(t *testing.T) {
 type cachingFunc func(llm.Request) (*llm.Reply, error)
 
 func (f cachingFunc) Complete(_ context.Context, req llm.Request) (*llm.Reply, error) { return f(req) }
-func (f cachingFunc) Name() string                                                   { return "caching" }
-func (f cachingFunc) CachesPrompts() bool                                            { return true }
+func (f cachingFunc) Name() string                                                    { return "caching" }
+func (f cachingFunc) CachesPrompts() bool                                             { return true }

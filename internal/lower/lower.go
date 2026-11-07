@@ -1585,6 +1585,13 @@ func (lw *lowerer) call0(e *ir.Call, subject *ir.Entity, where string) typed {
 			}
 			return typed{term: sum(terms), kind: ir.Int}
 		}
+		if c.kind == ir.Map {
+			// Said plainly, with what to write instead: told only what len
+			// takes, the model's repairs of a listing written as a map ran
+			// to the request limit, twice in each of two runs (a developer
+			// trial on Codex, 2026-11-06).
+			return lw.fail(where, "%s: a map has no length in Stele's rules: say which keys it holds with has(m, k), as all(x in instances(Item): has(m, x.key)), and what it holds for each with m[k]; to say it holds no other keys, use a list or a set of the keys instead", e)
+		}
 		return lw.fail(where, "%s: len takes a string, a list, or a set of enum or bool values", e)
 	case "matches":
 		lit, ok := e.Args[1].(*ir.StrLit)

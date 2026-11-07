@@ -7,7 +7,8 @@ import (
 )
 
 // The backend agent is the coding agent Stele runs from and its model: the
-// agent's environment names the agent, the hook's record the model.
+// agent's marks on the commands it runs name the agent, the hook's record
+// of that session the model.
 func TestResolveAgentFollowsTheAgentInUse(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "stele.yaml"), []byte("formatVersion: 1\n"), 0o644); err != nil {
@@ -26,27 +27,46 @@ func TestResolveAgentFollowsTheAgentInUse(t *testing.T) {
 		}
 	}
 	t.Chdir(sub) // Resolve reads the record of the project it runs in
-	t.Setenv("ANTHROPIC_API_KEY", "")
-	t.Setenv("OPENAI_API_KEY", "")
+	for _, k := range []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CODEX_SESSION_ID", "CODEX_THREAD_ID"} {
+		t.Setenv(k, "")
+	}
 	t.Setenv("PATH", t.TempDir()) // no CLI installed
+	check := func(what, wantB, wantM string) {
+		t.Helper()
+		if b, m, ok := ResolveAgent(sub); !ok || b != wantB || m != wantM {
+			t.Errorf("%s: %s %q %v, want %s %q", what, b, m, ok, wantB, wantM)
+		}
+	}
 
-	// Run from Claude Code, the hook having recorded its model.
+	// Run from Claude Code, the hook having recorded its session's model.
 	t.Setenv("CLAUDECODE", "1")
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "s1")
 	record(`{"agent":"claude","model":"claude-opus-5-5","session":"s1"}`)
-	if b, m, ok := ResolveAgent(sub); !ok || b != "claude" || m != "claude-opus-5-5" {
-		t.Errorf("from Claude Code with a record: %s %s %v", b, m, ok)
-	}
-	// Claude Code's environment outranks a record another agent left.
-	record(`{"agent":"codex","model":"gpt-5.5","session":"s2"}`)
-	if b, m, ok := ResolveAgent(sub); !ok || b != "claude" || m != "" {
-		t.Errorf("from Claude Code with Codex's record: %s %s %v", b, m, ok)
-	}
-	// Run from Codex, known by its hook's record alone.
+	check("Claude Code with its record", "claude", "claude-opus-5-5")
+	// A record another session left names no model for this one.
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "s9")
+	check("Claude Code with an old session's record", "claude", "")
+	// Claude Code's marks outrank a record Codex left.
+	record(`{"agent":"codex","model":"gpt-5.5","session":"c1"}`)
+	check("Claude Code with Codex's record", "claude", "")
+
+	// Run from Codex: its marks, with or without the hook's record.
 	t.Setenv("CLAUDECODE", "")
-	if b, m, ok := ResolveAgent(sub); !ok || b != "codex" || m != "gpt-5.5" {
-		t.Errorf("from Codex: %s %s %v", b, m, ok)
-	}
-	// Outside any agent, with no CLI and no key: nothing to run on.
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
+	t.Setenv("CODEX_THREAD_ID", "c1")
+	check("Codex with its record", "codex", "gpt-5.5")
+	record(`{"agent":"claude","model":"claude-opus-5-5","session":"s1"}`)
+	check("Codex whose hooks never ran", "codex", "")
+	// Codex run inside a Claude Code terminal: the record of this session decides.
+	t.Setenv("CLAUDECODE", "1")
+	record(`{"agent":"codex","model":"gpt-5.5","session":"c1"}`)
+	check("Codex inside Claude Code", "codex", "gpt-5.5")
+
+	// Outside any agent, the record names the agent last used.
+	t.Setenv("CLAUDECODE", "")
+	t.Setenv("CODEX_THREAD_ID", "")
+	check("outside an agent, with a record", "codex", "gpt-5.5")
+	// With no record, no CLI and no key: nothing to run on.
 	if err := os.Remove(filepath.Join(dir, filepath.FromSlash(AgentRecordFile))); err != nil {
 		t.Fatal(err)
 	}
@@ -57,12 +77,9 @@ func TestResolveAgentFollowsTheAgentInUse(t *testing.T) {
 		t.Error("Resolve found a backend with no agent, CLI or key")
 	}
 	t.Setenv("OPENAI_API_KEY", "k")
-	if b, _, ok := ResolveAgent(sub); !ok || b != "openai" {
-		t.Errorf("with an API key alone: %s %v", b, ok)
-	}
-	// A model given outright is kept.
+	check("an API key alone", "openai", "")
+	// A model given outright is kept; a named backend is left alone.
 	t.Setenv("CLAUDECODE", "1")
-	record(`{"agent":"claude","model":"claude-opus-5-5","session":"s1"}`)
 	if b, m, err := Resolve("agent", "claude-sonnet-5-5"); err != nil || b != "claude" || m != "claude-sonnet-5-5" {
 		t.Errorf("pinned model: %s %s %v", b, m, err)
 	}

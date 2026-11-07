@@ -565,3 +565,27 @@ status: active
 		t.Errorf("with a tie: got %s, want pass: %+v", res.Verdict, res.Conflicts)
 	}
 }
+
+// The length of a map is refused with what to write instead, for the
+// model's repair.
+func TestMapLengthSaysWhatToWrite(t *testing.T) {
+	bad := resources + `---
+extend: Resource
+context: resources
+attributes:
+  holdsBy: { type: "map<string, int>" }
+---
+id: R41
+kind: invariant
+subject: Resource
+assert: len(self.holdsBy) = 2
+`
+	reg, err := ir.LoadDir(writeRegistry(t, bad))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = lower.Lower(reg, lower.Options{})
+	if err == nil || !strings.Contains(err.Error(), "a map has no length") || !strings.Contains(err.Error(), "has(m, k)") {
+		t.Errorf("err = %v, want the map-length message", err)
+	}
+}

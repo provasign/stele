@@ -23,21 +23,39 @@ type AgentRecord struct {
 // ResolveAgent is the backend and model the backend `agent` stands for: the
 // coding agent Stele is run from, and the model it is using, so that
 // Stele's calls land on the CLI and model the developer has chosen at
-// that moment (the owner, 2026-11-06). It is Claude Code when its
-// environment says so (CLAUDECODE is set in every command it runs); else
-// the agent the hook last recorded under dir's project; else, outside any
-// agent (CI, a shell), the claude or codex CLI on PATH, else the API an
-// API key is set for. The model is the record's when the record names the
-// agent found, else empty: the CLI's own default. Codex puts the active
-// model in every hook event; Claude Code names it at session start and on
-// each model switch. ok is false when no backend was found.
+// that moment (the owner, 2026-11-06). Both agents mark the commands they
+// run with their session (CLAUDE_CODE_SESSION_ID and CLAUDECODE; Codex's
+// CODEX_SESSION_ID and CODEX_THREAD_ID, even where it runs no project
+// hook). The agent is the one whose session the hook's record under dir's
+// project names; else the one whose marks are there; else the agent the
+// record names; else, outside any agent (CI, a shell), the claude or codex
+// CLI on PATH, else the API an API key is set for. The model is the
+// record's when it names that agent and, inside an agent, comes from the
+// session Stele runs in; else empty, the CLI's own default. Codex puts
+// the active model in every hook event; Claude Code names it at session
+// start and on each model switch. ok is false when no backend was found.
 func ResolveAgent(dir string) (backend, model string, ok bool) {
 	rec := readAgentRecord(dir)
+	claude := os.Getenv("CLAUDE_CODE_SESSION_ID")
+	inClaude := claude != "" || os.Getenv("CLAUDECODE") != ""
+	codex := os.Getenv("CODEX_SESSION_ID")
+	if codex == "" {
+		codex = os.Getenv("CODEX_THREAD_ID")
+	}
+	session := "" // the session Stele runs in, when an agent says
 	switch {
-	case os.Getenv("CLAUDECODE") != "":
-		backend = "claude"
+	case rec != nil && rec.Session != "" && rec.Session == codex:
+		backend, session = "codex", codex
+	case rec != nil && rec.Session != "" && rec.Session == claude:
+		backend, session = "claude", claude
+	case codex != "" && !inClaude:
+		backend, session = "codex", codex
+	case inClaude && codex == "":
+		backend, session = "claude", claude
 	case rec != nil && (rec.Agent == "claude" || rec.Agent == "codex"):
 		backend = rec.Agent
+	case inClaude:
+		backend, session = "claude", claude
 	default:
 		for _, cli := range []string{"claude", "codex"} {
 			if _, err := exec.LookPath(cli); err == nil {
@@ -55,7 +73,7 @@ func ResolveAgent(dir string) (backend, model string, ok bool) {
 			return "", "", false
 		}
 	}
-	if rec != nil && rec.Agent == backend {
+	if rec != nil && rec.Agent == backend && (session == "" || rec.Session == session) {
 		model = rec.Model
 	}
 	return backend, model, true

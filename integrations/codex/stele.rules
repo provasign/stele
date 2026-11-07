@@ -1,0 +1,10 @@
+# Written by `stele init`. Stele's change check calls the model through the
+# codex CLI, which cannot start inside Codex's sandbox: these commands run
+# outside it. Codex loads this file once it trusts the project.
+prefix_rule(
+    pattern = ["stele", ["change", "adopt"]],
+    decision = "allow",
+    justification = "Stele calls your model through the codex CLI, which cannot run inside the sandbox",
+    match = ["stele change shale . --base main --json", "stele adopt --json"],
+    not_match = ["stele gate"],
+)

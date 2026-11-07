@@ -401,6 +401,17 @@ source:
 	if err != nil || strings.Join(head.Entities["Cluster"].CreatedBy, ",") != "Cluster.init" {
 		t.Fatalf("head: %v", err)
 	}
+	// An answer about a step and an entity a later reading no longer has
+	// is left out, and the change's registry still loads.
+	if err := SaveAnswer(out, Answer{Question: "creates-gone", Kind: "creates", Choice: "creates", Term: "Plot.add", Existing: "Plot"}); err != nil {
+		t.Fatal(err)
+	}
+	if res, err = Run(context.Background(), opt); err != nil {
+		t.Fatalf("a stale answer broke the change: %v", err)
+	}
+	if _, err := ir.LoadDir(res.Head); err != nil {
+		t.Fatalf("head with a stale answer: %v", err)
+	}
 }
 
 // TestReportedWriteIsCorrected: an approved listing recorded as writing the

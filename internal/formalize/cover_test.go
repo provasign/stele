@@ -2,10 +2,12 @@ package formalize
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/provasign/stele/internal/checker"
@@ -603,6 +605,46 @@ func TestCoverUndoesWorseReread(t *testing.T) {
 	for _, e := range res.Ends {
 		if e.ID == stmts[1].ID && (len(e.Rules) != 1 || len(e.Uncovered) != 1 || e.Uncovered[0] != "before shipping") {
 			t.Fatalf("S2 = %+v, want its earlier rule and coverage", e)
+		}
+	}
+}
+
+// A reread that runs to the request limit is sent once: the statement keeps
+// its earlier rule.
+func TestCoverRereadThatStallsIsNotSentAgain(t *testing.T) {
+	dir, stmts, opt := compactFixture(t)
+	var mu sync.Mutex
+	rereads := 0
+	m := completionFunc(func(req llm.Request) (*llm.Reply, error) {
+		text := req.Turns[0].Text
+		switch {
+		case strings.HasPrefix(req.System, coverPrompt):
+			if strings.Contains(text, "s2") {
+				return &llm.Reply{JSON: `{"statements":[
+					{"statement_id":"s1","clauses":[{"text":"Orders MUST be paid","status":"covered","rules":["r1"]}]},
+					{"statement_id":"s2","clauses":[{"text":"Orders MUST be paid","status":"covered","rules":["r2"]},{"text":"before shipping","status":"uncovered","rules":[]}]}]}`}, nil
+			}
+			return coverReply("s1", `{"text":"Orders MUST be paid","status":"covered","rules":["r1"]},{"text":"before shipping","status":"uncovered","rules":[]}`), nil
+		case strings.Contains(text, "leave these clauses of the text uncovered"):
+			mu.Lock()
+			rereads++
+			mu.Unlock()
+			return nil, fmt.Errorf("codex: signal: killed: %w", context.DeadlineExceeded)
+		default:
+			return compactFixtureReply(true, compactRule("s1", "order.paid = true")+","+compactRule("s2", "order.paid = true")), nil
+		}
+	})
+	opt.NoCover = false
+	res, err := Run(context.Background(), m, stmts, dir, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rereads != 1 {
+		t.Errorf("the stalled reread was sent %d times", rereads)
+	}
+	for _, e := range res.Ends {
+		if e.ID == stmts[1].ID && len(e.Rules) != 1 {
+			t.Fatalf("S2 = %+v, want its earlier rule", e)
 		}
 	}
 }

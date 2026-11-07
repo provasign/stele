@@ -515,13 +515,17 @@ func retranslateFindings(ctx context.Context, m llm.Client, stmts []translate.St
 	note := func(id string) string {
 		k := slices.IndexFunc(cov, func(x StatementCoverage) bool { return x.StatementID == id })
 		var b strings.Builder
-		b.WriteString("the current rules are:")
-		for _, c := range old[id] {
-			if c.Outcome == "rule" && c.Error == "" {
-				fmt.Fprintf(&b, " [%s]", describeCandidate(c))
+		if hasRule(old[id]) {
+			b.WriteString("the current rules are:")
+			for _, c := range old[id] {
+				if c.Outcome == "rule" && c.Error == "" {
+					fmt.Fprintf(&b, " [%s]", describeCandidate(c))
+				}
 			}
+			b.WriteString(".")
+		} else {
+			b.WriteString("it has no rules yet.") // "the current rules are:." read as nothing to keep (2026-11-06)
 		}
-		b.WriteString(".")
 		if u := cov[k].uncovered(); len(u) > 0 {
 			var quoted []string
 			for _, x := range u {

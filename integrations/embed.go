@@ -34,3 +34,10 @@ var HookSettings string
 //
 //go:embed codex/hooks.example.json
 var CodexHooks string
+
+// CodexRules is the project rule that lets `stele change` and `stele
+// adopt` run outside Codex's sandbox, in .codex/rules/stele.rules: they call
+// the model through the codex CLI, which cannot start inside it.
+//
+//go:embed codex/stele.rules
+var CodexRules string

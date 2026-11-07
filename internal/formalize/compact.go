@@ -3,6 +3,7 @@ package formalize
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -180,8 +181,17 @@ func compactPass(ctx context.Context, m llm.Client, stmts []translate.Statement,
 					}
 					continue
 				}
+				stalled := errors.Is(r.err, context.DeadlineExceeded)
 				fmt.Fprintf(opt.Log, "  compact: request for %d statement(s) failed, retrying them: %v\n", len(part), r.err)
 				for _, s := range part {
+					if _, rereading := st.Rereading[s.ID]; stalled && rereading {
+						// A reread that runs to the request limit is not sent
+						// again: it keeps the earlier reading, as a failed
+						// reread does. On Codex the same reread stalled twice
+						// for 280 seconds each and then gave no rules (a
+						// developer trial, 2026-11-06).
+						attempts[s.ID] = repairs + 1
+					}
 					if st.CompactErrors[s.ID] == "" || strings.HasPrefix(st.CompactErrors[s.ID], backendFailed) {
 						st.CompactErrors[s.ID] = backendFailed + r.err.Error()
 					}

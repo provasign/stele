@@ -244,8 +244,8 @@ func (j *callJournal) Complete(ctx context.Context, req llm.Request) (*llm.Reply
 	defer j.mu.Unlock()
 	// Cancellation or the run's deadline stops later calls; this call's own
 	// deadline fails only this call.
-	if run.Err() != nil {
-		j.stop = err
+	if run.Err() != nil || errors.Is(err, llm.ErrSandboxed) {
+		j.stop = err // a sandboxed call: every later one fails the same way
 	}
 	// Preserve the exact input and raw reply before callers validate it. This
 	// makes failed translations reproducible without another backend call.

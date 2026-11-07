@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -41,5 +42,19 @@ func TestWarmOnlyWhereTheCacheSaves(t *testing.T) {
 	}
 	if !CachesPrompts(&claudeCLI{}) || !CachesPrompts(&codexCLI{}) || CachesPrompts(&commandCLI{}) {
 		t.Error("the CLIs cache; a custom command is not known to")
+	}
+}
+
+// Inside Codex's sandbox a failed CLI call says what to do, as an error the
+// run stops on.
+func TestCallInsideCodexSandboxSaysWhatToDo(t *testing.T) {
+	t.Setenv("CODEX_SANDBOX", "seatbelt")
+	_, err := (&commandCLI{command: "echo 'Operation not permitted' >&2; exit 1"}).Complete(context.Background(), Request{})
+	if !errors.Is(err, ErrSandboxed) || !strings.Contains(err.Error(), "outside the sandbox") {
+		t.Fatalf("got %v", err)
+	}
+	t.Setenv("CODEX_SANDBOX", "")
+	if _, err := (&commandCLI{command: "exit 1"}).Complete(context.Background(), Request{}); errors.Is(err, ErrSandboxed) {
+		t.Fatal("outside Codex's sandbox a failure is the backend's own")
 	}
 }

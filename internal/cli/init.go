@@ -56,6 +56,18 @@ func cmdInit(args []string, in io.Reader, out io.Writer, interactive bool) int {
 		case len(selected) == 0:
 			selected = detectHarnesses(dir)
 		}
+		// A spec format set up after Stele (`shale init` after `stele
+		// init`) is recorded, or Stele never reads its specs (2026-11-06).
+		if cfg.Specs == nil {
+			if cfg.Specs = detectSpecs(dir); cfg.Specs != nil {
+				useSpecs(dir, cfg, out)
+				if cfg.Specs != nil {
+					if err := config.Write(dir, *cfg); err != nil {
+						return fail(err)
+					}
+				}
+			}
+		}
 		return setUpAgents(dir, *cfg, selected, *hook, *gitHook, true, out)
 	}
 
@@ -165,32 +177,7 @@ func cmdInit(args []string, in io.Reader, out io.Writer, interactive bool) int {
 	if err := writeSteleIgnore(dir); err != nil {
 		return fail(err)
 	}
-	found := 0
-	if c.Specs != nil {
-		// The specs as they are now are the starting point: saved-spec sync
-		// reports what changes from here.
-		stmts, err := importSpecs(dir, c.Specs)
-		// A new Spec Kit, OpenSpec or Kiro project has its folders and no
-		// spec yet: each spec is checked as it is written. Turning sync off
-		// left stele.yaml without the specs, so nothing named the format
-		// (a developer trial, 2026-11-05).
-		empty := errors.Is(err, importer.ErrNoSpecs)
-		if empty {
-			stmts, err = nil, nil
-		}
-		if err == nil {
-			err = writeSnapshot(filepath.Join(dir, c.Specs.Snapshot), stmts, c.Specs.Format)
-		}
-		if err != nil {
-			fmt.Fprintf(out, "Could not read the %s specs (%v); saved-spec sync stays off until stele.yaml names them.\n", c.Specs.Format, err)
-			c.Specs = nil
-		} else if empty {
-			fmt.Fprintf(out, "Found a %s project with no specs yet; Stele checks each one as it is written.\n", formatLabel(c.Specs.Format))
-		} else {
-			fmt.Fprintf(out, "Found %s specs: %d requirement(s).\n", formatLabel(c.Specs.Format), len(stmts))
-			found = len(stmts)
-		}
-	}
+	found := useSpecs(dir, &c, out)
 	ctxFile := filepath.Join(reg, "context.yaml")
 	if _, err := os.Stat(ctxFile); errors.Is(err, os.ErrNotExist) {
 		starter := "# The first context. Add entities, operations and rules beside it (docs/04).\ncontext: main\nformatVersion: 1\nowner: \"\"\n"
@@ -261,7 +248,7 @@ func setUpAgents(dir string, c config.Config, selected []string, hook, gitHook, 
 	if hook && slices.Contains(selected, "codex") && slices.Contains(changed, filepath.Join(dir, ".codex", "hooks.json")) {
 		// Codex runs a project's hooks only once the user has reviewed them;
 		// that trust is the user's to give, so init never records it.
-		fmt.Fprintln(out, "Codex runs a project's hooks only after you review them: in Codex, run /hooks and trust Stele's two hooks (once on each machine, and again when Stele updates them).")
+		fmt.Fprintln(out, "Codex runs a project's hooks and rules only once it trusts the project: in Codex, trust the project when asked, and run /hooks to trust Stele's two hooks (once on each machine, and again when Stele updates them). The rule .codex/rules/stele.rules lets `stele change` run outside Codex's sandbox, which it needs to call the model.")
 	}
 	return 0
 }
@@ -349,6 +336,38 @@ func availableLLM(def string) (string, bool) {
 		return "openai", true
 	}
 	return def, false
+}
+
+// useSpecs takes the specs of c's spec layout as they are now as the
+// starting point, so that saved-spec sync reports what changes from here,
+// and says what it found. It returns the requirements found; c.Specs is
+// cleared when they cannot be read.
+func useSpecs(dir string, c *config.Config, out io.Writer) int {
+	if c.Specs == nil {
+		return 0
+	}
+	stmts, err := importSpecs(dir, c.Specs)
+	// A new Spec Kit, OpenSpec or Kiro project has its folders and no
+	// spec yet: each spec is checked as it is written. Turning sync off
+	// left stele.yaml without the specs, so nothing named the format
+	// (a developer trial, 2026-11-05).
+	empty := errors.Is(err, importer.ErrNoSpecs)
+	if empty {
+		stmts, err = nil, nil
+	}
+	if err == nil {
+		err = writeSnapshot(filepath.Join(dir, c.Specs.Snapshot), stmts, c.Specs.Format)
+	}
+	switch {
+	case err != nil:
+		fmt.Fprintf(out, "Could not read the %s specs (%v); saved-spec sync stays off until stele.yaml names them.\n", c.Specs.Format, err)
+		c.Specs = nil
+	case empty:
+		fmt.Fprintf(out, "Found a %s project with no specs yet; Stele checks each one as it is written.\n", formatLabel(c.Specs.Format))
+	default:
+		fmt.Fprintf(out, "Found %s specs: %d requirement(s).\n", formatLabel(c.Specs.Format), len(stmts))
+	}
+	return len(stmts)
 }
 
 // detectSpecs finds the project's spec layout from its folders, or nil.

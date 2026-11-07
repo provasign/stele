@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -33,10 +34,21 @@ func run(ctx context.Context, name string, args []string, stdin string) (string,
 		untrack()
 	}
 	if err != nil {
+		if os.Getenv("CODEX_SANDBOX") != "" && ctx.Err() == nil {
+			// Inside Codex's sandbox a model CLI cannot start (codex: "failed
+			// to initialize in-process app-server client: Operation not
+			// permitted") and has no network: say what to do once, instead
+			// of retrying every statement (2026-11-06).
+			return stdout.String(), stderr.String(), fmt.Errorf("%w (%s: %v)", ErrSandboxed, name, err)
+		}
 		return stdout.String(), stderr.String(), fmt.Errorf("%s: %w\n%s", name, err, tail(stderr.String()+stdout.String()))
 	}
 	return stdout.String(), stderr.String(), nil
 }
+
+// ErrSandboxed is a model call that failed inside Codex's sandbox, where
+// no model CLI can run.
+var ErrSandboxed = errors.New("Stele calls your model through its CLI, which cannot run inside Codex's sandbox: run this stele command again outside the sandbox. Once Codex trusts this project, its rule .codex/rules/stele.rules lets `stele change` and `stele adopt` run outside the sandbox without asking; otherwise approve running it outside the sandbox")
 
 func tail(s string) string {
 	if len(s) > 2000 {

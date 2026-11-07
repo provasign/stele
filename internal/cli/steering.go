@@ -151,6 +151,17 @@ func installSteering(dir string, selected []string, hook bool) ([]string, error)
 			changed = append(changed, path)
 		}
 	}
+	if slices.Contains(selected, "codex") {
+		// Without it, every check under Codex fails in the sandbox.
+		path := filepath.Join(dir, ".codex", "rules", "stele.rules")
+		ok, err := writeIfChanged(path, integrations.CodexRules)
+		if err != nil {
+			return changed, err
+		}
+		if ok {
+			changed = append(changed, path)
+		}
+	}
 	for _, h := range agentHooks {
 		if !hook || !slices.Contains(selected, h.agent) {
 			continue

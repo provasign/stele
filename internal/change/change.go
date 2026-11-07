@@ -516,7 +516,24 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 	if err := writeWrites(filepath.Join(res.Head, prefix+".writes.yaml"), res.InferredWrites, keeps(answers)); err != nil {
 		return nil, err
 	}
-	if err := writeCreators(filepath.Join(res.Head, prefix+".created.yaml"), creators(answers), newIn); err != nil {
+	// An answer about a step the current reading no longer has is left out:
+	// a reread named the entity differently, and the answer's "extend Plot"
+	// stopped the change's registry from loading (a developer trial on
+	// Codex, 2026-11-06). Stele asks again where the step still matters.
+	created := creators(answers)
+	if reg, err := ir.LoadDir(res.Head); err == nil {
+		for e, ops := range created {
+			if reg.Entities[e] == nil {
+				delete(created, e)
+				continue
+			}
+			created[e] = slices.DeleteFunc(ops, func(op string) bool { return reg.Operations[op] == nil })
+			if len(created[e]) == 0 {
+				delete(created, e)
+			}
+		}
+	}
+	if err := writeCreators(filepath.Join(res.Head, prefix+".created.yaml"), created, newIn); err != nil {
 		return nil, err
 	}
 	retire := map[string]bool{}

@@ -110,6 +110,9 @@ func TestInitSetsUpAgents(t *testing.T) {
 	if strings.Count(codex, ".codex/hooks/stele-hook.js") != 2 || !strings.Contains(codex, "UserPromptSubmit") || !strings.Contains(codex, "their-tool capture") {
 		t.Fatalf("Codex hooks: %s", codex)
 	}
+	if !strings.Contains(read(".codex/rules/stele.rules"), `pattern = ["stele", ["change", "adopt"]]`) {
+		t.Fatalf("no Codex rule letting the change check run outside the sandbox: %q", read(".codex/rules/stele.rules"))
+	}
 	if !strings.Contains(codex, "2>/dev/null") {
 		t.Fatalf("the Codex hook command is escaped, not as written: %s", codex)
 	}
@@ -246,5 +249,29 @@ func TestDetectSpecKitFeatureFolders(t *testing.T) {
 		if got := detectSpecs(dir); got == nil || got.Format != c.want {
 			t.Errorf("%s: %+v, want %s", c.file, got, c.want)
 		}
+	}
+}
+
+// Shale set up after Stele: running stele init again records its requests
+// as the specs, or Stele never reads them.
+func TestInitAgainRecordsAFormatSetUpLater(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	dir := t.TempDir()
+	var out bytes.Buffer
+	if code := cmdInit([]string{dir, "--yes", "--harness", "codex", "--hook=false", "--git-hook=false"}, strings.NewReader(""), &out, false); code != 0 {
+		t.Fatalf("exit %d: %s", code, out.String())
+	}
+	if c, _ := config.Find(dir); c.Specs != nil {
+		t.Fatalf("specs before Shale: %+v", c.Specs)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".shale"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if code := cmdInit([]string{dir, "--yes", "--harness", "codex", "--hook=false", "--git-hook=false"}, strings.NewReader(""), &out, false); code != 0 {
+		t.Fatalf("exit %d: %s", code, out.String())
+	}
+	if c, _ := config.Find(dir); c.Specs == nil || c.Specs.Format != "shale" {
+		t.Fatalf("Shale not recorded: %+v\n%s", c, out.String())
 	}
 }
