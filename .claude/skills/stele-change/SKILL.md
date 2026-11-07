@@ -46,7 +46,7 @@ It reads every requirement once and checks them against each other. Its JSON is 
      stele change shale . --base main --json
      ```
 
-     The base is chosen as for Spec Kit. A request that only tidies or documents (no behaviour to check) comes back with one question for the owner: a requirement to keep, or a one-off task to set aside.
+     The base is chosen as for Spec Kit. A request that only tidies or documents (no behaviour to check) comes back with one question for the owner. Put it as Stele words it, with both answers and what each does: a one-off job, done when the work is done, which `task` sets aside so it is never approved as a requirement; or a requirement the product keeps from now on, which Stele records in the spec without checking it.
 2. Read the result. If the command fails without printing JSON (a configuration or setup error), report the error to the owner in one line and stop: it is not a question for them.
 
    Progress goes to stderr; the JSON on stdout has `status`, `next` and `questions`.

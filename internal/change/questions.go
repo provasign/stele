@@ -732,7 +732,12 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 	// A request that gives Stele nothing to check is often a one-off task,
 	// not something the product must keep ("write the review", "set up the
 	// tracker"): approving it would record a requirement that protects
-	// nothing (a developer trial, 2026-11-02). The owner says which.
+	// nothing (a developer trial, 2026-11-02). The owner says which. The
+	// question says why Stele asks, what each answer means and what
+	// follows, since the owner reads it as the agent relays it, without
+	// Stele's terms: "found nothing to check ... requirement or one-off
+	// task?" was answered "task" for a requirement the owner meant to keep
+	// (the owner, 2026-11-07).
 	if res.Format == "shale" {
 		for _, id := range append(append([]string{}, res.Added...), res.Modified...) {
 			if _, failed := res.Failed[id]; failed || len(res.Rules[id]) > 0 || !strings.HasPrefix(id, "intent/") {
@@ -740,10 +745,10 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 			}
 			q := Question{ID: qid("task", id, translate.TextHash(res.Statements[id])), Kind: "task", AskOwner: true,
 				Requirements: []Requirement{req(id)}, Statements: []string{id}}
-			q.Text = fmt.Sprintf("Stele found nothing to check in the request %q. Is it a requirement the product must keep, or a one-off task?", req(id).Title)
+			q.Text = fmt.Sprintf("The request %q states nothing Stele can check in the code: no behaviour the product keeps, such as what it does, never does or defaults to. Was it a one-off job, done once the work is done (a review, a write-up, a trial)? Or is it a requirement the product must keep from now on, which Stele records in the spec without being able to check it?", req(id).Title)
 			q.Options = []Option{
-				{Choice: "task", Label: "A one-off task, not a requirement", Then: "Stele sets the request aside in .stele/retired-intents.yaml and it leaves the change; run `stele change` again"},
-				{Choice: "requirement", Label: "A requirement, though Stele cannot check it", Then: "it goes to the approval as a requirement Stele records but does not check; run `stele change` again"},
+				{Choice: "task", Label: "A one-off job: done when the work is done, never approved as a requirement", Then: "Stele sets the request aside in .stele/retired-intents.yaml and it leaves the change; run `stele change` again"},
+				{Choice: "requirement", Label: "A requirement the product keeps from now on: Stele records it in the spec without checking it", Then: "it goes to the approval as a requirement Stele records but does not check; run `stele change` again"},
 			}
 			if !answered(as, q) {
 				qs = append(qs, q)

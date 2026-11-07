@@ -1172,7 +1172,8 @@ func TestShaleTaskIsSetAside(t *testing.T) {
 			task = &res.Questions[i]
 		}
 	}
-	if task == nil || !strings.Contains(task.Text, `"Write the quarterly review"`) || len(task.Options) != 2 {
+	if task == nil || !strings.Contains(task.Text, `"Write the quarterly review"`) || len(task.Options) != 2 ||
+		!strings.Contains(task.Text, "nothing Stele can check") || !strings.Contains(task.Text, "done once the work is done") || !strings.Contains(task.Text, "without being able to check it") {
 		t.Fatalf("questions = %+v; want the task question (added %v rules %v unchecked %v failed %v format %q)", res.Questions, res.Added, res.Rules, res.Unchecked, res.Failed, res.Format)
 	}
 
