@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.1.8 - 2026-11-08
 
 - **A check reads its prompt from the cache in every wave.** The vocabulary a check starts from goes in the cached system prompt, and the terms its own earlier waves added go in each request, so repairs and rereads read the same cached prompt instead of writing a new one. Before, every new term changed the prompt: a two-requirement check on v0.1.6 sent a 15,000-token prompt five times and read none of it from the cache. On a two-requirement check with Sonnet it cost $0.12 instead of $0.17, in 40 seconds instead of 48.
 - **Translation replies group rules under their requirement,** which names its overrides once. Replies are about 3% shorter per rule. With the cache change, three runs of the 60-requirement held-out set cost $1.12 to $1.21 (before: $1.34 to $1.50), with 12 to 19 clauses unchecked (before: 9 to 24); one of the three left 17 requirements needing vocabulary where the others left 0 and 5.
