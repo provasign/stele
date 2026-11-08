@@ -26,7 +26,7 @@ It reads every requirement once and checks them against each other. Its JSON is 
 
 ## Loop
 
-1. Find the change and run the check:
+1. Find the change and run the check, as soon as the draft is written and before you show the spec to the owner, so the check runs while you finish. Where Shale is installed, declare the task first with `shale intent "<title>" --for <change-id>`, naming the spec change it implements:
    - **OpenSpec:** the change folder you just wrote, or `stele change openspec . --list`:
 
      ```sh
@@ -47,10 +47,10 @@ It reads every requirement once and checks them against each other. Its JSON is 
      stele change shale . --base main --json
      ```
 
-     `stele keep` keeps the newest request; name another by its ID or the start of its title, and `--drop` makes a kept request a task again (when the owner says it is not a requirement). Commit `.stele/kept-intents.yaml` with the change. The base is chosen as for Spec Kit. A kept request with no behaviour to check comes back with one question for the owner. Put it as Stele words it, with both answers and what each does: a one-off job, which `task` sets aside; or a requirement the product keeps from now on, which Stele records in the spec without checking it.
+     `stele keep` keeps the newest request; name another by its ID or the start of its title, and `--decline` sets a request aside for good when the owner says it is not a requirement, and `--drop` makes a kept request a task again. When a task you did not keep turns out to state a lasting rule (the owner said "from now on", "never", "always", a default or a limit), offer it once, in one line, when the work is done: keep it as a requirement so Stele guards it, or not. Yes: `stele keep <request> --by agent`; no, or no answer: `stele keep <request> --decline`, never offered again. `stele keep --list` shows which requests are kept, set aside, or tasks never offered. `stele export openspec` turns a project's kept requests into its first OpenSpec spec when it adopts the tool. Commit `.stele/kept-intents.yaml` with the change. The base is chosen as for Spec Kit. A kept request with no behaviour to check comes back with one question for the owner. Put it as Stele words it, with both answers and what each does: a one-off job, which `task` sets aside; or a requirement the product keeps from now on, which Stele records in the spec without checking it.
 2. Read the result. If the command fails without printing JSON (a configuration or setup error), report the error to the owner in one line and stop: it is not a question for them.
 
-   Progress goes to stderr; the JSON on stdout has `status`, `next` and `questions`.
+   Progress goes to stderr; the JSON on stdout has `status`, `summary`, `next` and `questions`. `summary` is the check in the owner's words: show the spec with it underneath and the questions in one round, so the owner approves the spec and Stele's reading in one act.
 3. Act on `status`:
    - `clean`: nothing to decide. Tell the owner in one line.
    - `approved`: the owner already approved this change as it reads. Do not check it again; commit the registry with the change.

@@ -12,6 +12,10 @@
 - **The agent rereads a requirement once per change.** Stele refuses a second reread note or `misread` answer from the agent for the same requirement; the reading then stands, and the owner sees what it misses among the findings at the approval. Notes had chased each other, each reread fixing one reading and making another too wide.
 - **Several questions for the owner are announced.** When more than one waits, the next step tells the agent to say how many and what about before the first.
 - **The agent hook says nothing in a project with no specs configured,** and says a failure to check once, not after every command.
+- **The check's JSON carries a `summary`:** the check in the owner's words (how many requirements, checked against how many, whether they agree, what Stele cannot check, what needs deciding), for the agent to show under the spec it drafted, so the owner approves the spec and Stele's reading in one act.
+- **`stele keep --decline` and `--list`.** The owner's no to keeping a request sets it aside for good, so no agent offers it again; the list shows each request's state. The agent instructions say to offer a lasting rule once, when the work is done, and never to ask about chores.
+- **`stele export openspec`** writes a Shale project's kept requests as its first OpenSpec spec; the approved rules follow their statements under the new IDs, `stele.yaml` names OpenSpec, and Shale stays as the record of tasks.
+- **The agent instructions run the check while the draft is finished,** before the spec is shown, and name the spec change a task implements with `shale intent --for`.
 - Tried and not kept, measured on the same set: Sonnet at medium effort cost no less ($1.50); batches of 10 requirements with 8 calls in parallel cost more ($1.43), left 11 requirements needing vocabulary and invented two names for one fact; a reread that names the rules it keeps instead of writing them out saved a quarter of the reread but recovered 7 of 32 requirements where the full rewrite recovers 16 to 25.
 
 ## v0.1.7 - 2026-11-06

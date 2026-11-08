@@ -51,6 +51,14 @@ That is all you run. `init` finds your spec format and coding agents, and writes
 
 Stele needs the [Z3](https://github.com/Z3Prover/z3) solver on PATH; the installer tells you the command for your system. Its Claude Code and Codex hooks run with [Node.js](https://nodejs.org); `stele init` says so when `node` is missing. To build from source instead: `GOWORK=off go build -o bin/stele ./cmd/stele` (Go 1.26). `stele --help` lists every command, and the [docs](docs/README.md) explain each step.
 
+## With Shale
+
+[Shale](https://github.com/provasign/shale) records what an agent did: the task it declared, the files and commands, the outcome. Stele records what must stay true. The owner is asked at one moment per feature.
+
+**With a spec tool.** The agent drafts the spec change and runs Stele on it while it finishes the draft. You see the spec with Stele's summary under it and its questions in one round, and approve the spec and Stele's reading in one act. Planning and coding are silent: the hook tells the agent, not you, which approved requirements an edit touches, and the pre-commit check blocks only a commit that breaks one. The task names the change it implements (`shale intent --for <change-id>`), so the commit shows the requirement, the task and the code together on Shale's card.
+
+**Without one.** The agent does the task and Shale records it; Stele says nothing. When a task states a lasting rule ("never delete a locked file", a default, a limit), the agent offers once, when the work is done, to keep it as a requirement; no means it is never offered again. Kept requests form the spec over time, and `stele export openspec` turns them into the project's first OpenSpec spec when it adopts the tool.
+
 ## What to expect
 
 Measured on the case studies and held-out sets (single runs, small labelled sets):

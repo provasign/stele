@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/provasign/stele/internal/adopt"
+	"github.com/provasign/stele/internal/card"
 	"github.com/provasign/stele/internal/change"
 	"github.com/provasign/stele/internal/config"
 	"github.com/provasign/stele/internal/formalize"
@@ -235,8 +236,12 @@ type changeSummary struct {
 	// broken (the registry after the change does not compile),
 	// questions (something needs deciding), ready (only the approval is
 	// left) or clean (nothing to approve).
-	Status    string            `json:"status"`
-	Next      string            `json:"next"`
+	Status string `json:"status"`
+	Next   string `json:"next"`
+	// Summary is the check in the owner's words: one short paragraph the
+	// agent shows under the spec it drafted, so the owner reviews the spec
+	// and Stele's reading in one act (the flow agreed on 2026-11-08).
+	Summary   string            `json:"summary"`
 	Questions []change.Question `json:"questions"`
 	Errors    []string          `json:"errors,omitempty"`
 	Added     []string          `json:"added,omitempty"`
@@ -287,6 +292,7 @@ func summarize(res *change.Result, outDir string) changeSummary {
 	default:
 		s.Status, s.Next = "broken", "the check did not finish; see the report"
 	}
+	s.Summary = ownerSummary(res, s.Status)
 	if res.Change == adoptChange {
 		s.Next = forAdoption(s.Next)
 		for i, q := range s.Questions {
@@ -298,6 +304,102 @@ func summarize(res *change.Result, outDir string) changeSummary {
 		}
 	}
 	return s
+}
+
+// ownerSummary is the check as the owner reads it: how many requirements,
+// what they were checked against, whether they agree, what Stele cannot
+// check, and what needs deciding. No rule syntax, no symbol names.
+func ownerSummary(res *change.Result, status string) string {
+	title := func(id string) string { return `"` + card.Title(res.Statements[id], id) + `"` }
+	n := len(res.Added) + len(res.Modified)
+	var b strings.Builder
+	switch {
+	case n == 0 && len(res.Removed) == 0:
+		return "No requirement changed."
+	case n == 0:
+		fmt.Fprintf(&b, "This change retires %d requirement%s.", len(res.Removed), plural(len(res.Removed)))
+	default:
+		what := fmt.Sprintf("%d requirement%s", n, plural(n))
+		if len(res.Added) > 0 && len(res.Modified) > 0 {
+			what += fmt.Sprintf(" (%d new, %d edited)", len(res.Added), len(res.Modified))
+		} else if len(res.Modified) > 0 {
+			what += " (edited)"
+		}
+		fmt.Fprintf(&b, "Stele read %s", what)
+		if reg, err := ir.LoadDir(res.Registry); err == nil {
+			if k := approvedStatements(reg); k > 0 {
+				fmt.Fprintf(&b, " and checked %s against the %d approved before", pick(n == 1, "it", "them"), k)
+			}
+		}
+		b.WriteString(".")
+		if len(res.Removed) > 0 {
+			fmt.Fprintf(&b, " It retires %d.", len(res.Removed))
+		}
+	}
+	switch status {
+	case "failed":
+		fmt.Fprintf(&b, " The model could not read %d of them, so nothing is checked yet.", len(res.Failed))
+		return b.String()
+	case "broken":
+		b.WriteString(" Stele could not check this change: its readings do not fit together.")
+		return b.String()
+	}
+	var clashes, decisions []string
+	for _, q := range res.Questions {
+		if !q.AskOwner || q.Kind == "approve" {
+			continue
+		}
+		var names []string
+		for _, r := range q.Requirements {
+			names = append(names, `"`+r.Title+`"`)
+		}
+		if q.Kind == "conflict" && len(names) == 2 {
+			clashes = append(clashes, names[0]+" and "+names[1])
+		} else {
+			decisions = append(decisions, q.Kind)
+		}
+	}
+	if len(clashes) == 0 && len(decisions) == 0 {
+		b.WriteString(pick(n == 1, " It agrees", " They agree") + " with the approved requirements.")
+	}
+	if len(clashes) > 0 {
+		fmt.Fprintf(&b, " %s cannot both hold: %s.", pick(len(clashes) == 1, "Two requirements", "Some requirements"), strings.Join(clashes, "; "))
+	}
+	if len(decisions) > 0 {
+		fmt.Fprintf(&b, " %d other decision%s %s needed.", len(decisions), plural(len(decisions)), pick(len(decisions) == 1, "is", "are"))
+	}
+	if len(res.Unchecked) > 0 {
+		ids := slices.Sorted(maps.Keys(res.Unchecked))
+		var names []string
+		for _, id := range ids {
+			names = append(names, title(id))
+		}
+		fmt.Fprintf(&b, " Stele cannot check %s and would record %s unchecked.", strings.Join(names, ", "), pick(len(ids) == 1, "it", "them"))
+	}
+	flagged := 0
+	for _, id := range append(append([]string{}, res.Added...), res.Modified...) {
+		if len(res.Findings[id]) > 0 {
+			flagged++
+		}
+	}
+	if flagged > 0 {
+		fmt.Fprintf(&b, " Its reading of %d may say less or more than the text; the approval lists where.", flagged)
+	}
+	return b.String()
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
+}
+
+func pick(cond bool, a, b string) string {
+	if cond {
+		return a
+	}
+	return b
 }
 
 // ownerQuestions counts the questions for the owner.

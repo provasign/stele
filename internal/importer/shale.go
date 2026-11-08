@@ -58,7 +58,7 @@ type KeptIntent struct {
 // Shale reads the requests kept as requirements (KeptIntentsFile) among
 // those ShaleRequests reads. A request not kept is a task and says nothing.
 func Shale(repo string) ([]translate.Statement, error) {
-	all, err := shale(repo)
+	all, err := shale(repo, false)
 	if err != nil {
 		return nil, err
 	}
@@ -95,10 +95,16 @@ func Shale(repo string) ([]translate.Statement, error) {
 // own: Shale folds it into a continuation, .shale/<id>-c2.yaml and on, and
 // it reads as `intent/<id>-c2`.
 func ShaleRequests(repo string) ([]translate.Statement, error) {
-	return shale(repo)
+	return shale(repo, false)
 }
 
-func shale(repo string) ([]translate.Statement, error) {
+// ShaleRequestsAll is ShaleRequests with the retired requests too, for a
+// listing of every request's state.
+func ShaleRequestsAll(repo string) ([]translate.Statement, error) {
+	return shale(repo, true)
+}
+
+func shale(repo string, withRetired bool) ([]translate.Statement, error) {
 	dir := filepath.Join(repo, ".shale")
 	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
 		return nil, fmt.Errorf("no .shale/ under %s: %w", repo, ErrNoSpecs)
@@ -190,7 +196,7 @@ func shale(repo string) ([]translate.Statement, error) {
 	var out []translate.Statement
 	for _, in := range found {
 		id := "intent/" + in.session
-		if retired[id] {
+		if retired[id] && !withRetired {
 			continue
 		}
 		prose := strings.TrimSpace(in.title)
