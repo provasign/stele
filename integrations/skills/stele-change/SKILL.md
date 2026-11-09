@@ -12,7 +12,7 @@ Stele translates the requirements a change adds or edits into checkable rules an
 - `stele` must be on PATH. `stele.yaml` at the repository root names the approved registry (`registry:`) and the model (`translate.llm`, `translate.model`); `stele change` uses them. Without `stele.yaml`, pass `--registry <dir>` and ask the owner once where the registry is.
 - A check that reuses earlier translations costs nothing; one that translates usually costs a few cents to a few tens of cents. It prints `cost_usd`.
 - A check that reads new requirements takes a few minutes. Wait for it to finish and read its JSON before any edit; do not work on the code while it runs, since its questions can change what the code must do.
-- Run `stele change` and `stele adopt` as written, without pipes or redirection, and read the JSON they print. Stele calls the model through your CLI, which cannot run inside Codex's sandbox; under Codex, the project's rule (`.codex/rules/stele.rules`) lets exactly these commands run outside it once Codex trusts the project. If one says it cannot run inside Codex's sandbox, run it again outside the sandbox.
+- Run `stele change` and `stele adopt` as written, without pipes or redirection, and read the JSON they print. Stele calls the model through your Claude Code CLI.
 
 ## Adopting existing specs
 

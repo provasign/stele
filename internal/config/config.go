@@ -140,12 +140,11 @@ func Write(dir string, c Config) error {
 	header := "# Stele settings. See docs/04-data-model.md for the registry layout.\n" +
 		"# translate.drafts: drafts per requirement. 1 is cheapest. Above 1, readings are\n" +
 		"# compared by the solver and disagreements become questions for the spec author.\n" +
-		"# translate.llm: agent runs Stele's calls on the coding agent you run it from (Claude\n" +
-		"# Code or Codex) and the model it is using; claude, codex, anthropic, openai, cmd name one.\n" +
+		"# translate.llm: agent runs Stele's calls on Claude Code, the coding agent you run it\n" +
+		"# from, and the model it is using; claude (the CLI) and anthropic (an API key) name one.\n" +
 		"# translate.model: pins a model (unset: the agent's, or the CLI's own default). On a\n" +
 		"# 60-requirement set, claude-sonnet-5-5 read for a quarter of Opus's cost in a third\n" +
 		"# of the time, with more clauses left unchecked.\n" +
-		"# translate.effort: the model's reasoning effort (unset: medium on codex, the CLI's\n" +
-		"# default otherwise). Higher is slower and was not more accurate on codex.\n"
+		"# translate.effort: the model's reasoning effort (unset: the CLI's default).\n"
 	return os.WriteFile(filepath.Join(dir, FileName), append([]byte(header), src...), 0o644)
 }

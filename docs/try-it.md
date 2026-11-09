@@ -5,7 +5,7 @@ This is the preview guide: an hour with Stele on a small project of your own, an
 ## What you need
 
 - **git**, and a repository you can experiment in. A new one is best for a first try.
-- **A coding agent:** [Claude Code](https://claude.com/claude-code) or [Codex](https://github.com/openai/codex), signed in. Stele reads your specs through the agent you are using at the time, with the model it is using, so its spend lands on that account. Measured on a 60-requirement set with Claude Code: about 2 cents per requirement on Sonnet 5.5 and 8 cents on Opus 5.5, so a feature of 5 to 15 requirements costs about $0.10 to $1.20 of Stele's own calls, on top of what the agent itself spends; a feature that needs many rereads costs more. `translate.model` in `stele.yaml` pins a model for Stele's calls alone.
+- **[Claude Code](https://claude.com/claude-code),** signed in: the one coding agent Stele supports for now. Stele reads your specs through it, with the model it is using, so its spend lands on that account. Measured on a 60-requirement set with Claude Code: about 2 cents per requirement on Sonnet 5.5 and 8 cents on Opus 5.5, so a feature of 5 to 15 requirements costs about $0.10 to $1.20 of Stele's own calls, on top of what the agent itself spends; a feature that needs many rereads costs more. `translate.model` in `stele.yaml` pins a model for Stele's calls alone.
 - **[Z3](https://github.com/Z3Prover/z3)**, the solver: `brew install z3`, or your system's package (`apt install z3`).
 - **[Node.js](https://nodejs.org)**, which runs Stele's agent hooks.
 - **Optional:** [Spec Kit](https://github.com/github/spec-kit), [OpenSpec](https://github.com/Fission-AI/OpenSpec) or [Kiro](https://kiro.dev), if you already write specs with one. Without one, plain Markdown requirements work, and so do requests declared with [Shale](https://github.com/provasign/shale).
@@ -24,7 +24,7 @@ stele init
 git add -A && git commit -m "Set up Stele"
 ```
 
-`init` finds your spec format and your agents, writes Stele's short instructions and hooks for them, and says what is missing. **On Codex,** open `/hooks` once and trust the project's hooks: Codex runs none until you do, and Stele never does it for you.
+`init` finds your spec format, writes Stele's short instructions and hooks for Claude Code, and says what is missing.
 
 ## The first hour
 
@@ -69,7 +69,7 @@ Then the agent writes the code and commits the specs, the registry and the code 
 
 Open an issue at [provasign/stele](https://github.com/provasign/stele/issues), or reply to whoever sent you this guide, with:
 
-- your agent (Claude Code or Codex) and `stele version`;
+- `stele version` and `claude --version`;
 - for each question you thought was wrong or unclear: the question as the agent put it, and what you answered;
 - anything that got stuck, with `.stele/change/<feature>/report.md` attached if you can share it;
 - your answers to the questions under "What to look for".

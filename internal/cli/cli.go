@@ -27,7 +27,7 @@ import (
 const usage = `usage: stele <command> [flags]
 
 commands:
-  init [dir]             create stele.yaml and an empty registry, and set up coding agents (--harness claude,codex,cursor,windsurf,vscode,gemini,opencode)
+  init [dir]             create stele.yaml and an empty registry, and set up Claude Code, the one coding agent supported for now
   check [registry-dir]   find rules that no system response can satisfy together; in a project with no
                          directory, every approved requirement against every other (run after a merge or pull)
   gate --base DIR --head DIR   decide whether a registry change may merge (CI)

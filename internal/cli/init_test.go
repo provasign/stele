@@ -82,8 +82,28 @@ func TestInitSetsUpAgents(t *testing.T) {
 	}
 	var out bytes.Buffer
 	all := "claude,codex,cursor,windsurf,vscode,gemini,opencode"
-	if code := cmdInit([]string{dir, "--yes", "--harness", all, "--hook"}, strings.NewReader(""), &out, false); code != 0 {
+	// Stele supports Claude Code only for now: a new setup refuses the
+	// others by name.
+	if code := cmdInit([]string{dir, "--yes", "--harness", "codex", "--hook"}, strings.NewReader(""), &out, false); code == 0 {
+		t.Fatalf("codex on a new project: exit %d: %s", code, out.String())
+	}
+	out.Reset()
+	if code := cmdInit([]string{dir, "--yes", "--harness", "claude", "--hook"}, strings.NewReader(""), &out, false); code != 0 {
 		t.Fatalf("exit %d: %s", code, out.String())
+	}
+	// A project set up when Stele offered every agent records them all, and
+	// init keeps refreshing each.
+	c, err := config.Find(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Harnesses = strings.Split(all, ",")
+	if err := config.Write(dir, *c); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if code := cmdInit([]string{dir, "--yes", "--hook"}, strings.NewReader(""), &out, false); code != 0 {
+		t.Fatalf("refresh of recorded agents: exit %d: %s", code, out.String())
 	}
 	read := func(p string) string {
 		b, _ := os.ReadFile(filepath.Join(dir, p))
@@ -119,7 +139,7 @@ func TestInitSetsUpAgents(t *testing.T) {
 	if !strings.Contains(out.String(), "/hooks") {
 		t.Fatalf("init does not say Codex asks to review its hooks:\n%s", out.String())
 	}
-	c, err := config.Find(dir)
+	c, err = config.Find(dir)
 	if err != nil || strings.Join(c.Harnesses, ",") != all {
 		t.Fatalf("harnesses recorded = %v, %v", c, err)
 	}
@@ -134,19 +154,17 @@ func TestInitSetsUpAgents(t *testing.T) {
 	if read(".codex/hooks.json") != codex || strings.Contains(out.String(), "/hooks") {
 		t.Fatalf("refresh changed Codex hooks or repeated the review note:\n%s", out.String())
 	}
-	// Only Gemini now: AGENTS.md keeps the project's notes and loses Stele's
-	// section; GEMINI.md keeps it.
-	if code := cmdInit([]string{dir, "--harness", "gemini"}, strings.NewReader(""), &out, false); code != 0 {
+	// Only Claude Code now: AGENTS.md keeps the project's notes and loses
+	// Stele's section; CLAUDE.md, a link to it, follows; the other agents'
+	// files and unedited skill copies go.
+	if code := cmdInit([]string{dir, "--harness", "claude"}, strings.NewReader(""), &out, false); code != 0 {
 		t.Fatalf("narrow: %d %s", code, out.String())
 	}
-	if agents = read("AGENTS.md"); strings.Contains(agents, steeringBegin) || !strings.Contains(agents, "Use tabs.") {
-		t.Fatalf("AGENTS.md after deselecting its agents:\n%s", agents)
+	if read(".agents/skills/stele-change/SKILL.md") != "" || read(".claude/skills/stele-change/SKILL.md") == "" {
+		t.Fatal("the deselected agents' unedited skill copy should go, Claude Code's stay")
 	}
-	if read(".claude/skills/stele-change/SKILL.md") != "" || read(".agents/skills/stele-change/SKILL.md") != "" {
-		t.Fatal("a deselected agent's unedited skill copy should go")
-	}
-	if !strings.Contains(read("GEMINI.md"), steeringBegin) || read(".github/copilot-instructions.md") != "" {
-		t.Fatal("GEMINI.md should keep Stele's section and Copilot's file (Stele's only) should be gone")
+	if strings.Contains(read("GEMINI.md"), steeringBegin) || read(".github/copilot-instructions.md") != "" {
+		t.Fatal("GEMINI.md should lose Stele's section and Copilot's file (Stele's only) should be gone")
 	}
 }
 
@@ -159,7 +177,7 @@ func TestInitFindsOpenSpec(t *testing.T) {
 	os.MkdirAll(filepath.Dir(spec), 0o755)
 	os.WriteFile(spec, []byte("# Orders\n\n## Requirements\n\n### Requirement: No cancel after shipping\nAn order MUST NOT be cancelled once it has shipped.\n\n#### Scenario: Shipped\n- **WHEN** a shipped order is cancelled\n- **THEN** the system refuses\n"), 0o644)
 	var out bytes.Buffer
-	if code := cmdInit([]string{dir, "--harness", "codex", "--git-hook=false"}, strings.NewReader(""), &out, false); code != 0 {
+	if code := cmdInit([]string{dir, "--harness", "claude", "--git-hook=false"}, strings.NewReader(""), &out, false); code != 0 {
 		t.Fatalf("exit %d: %s", code, out.String())
 	}
 	if !strings.Contains(out.String(), "Found OpenSpec specs: 1 requirement(s).") {
@@ -181,10 +199,10 @@ func TestInitFindsOpenSpec(t *testing.T) {
 // detectSpecs reads Spec Kit's feature folders as Spec Kit even without
 // .specify/, and other specs/ folders as plain Markdown.
 // A new Spec Kit project, with .specify/ and no spec yet, keeps its specs
-// in stele.yaml; and with only the codex CLI installed, Codex translates.
-// Set up for the claude CLI, a Codex-only machine failed every translation
-// (a developer trial, 2026-11-05).
-func TestInitNewSpecKitProjectOnCodex(t *testing.T) {
+// in stele.yaml, and with the claude CLI installed Claude Code translates.
+// With only the codex CLI, init finds no model: Stele supports Claude Code
+// only for now.
+func TestInitNewSpecKitProjectOnClaude(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake CLI is a shell script")
 	}
@@ -193,6 +211,12 @@ func TestInitNewSpecKitProjectOnCodex(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin)
+	if llm, ok := availableLLM("claude"); ok || llm != "claude" {
+		t.Errorf("codex alone: %q %v, want no model found", llm, ok)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	t.Setenv("OPENAI_API_KEY", "")
 	dir := t.TempDir()
@@ -200,7 +224,7 @@ func TestInitNewSpecKitProjectOnCodex(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if code := cmdInit([]string{dir, "--yes", "--harness", "codex", "--hook=false", "--git-hook=false"}, strings.NewReader(""), &out, false); code != 0 {
+	if code := cmdInit([]string{dir, "--yes", "--harness", "claude", "--hook=false", "--git-hook=false"}, strings.NewReader(""), &out, false); code != 0 {
 		t.Fatalf("exit %d: %s", code, out.String())
 	}
 	c, err := config.Find(dir)
@@ -258,7 +282,7 @@ func TestInitAgainRecordsAFormatSetUpLater(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	dir := t.TempDir()
 	var out bytes.Buffer
-	if code := cmdInit([]string{dir, "--yes", "--harness", "codex", "--hook=false", "--git-hook=false"}, strings.NewReader(""), &out, false); code != 0 {
+	if code := cmdInit([]string{dir, "--yes", "--harness", "claude", "--hook=false", "--git-hook=false"}, strings.NewReader(""), &out, false); code != 0 {
 		t.Fatalf("exit %d: %s", code, out.String())
 	}
 	if c, _ := config.Find(dir); c.Specs != nil {
@@ -268,7 +292,7 @@ func TestInitAgainRecordsAFormatSetUpLater(t *testing.T) {
 		t.Fatal(err)
 	}
 	out.Reset()
-	if code := cmdInit([]string{dir, "--yes", "--harness", "codex", "--hook=false", "--git-hook=false"}, strings.NewReader(""), &out, false); code != 0 {
+	if code := cmdInit([]string{dir, "--yes", "--harness", "claude", "--hook=false", "--git-hook=false"}, strings.NewReader(""), &out, false); code != 0 {
 		t.Fatalf("exit %d: %s", code, out.String())
 	}
 	if c, _ := config.Find(dir); c.Specs == nil || c.Specs.Format != "shale" {

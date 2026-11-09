@@ -253,7 +253,7 @@ func TestPrecommitOpenSpecChange(t *testing.T) {
 	}
 	write("openspec/specs/doors/spec.md", "# Doors\n\n## Requirements\n\n### Requirement: Locked doors\nThe door MUST be locked.\n")
 	var out bytes.Buffer
-	if code := cmdInit([]string{dir, "--harness", "codex", "--git-hook=false"}, strings.NewReader(""), &out, false); code != 0 {
+	if code := cmdInit([]string{dir, "--harness", "claude", "--git-hook=false"}, strings.NewReader(""), &out, false); code != 0 {
 		t.Fatalf("init: %s", out.String())
 	}
 	cfg, _ := config.Find(dir)
@@ -298,7 +298,7 @@ func TestSyncAfterArchive(t *testing.T) {
 	}
 	write("openspec/specs/doors/spec.md", "# Doors\n\n## Requirements\n\n### Requirement: Locked doors\nThe door MUST be locked.\n")
 	var out bytes.Buffer
-	if code := cmdInit([]string{dir, "--harness", "codex", "--git-hook=false"}, strings.NewReader(""), &out, false); code != 0 {
+	if code := cmdInit([]string{dir, "--harness", "claude", "--git-hook=false"}, strings.NewReader(""), &out, false); code != 0 {
 		t.Fatalf("init: %s", out.String())
 	}
 	cfg, _ := config.Find(dir)

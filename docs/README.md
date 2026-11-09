@@ -33,7 +33,7 @@ Stele was called Spec Registry until 2026-10-24 ([D-033](design-decisions.md)). 
 | Deciding | conflicts settled against the code; owner questions in the coding agent; decision records; adoption baseline | |
 | Changes | `stele change` for OpenSpec, Spec Kit and Kiro; approval pinned to text and reading; ledger; renames kept | |
 | Learning | lessons from the owner's answers, in the registry's git | |
-| Agents | `stele init --harness` for Claude Code, Codex, Cursor, Windsurf, VS Code (Copilot), Gemini CLI, opencode | |
+| Agents | `stele init` sets up Claude Code, the one agent supported for now; the setups for Codex, Cursor, Windsurf, VS Code (Copilot), Gemini CLI and opencode stay for projects that recorded them | |
 | CI | `stele gate` | a GitHub integration that runs it on every PR |
 | Code | code evidence for conflict questions | checking each code change against the rules it touches; generated tests ([09](09-enforcement.md)) |
 | No specs | | proposing requirements from code |

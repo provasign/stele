@@ -37,9 +37,9 @@ curl -fsSL https://raw.githubusercontent.com/provasign/stele/main/install.sh | b
 cd your-repo && stele init
 ```
 
-That is all you run. `init` finds your spec format and coding agents, and writes Stele's short instructions and hooks for them; commit what it writes. From then on, Stele works through the agent:
+That is all you run. Stele supports [Claude Code](https://claude.com/claude-code) for now. `init` finds your spec format and writes Stele's short instructions and hooks for Claude Code; commit what it writes. From then on, Stele works through the agent:
 
-- **When you ask for a change,** the agent gets the approved requirements it touches (Claude Code and Codex), so its plan keeps them or asks you before changing one. Codex runs a project's hooks only after you review them once with `/hooks`; Stele never records that trust for you.
+- **When you ask for a change,** the agent gets the approved requirements it touches, so its plan keeps them or asks you before changing one.
 - **When specs change,** the agent runs Stele's check and asks you only what needs a person, in the specs' own words.
 - **When you commit,** a pre-commit hook blocks specs and approved requirements that disagree, and says what to run.
 - **On a project with specs already,** the first commit that touches them says how to adopt: the agent reads every requirement once and asks you about each contradiction it finds.
@@ -49,7 +49,7 @@ That is all you run. `init` finds your spec format and coding agents, and writes
 
 **Without spec documents.** In a repository that uses Shale and has no spec folder, `stele init` takes requirements from the requests the agents declare with `shale intent`. A request is a task, what the agent is about to do, and Stele says nothing about it. When you ask for something the product must keep from now on, the agent keeps that request as a requirement (`stele keep`, listed in `.stele/kept-intents.yaml`). Before it edits, Stele checks the kept request against every one approved before and asks you about any contradiction: change the new request, retire the earlier one, or restate both as one rule with its exception. Requests retired or set aside are listed in `.stele/retired-intents.yaml`; Shale's own evidence is never edited.
 
-Stele needs the [Z3](https://github.com/Z3Prover/z3) solver on PATH; the installer tells you the command for your system. Its Claude Code and Codex hooks run with [Node.js](https://nodejs.org); `stele init` says so when `node` is missing. To build from source instead: `GOWORK=off go build -o bin/stele ./cmd/stele` (Go 1.26). `stele --help` lists every command, and the [docs](docs/README.md) explain each step.
+Stele needs the [Z3](https://github.com/Z3Prover/z3) solver on PATH; the installer tells you the command for your system. Its Claude Code hooks run with [Node.js](https://nodejs.org); `stele init` says so when `node` is missing. To build from source instead: `GOWORK=off go build -o bin/stele ./cmd/stele` (Go 1.26). `stele --help` lists every command, and the [docs](docs/README.md) explain each step.
 
 ## With Shale
 

@@ -26,10 +26,15 @@ type harness struct {
 	skills       string   // skills directory, when the agent has skills
 	commands     []string // executables whose presence suggests the agent is installed
 	markers      []string // project paths that show the agent is used here
+	supported    bool     // offered by init; the others stay for projects that recorded them
 }
 
+// Stele supports Claude Code only for now (the owner's decision,
+// 2026-11-09). init detects and offers it alone and refuses the others by
+// name; a project whose stele.yaml already records another keeps it, so an
+// existing setup still refreshes.
 var harnesses = []harness{
-	{id: "claude", label: "Claude Code", instructions: "CLAUDE.md", skills: ".claude/skills", commands: []string{"claude"}, markers: []string{".claude", "CLAUDE.md"}},
+	{id: "claude", label: "Claude Code", instructions: "CLAUDE.md", skills: ".claude/skills", commands: []string{"claude"}, markers: []string{".claude", "CLAUDE.md"}, supported: true},
 	{id: "codex", label: "Codex CLI", instructions: "AGENTS.md", skills: ".agents/skills", commands: []string{"codex"}, markers: []string{".codex", ".agents"}},
 	{id: "cursor", label: "Cursor", instructions: "AGENTS.md", commands: []string{"cursor", "cursor-agent"}, markers: []string{".cursor"}},
 	{id: "windsurf", label: "Windsurf", instructions: "AGENTS.md", commands: []string{"windsurf"}, markers: []string{".windsurf", ".windsurfrules"}},
@@ -47,7 +52,9 @@ const (
 func harnessIDs() []string {
 	var ids []string
 	for _, h := range harnesses {
-		ids = append(ids, h.id)
+		if h.supported {
+			ids = append(ids, h.id)
+		}
 	}
 	return ids
 }
@@ -63,8 +70,12 @@ func parseHarnesses(list string) ([]string, error) {
 		if id == "claude-code" {
 			id = "claude"
 		}
-		if !slices.ContainsFunc(harnesses, func(h harness) bool { return h.id == id }) {
+		i := slices.IndexFunc(harnesses, func(h harness) bool { return h.id == id })
+		if i < 0 {
 			return nil, fmt.Errorf("unknown agent %q; known: %s", id, strings.Join(harnessIDs(), ", "))
+		}
+		if !harnesses[i].supported {
+			return nil, fmt.Errorf("Stele supports Claude Code only for now; %s is not supported in this preview", harnesses[i].label)
 		}
 		if !slices.Contains(out, id) {
 			out = append(out, id)
@@ -78,6 +89,9 @@ func parseHarnesses(list string) ([]string, error) {
 func detectHarnesses(dir string) []string {
 	var out []string
 	for _, h := range harnesses {
+		if !h.supported {
+			continue
+		}
 		found := false
 		for _, c := range h.commands {
 			if _, err := exec.LookPath(c); err == nil {

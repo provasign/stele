@@ -23,14 +23,14 @@ import (
 // that has no flag unless --yes is given.
 func cmdInit(args []string, in io.Reader, out io.Writer, interactive bool) int {
 	fs := flag.NewFlagSet("init", flag.ExitOnError)
-	llmFlag := fs.String("llm", "", "LLM backend for translation: anthropic, openai, claude, codex or cmd")
+	llmFlag := fs.String("llm", "", "LLM backend for translation: agent (Claude Code), claude, anthropic or cmd")
 	drafts := fs.Int("drafts", 0, "drafts per requirement (1 is cheapest; above 1, disagreements become questions)")
 	registry := fs.String("registry", "", "registry directory, relative to the repository root")
 	yes := fs.Bool("yes", false, "accept defaults for anything not given as a flag; in a project already set up, refresh the agents recorded in stele.yaml")
 	harnessFlag := fs.String("harness", "", "coding agents to set up to run Stele's loop, comma-separated: "+strings.Join(harnessIDs(), ", ")+" (default: ask, recommending the ones found)")
 	interactiveFlag := fs.Bool("interactive", false, "ask about the model, drafts, registry and coding agents instead of using the defaults and the agents found")
 	gitHook := fs.Bool("git-hook", true, "install the git pre-commit hook that blocks a commit whose specs and approved requirements disagree (--git-hook=false to skip)")
-	hook := fs.Bool("hook", true, "with claude or codex: install the agent's hook that gives it the approved requirements a request touches, and tells it when saved specs drift (--hook=false to skip)")
+	hook := fs.Bool("hook", true, "with claude: install the agent's hook that gives it the approved requirements a request touches, and tells it when saved specs drift (--hook=false to skip)")
 	dir := "."
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		dir, args = args[0], args[1:]
@@ -100,16 +100,16 @@ func cmdInit(args []string, in io.Reader, out io.Writer, interactive bool) int {
 	case !ask:
 		var ok bool
 		if c.Translate.LLM, ok = availableLLM(c.Translate.LLM); !ok {
-			fmt.Fprintln(out, "No model found to translate specs with: Stele needs the claude or codex CLI on PATH, or ANTHROPIC_API_KEY or OPENAI_API_KEY. Install one and set translate.llm in stele.yaml (agent, claude, codex, anthropic or openai).")
+			fmt.Fprintln(out, "No model found to translate specs with: Stele needs Claude Code (the claude CLI) on PATH, or ANTHROPIC_API_KEY. Install one and set translate.llm in stele.yaml (agent, claude or anthropic).")
 		}
 	}
 	switch {
 	case *llmFlag != "":
 	case ask:
 		fmt.Fprintln(out, "Which LLM should translate spec prose into rules?")
-		fmt.Fprintln(out, "  agent             the coding agent you run Stele from (Claude Code or Codex), and the model it is using")
-		fmt.Fprintln(out, "  claude, codex     always that CLI, at its own default model")
-		fmt.Fprintln(out, "  anthropic, openai use an API key (ANTHROPIC_API_KEY or OPENAI_API_KEY)")
+		fmt.Fprintln(out, "  agent      Claude Code, the coding agent you run Stele from, and the model it is using")
+		fmt.Fprintln(out, "  claude     always the claude CLI, at its own default model")
+		fmt.Fprintln(out, "  anthropic  an API key (ANTHROPIC_API_KEY)")
 		if c.Translate.LLM, err = prompt("LLM", c.Translate.LLM); err != nil {
 			return fail(err)
 		}
@@ -324,16 +324,13 @@ func installGitHook(dir string) (path, note string, err error) {
 // CLI, and every translation failed (a developer trial, 2026-11-05). It
 // reports whether any was found.
 func availableLLM(def string) (string, bool) {
-	for _, cli := range []string{"claude", "codex"} {
-		if _, err := exec.LookPath(cli); err == nil {
-			return "agent", true
-		}
+	// Claude Code only for now (2026-11-09); codex and openai still run
+	// when stele.yaml names them, but init does not pick them.
+	if _, err := exec.LookPath("claude"); err == nil {
+		return "agent", true
 	}
-	switch {
-	case os.Getenv("ANTHROPIC_API_KEY") != "":
+	if os.Getenv("ANTHROPIC_API_KEY") != "" {
 		return "anthropic", true
-	case os.Getenv("OPENAI_API_KEY") != "":
-		return "openai", true
 	}
 	return def, false
 }

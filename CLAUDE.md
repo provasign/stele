@@ -48,7 +48,7 @@ When `stele.yaml` says `format: shale`, a request you declare with `shale intent
 
 To adopt a project's existing specs (the registry has no rules yet, or a Stele message says so), run `stele adopt --json` and follow it exactly as `stele change` below, with `adopt` as the change id; it asks the owner only what needs a person, then for the approval.
 
-Run Stele's commands as written, without pipes or redirection: Stele calls the model through your CLI, and under Codex the project's rule lets exactly these commands run outside the sandbox. If one says it cannot run inside Codex's sandbox, run it again outside the sandbox.
+Run Stele's commands as written, without pipes or redirection: Stele calls the model through your Claude Code CLI.
 
 When Stele lists approved requirements a request touches, plan within them. If the plan must change one, name it and ask the owner before planning around it. When a Stele message blocks a commit or says `Next:`, do what it says; never bypass Stele with `--no-verify`.
 

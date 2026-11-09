@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Stele supports Claude Code only, for now.** `stele init` detects, offers and sets up Claude Code alone, and refuses another agent by name ("not supported in this preview"); it picks the claude CLI or an Anthropic API key to translate with. The README, the preview guide and the agent instructions name only Claude Code. A project whose `stele.yaml` already records Codex or another agent keeps it: init still refreshes their files, and `translate.llm: codex` or `openai` still runs.
+
 ## v0.1.9 - 2026-11-09
 
 Found by a live trial of both flows with Claude Code on an invented project: an OpenSpec feature from adoption to build, and four requests on a project without a spec tool (about $3.80 in all).
