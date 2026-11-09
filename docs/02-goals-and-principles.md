@@ -34,5 +34,5 @@
 | Conflicts are data | Precedence lives in decision records and named policies, each approved by the owner with a rationale | Decision schema, precedence policies |
 | Spec as code | Changes arrive as pull requests, are reviewed, versioned and gated in CI | `stele gate` |
 | Counterexamples, not verdicts | Every failure comes with a concrete state a person can read | Checker output contract |
-| LLM-free core | Parsing, type checking and solver checks run with no API key | Packaging (14 (archived in stele-research)) |
-| No production data to the LLM | The translator sees prose, symbols, code locations and solver-generated examples, never real records | Translator inputs (10 (archived in stele-research)) |
+| LLM-free core | Parsing, type checking and solver checks run with no API key | Packaging |
+| No production data to the LLM | The translator sees prose, symbols, code locations and solver-generated examples, never real records | Translator inputs |

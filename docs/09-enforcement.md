@@ -50,21 +50,21 @@ Each rule declares `explanation` visibility:
 ## Traceability
 
 - Code is linked to rules with annotations such as `@implements R12`.
-- CI checks every annotation against the pinned snapshot. A reference to an unknown or retired rule fails (T-E5).
+- CI checks every annotation against the pinned snapshot. A reference to an unknown or retired rule fails.
 - The coverage matrix shows active rules with no implementing code and no passing test.
 
 ## CI gate
 
 `stele gate` is the one merge condition, for spec and code changes alike. CI fails when any of these holds:
 
-| Condition | Test |
-| --- | --- |
-| Checker error, or `unknown` in the slice | T-F4 |
-| The change adds a conflict that is not an acknowledged open conflict | T-A1 |
-| A rule the change touches is not approved, or its statement changed after approval | T-D11 |
-| A rule's code verdict changes from followed to contradicted (once the code check is built) | T-E2 |
-| An active rule has no linked passing test (once tests are generated) | T-E1 |
-| An `@implements` reference does not resolve | T-E5 |
+| Condition |
+| --- |
+| Checker error, or `unknown` in the slice |
+| The change adds a conflict that is not an acknowledged open conflict |
+| A rule the change touches is not approved, or its statement changed after approval |
+| A rule's code verdict changes from followed to contradicted (once the code check is built) |
+| An active rule has no linked passing test (once tests are generated) |
+| An `@implements` reference does not resolve |
 
 There is no fast path, waiver or lock file ([D-056](design-decisions.md)). A refactor that changes no behaviour passes because the code verdicts and tests still hold. When code must ship ahead of its spec, the code check reports the difference on every run until the owner updates the spec or the code.
 

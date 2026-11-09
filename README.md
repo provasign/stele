@@ -74,9 +74,12 @@ Measured on the case studies and held-out sets (single runs, small labelled sets
 
 ## Not yet
 
+- Coding agents other than Claude Code.
 - Running `stele gate` in GitHub Actions without setting it up yourself.
 - Generating tests from the rules, and checking that a code change keeps the rules it touches (`stele touches` finds them by name only).
 - Learning rules from the code itself, in projects with neither specs nor Shale.
+
+What a first try runs into, from comparisons Stele cannot check to rereads that differ, is listed under [known limits](docs/try-it.md#known-limits). Report what confused you, or what Stele got wrong, in [GitHub issues](https://github.com/provasign/stele/issues).
 
 ## License
 

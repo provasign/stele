@@ -2,6 +2,8 @@
 
 The core of Stele knows no business domain. It knows types, contexts, entities, operations, actors, rules and decisions. Everything domain-specific (vocabulary, extractors, test emitters, typical rules) lives at the edges as plugins and packs, so the same core serves any software project.
 
+This document describes the design. Built today: the domain-free core, the `informal`, `obligation` and `measured` kinds (measured rules are recorded and tracked, not yet checked), and importers for OpenSpec, Spec Kit, Kiro, Markdown and Shale requests. Domain packs, extractors, test and guard emitters, measurement adapters and theory tiers 1 and 2 are not built.
+
 This document states what "any project" means precisely: every project can register all of its intended behavior, every statement ends checked, and each gets the strongest assurance level its content allows.
 
 ## The generic vocabulary
@@ -27,7 +29,7 @@ No statement is rejected for being outside the solver's reach, and none is left 
 | Level | Rule kinds | How it is assured | Typical content |
 | --- | --- | --- | --- |
 | **Proved** | `permission`, `precondition`, `invariant`, `derivation` | SMT solver, across all rules, on every change | Who may do what, safety interlocks, state machines, data invariants, flag compatibility |
-| **Verified** | `measured`, and any proved rule's generated tests | Thresholds checked against each other in the MVP; bound to a test, benchmark or telemetry query and checked in CI or by monitoring from Phase 2 | Latency budgets, SLOs, memory and power limits, throughput, error rates |
+| **Verified** | `measured`, and any proved rule's generated tests | Recorded and tracked today; planned: bound to a test, benchmark or telemetry query and checked in CI or by monitoring from Phase 2 | Latency budgets, SLOs, memory and power limits, throughput, error rates |
 | **Reviewed** | `informal` | Judgment only: an owner reviews it for every text version, and the review is recorded with the snapshot; owned, linked to prose and code, versioned | UX quality, tone, ML model quality, legal judgments |
 
 A statement is `informal` only when its content is a judgment no check can decide. "Deletion must be fast" is not informal: it needs a threshold from the owner, and then it is `measured`.
@@ -59,7 +61,7 @@ source: { kind: benchmark, ref: bench/delete.k6.js }   # or prometheus, test, tr
 status: active
 ```
 
-Measured rules can still conflict, and the checker finds those: two measured rules on the same subject and metric with incompatible thresholds are a conflict, the same as two permission rules.
+Measured rules can still conflict, and the checker is to find those (not built yet): two measured rules on the same subject and metric with incompatible thresholds are a conflict, the same as two permission rules.
 
 ## Theory tiers
 

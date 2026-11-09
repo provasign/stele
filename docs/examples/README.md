@@ -12,4 +12,6 @@ Each example follows the same shape: the project, its contexts, a few rules, a c
 | [infrastructure-policy.md](infrastructure-policy.md) | Cloud platform | An automation bot vs change approval and a holiday freeze | Time windows, scoped decision, service-account actors |
 | [cli-tool.md](cli-tool.md) | Open-source CLI | A plugin's cache writes vs "dry-run never writes" | Library-style contracts, decision table completeness, maintainer as intent owner |
 
+The examples show the design. Some features they use are not built yet: code anchors, decision tables, `final` rules, the bit-vector tier, and checking `measured` rules against tests or telemetry.
+
 The core docs use a neutral running example (`Resource`, `Hold`, rule R12). Rule and decision IDs in these examples are local to each one.

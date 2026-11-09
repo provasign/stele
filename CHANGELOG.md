@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Documentation brought up to date.** The docs describe Claude Code as the one supported agent, the flow without a spec tool (Shale requests, `stele keep`, `stele export openspec`) as workflow W6, the repository layout `stele init` writes, and the reachability check as built. The translation document now describes the pipeline as built and lists the original designs that are not (extractors, auto-accept, code anchors, synonym index, domain packs) in one section. Decision tables, `final` rules and checks of `measured` rules are marked not built, where some pages had described them as working. References to the private research repository and to a private design document were removed. The README links the known limits and where to report problems.
+
 ## v0.1.10 - 2026-11-09
 
 - **Stele supports Claude Code only, for now.** `stele init` detects, offers and sets up Claude Code alone, and refuses another agent by name ("not supported in this preview"); it picks the claude CLI or an Anthropic API key to translate with. The README, the preview guide and the agent instructions name only Claude Code. A project whose `stele.yaml` already records Codex or another agent keeps it: init still refreshes their files, and `translate.llm: codex` or `openai` still runs.

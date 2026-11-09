@@ -54,7 +54,7 @@ The proved level covers behavior over finite state, in any domain:
 - time windows and grandfathering, as bounded integers,
 - counts over bounded relations, as abstract bounded integers.
 
-Statements outside that fragment are not dropped. Performance budgets, SLOs and resource limits are `measured` rules: their thresholds are checked against each other now, and against tests or telemetry from Phase 2. Behavior the IR cannot yet express is an `obligation` that names the construct it waits for, and counts as unchecked. UX, ML quality and other judgments are `informal` rules, reviewed by their owner for every text version. See [domain-coverage.md](domain-coverage.md#assurance-levels).
+Statements outside that fragment are not dropped. Performance budgets, SLOs and resource limits are `measured` rules: they are recorded and tracked now; their thresholds are to be checked against each other, and against tests or telemetry from Phase 2. Behavior the IR cannot yet express is an `obligation` that names the construct it waits for, and counts as unchecked. UX, ML quality and other judgments are `informal` rules, reviewed by their owner for every text version. See [domain-coverage.md](domain-coverage.md#assurance-levels).
 
 The proved fragment is meant to grow until obligations are rare. Multiple instances with quantifiers, strings and records, and what a step produces are implemented ([D-050](design-decisions.md), [D-064](design-decisions.md)). Still planned: future-time ordering over bounded traces, references to an earlier snapshot, and idempotence of operations ([05](05-ir-and-semantics.md#planned-extensions)).
 

@@ -15,32 +15,28 @@ Contexts group entities, entities expose operations, rules constrain operations,
 
 ## Repository layout
 
+What `stele init` and the checks write, committed with the code:
+
 ```text
-specs/
-  contexts/
-    resources.yaml
-    identity.yaml
-    privacy.yaml
-  domain/
-    resources/Resource.yaml
-    resources/Hold.yaml
-    identity/Actor.ext.yaml
-    identity/Request.ext.yaml
-    identity/Tenant.yaml
-  rules/
-    resources/R12.yaml
-    privacy/R31.yaml
-  decisions/D7.yaml
-  tables/resources/late-fees.yaml
-  conflicts/OC-4.yaml
-  lessons/L-3f2a9c.yaml      # what the owner taught Stele (D-063), one file each
-  approvals/2026-10-31T120000Z-a1b2c3.jsonl   # one record per approval run
-  synonyms.yaml
-  prose/
-    resources.md
-    privacy.md
-stele.yaml
+stele.yaml                        # the registry, the spec format, the agents set up
+.stele/
+  registry/
+    context.yaml                  # the project's context
+    adopted.yaml                  # rules read from the specs adopted at first
+    adopted.vocabulary.yaml       # their entities, attributes and operations
+    adopted.world.yaml            # facts about the world the rules assume
+    change-<id>.yaml              # one file per approved change: its rules,
+    change-<id>.vocabulary.yaml   #   and the vocabulary it added
+    lessons/L-3f2a9c.yaml         # what the owner taught Stele (D-063), one file each
+    approvals/2026-11-09T003922Z-0324d7.jsonl   # one record per approval run
+  accepted-statements.yaml        # the statements the registry was built from
+  kept-intents.yaml               # Shale requests kept as requirements
+  retired-intents.yaml            # requests retired, or set aside as not requirements
+  cards/<change>.json             # the pull-request card for each change
+  .gitignore                      # keeps change/, adopt/, audit/ and cache/ out of commits
 ```
+
+The registry files are YAML documents of the kinds below, and a project may also split them by hand (`contexts/`, `domain/`, `rules/`, `decisions/`, `tables/`, `conflicts/`, `synonyms.yaml`): Stele reads every YAML file under the registry. One file per change, lesson and approval run keeps parallel branches from colliding.
 
 ## Context
 
@@ -172,7 +168,7 @@ kind: permission          # permission | precondition | invariant | derivation |
 effect: deny
 operation: Resource.delete
 when: self.activeHolds > 0
-final: false              # true = no rule or decision may override it
+final: false              # true = no rule or decision may override it (not built yet)
 effectiveFrom: 2026-03-02 # optional; half-open [from, to)
 explanation: user         # internal | user | redacted
 status: active            # draft | proposed | active | deprecated | retired
@@ -267,11 +263,11 @@ at: 2026-10-31
 - `term`: two names for one thing, or one thing under two names in different specs. `fact`: true of the world in this project ("invoices are kept for seven years", "this situation cannot happen"). `reading`: how one requirement is to be read; always pinned. `scope`: how requirements here are read ("a record checked when it is created is enough unless the text names other moments").
 - Every translation (`stele change`, `stele formalize`) gives each statement its pinned lessons and the project-wide ones that concern it as notes; the coverage judge follows `reading` and `scope` lessons before its own guidance. The report says which statement was read with which lesson.
 - A pinned lesson stops applying when its statement's text changes, and `stele lesson list` marks it stale. Lessons on the same terms that say different things are warned about: git merges them cleanly, so Stele has to notice.
-- Answers the agent gives itself (Stele correcting its own misreading) do not become lessons.
+- Only the owner's own words become lessons: a note the agent passes with `--quoted`, as the owner said it. Answers the agent gives itself (Stele correcting its own misreading) and notes it wrote do not. A "cannot happen" lesson keeps the owner's words, not the solver's situation.
 
 ## Decision table
 
-Decision tables are an authoring form for dense rule sets. Each row lowers to one rule; the checker treats rows as ordinary rules, plus two table checks: overlapping rows and missing combinations ([D-022](design-decisions.md)).
+Not built yet: the loader does not read tables. Decision tables are an authoring form for dense rule sets. Each row lowers to one rule; the checker treats rows as ordinary rules, plus two table checks: overlapping rows and missing combinations ([D-022](design-decisions.md)).
 
 ```yaml
 table: retention-period

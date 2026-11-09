@@ -1,51 +1,25 @@
 # 07. Translation, inference and grounding
 
-People confirm the model; they do not author it. Most vocabulary is inferred from artifacts that already exist, prose is translated into candidate IR, and every human confirmation makes the next mapping cheaper.
+People confirm the model; they do not author it. Prose is translated into candidate rules over one vocabulary proposed for the whole corpus, Stele checks its own reading, and the owner approves it. The owner's answers become lessons that every later translation reads.
 
 Grounding, the step that maps a prose term to a symbol, is the single point of failure for cross-time detection. Everything in this document either reduces its cost or bounds its error.
 
 ## Translator pipeline
 
-The translator is an optional plugin. It turns prose into candidate IR and never writes to the registry directly.
+The translator turns prose into candidate rules and never writes to the approved registry directly. By default its calls run on Claude Code, the agent Stele is run from, with the model that agent is using; `translate.llm` in `stele.yaml` can name the claude CLI, the Anthropic API or any command that reads a prompt on stdin instead, and `translate.model` pins a model. Every backend gets the same prompts.
 
-Any model can drive it (`stele translate --llm`): the Anthropic or OpenAI API with a key, any OpenAI-compatible server, or a coding-agent CLI the project already uses (Claude Code, Codex, or any command that reads a prompt on stdin). Every backend gets the same prompt and JSON schema, and every reply is compiled against the symbol table, so the choice of model never changes what reaches review. v0 implements steps 2, 3 and 6 below, with compile-error repair in place of grammar-constrained decoding. Results so far: stele-research `research/translator/README.md`.
-
-1. **Segment.** Extract normative statements ("must", "cannot", "only if") into candidate rules. Every normative statement must end checked ([D-049](design-decisions.md)). A vague but testable statement ("deletion must be fast") becomes an owner question for its threshold and then a `measured` rule; behavior the IR cannot express becomes an `obligation` naming the missing construct; only judgment no check can decide is `informal`.
-2. **Ground.** Map nouns, verbs and roles to registry symbols through the synonym index and code anchors. Unmatched terms produce a vocabulary question, never a guess.
-3. **Generate.** Emit IR with grammar-constrained decoding over the live symbol table, so output always parses and references only declared symbols.
-4. **Sample.** Produce N candidates (default 5) across temperatures or models.
-5. **Cluster.** Ask the solver which candidates are logically equivalent. One cluster means unambiguous. More than one means ambiguity, reported to the author as a two-option question with the distinguishing state.
-6. **Canonicalize.** Normalize the chosen cluster's IR, so equivalent translations produce identical files (T-D5).
-7. **Render.** Produce a template-based English rendering and 3 to 5 solver-generated examples, including boundary cases, for the owner's approval.
+1. **Segment.** The importer extracts normative statements ("must", "cannot", "only if"), each with a stable ID and its source. Every normative statement must end checked ([D-049](design-decisions.md)).
+2. **Ground.** Terms map to the vocabulary: the approved registry's, plus facts proposed for the whole corpus first, so one fact gets one name. A new term that may name an existing fact is compared with it, folded in when they are the same, and put to the owner when Stele cannot tell.
+3. **Generate.** The model writes rules in Stele's IR against a schema; rules that do not compile go back with the error, and the statement is repaired, not dropped.
+4. **Draft.** `translate.drafts` readings per statement, 1 by default. Above 1, the solver compares them, and readings that differ come back to the owner as a question with the state that tells them apart.
+5. **Check the reading.** A judge asks which clause of each statement its rules cover and which rules go beyond it, and the solver finds statements whose rules contradict each other or block a step. Each finding is read once more with the finding named; what remains is shown to the owner beside the reading.
+6. **Approve.** The owner approves the reading in the coding agent, with the check's summary and its findings; approval pins the rule to the statement's text and to the reading.
 
 ### What the translator sees
 
-Prose, the symbol table, synonyms, negative examples, code anchor metadata (file path, endpoint, enum name, line) and solver-generated example states ([D-014](design-decisions.md)).
+The statements, the vocabulary, the owner's lessons that concern each statement, and the code's structure (the names of types, functions and fields, read with Grove) ([D-014](design-decisions.md), [D-053](design-decisions.md)). It never sees production records. Examples shown to the owner are situations the solver builds from the rules.
 
-It never sees source code bodies, unless brownfield mining is explicitly enabled for that repo, and never sees production records. Examples shown in mapping questions are synthetic states generated by the solver from the schema.
-
-## Model inference
-
-Extractors are deterministic parsers; none needs an LLM.
-
-| Source | Yields |
-| --- | --- |
-| Database schema and migrations | Entities, attributes, enum types, foreign-key relations, check constraints as candidate invariants |
-| API definitions (OpenAPI, GraphQL, protobuf) | Operations, parameters, write sets from request bodies and mutations |
-| ORM models and state enums | Attribute types; state machines from enum fields and transition code |
-| Policy files (Cedar, OPA, IAM) | Actor roles, permission rules |
-| Event schemas | Which operations emit which state changes |
-| UI text and translation files | User-facing words linked to the operations their controls call |
-| Docs, tickets, code comments | Synonym candidates by co-occurrence with known symbols |
-| Runtime traces (optional) | Observed write sets: which endpoints mutate which tables |
-
-### Inference pipeline
-
-1. **Extract.** Each extractor emits candidate symbols with a source anchor.
-2. **Merge.** Candidates that refer to the same thing are joined by structure: a table, its ORM model and its API resource share names and fields.
-3. **Suggest contexts.** Cluster the data-access graph (which modules read and write which tables), weighted by CODEOWNERS. Tightly connected clusters become suggested contexts.
-4. **Seed synonyms.** UI labels, translation strings and documentation terms attach to the operations and entities they co-occur with. Seeded synonyms are `draft` until reviewed.
-5. **Bulk review.** The owner reviews the draft context by context: accept, rename, split, merge or drop. Unreviewed symbols stay `draft` and block nothing.
+## Building the vocabulary
 
 ### Formalizing a corpus from prose
 
@@ -72,9 +46,9 @@ With `--one-pass`, steps 1 and 2 run together: each request proposes vocabulary 
 
 Each stage saves its state in the output directory; one-pass runs also save every accepted chunk and the usage of each returned reply. Re-running the same command resumes without repeating accepted chunks. Checkpoints are replaced atomically and bound to the ordered statements, seed vocabulary contents, context and translation mode. Changed inputs require a new output directory. Older checkpoints without an input fingerprint also require a new directory; their existing registries remain readable by `stele check`.
 
-### Compact translation (experimental)
+### Compact translation
 
-`--compact` is an alternative to `--one-pass` that reduces generated output and repair work. It proposes vocabulary only alongside the rules needing it, without the separate facts/vocabulary passes. It keeps the shared vocabulary across documents: independent per-document ontologies could hide cross-document contradictions.
+`stele change` (and so `stele adopt`, which runs as a change) always translates this way, over the registry's vocabulary plus the terms the change proposes. For `stele formalize`, `--compact` is an alternative to `--one-pass` that reduces generated output and repair work. It proposes vocabulary only alongside the rules needing it, without the separate facts/vocabulary passes. It keeps the shared vocabulary across documents: independent per-document ontologies could hide cross-document contradictions.
 
 Proposing vocabulary batch by batch gives one fact several names: on the Project A window the idle warning became three attributes on two entities, and the check found 0 of 10 known conflicts where the facts-first path found 3 (and 6 with an Opus vocabulary); on the held-out NLI-RE Library set facts-first found 17 of 20 labelled conflicts against compact's 7. `--compact --facts-first` first proposes the facts over the whole corpus, as the facts-first path does, and every compact request then sees and reuses them; requests still propose what the seed lacks, and pruning drops seed facts no rule uses.
 
@@ -98,75 +72,39 @@ stele formalize --statements sample.yaml --out compact-trial/ --compact \
   --batch 20 --max-calls 4 --request-timeout 3m --timeout 10m
 ```
 
-The saved Project C checkpoint's 146 entries re-encode from 76,627 to 38,118 rule-payload bytes (50.3% less), preserving their logical fields. This offline measurement excludes vocabulary and is not a latency, token-cost or accuracy result. Fixture tests cover partial repair/resume, provenance, budgets, unsupported parts, and a cross-document Z3 conflict. The first bounded live comparison (stele-research `research/formalization/README.md#bounded-live-comparison-2026-10-25`) failed to complete either path: compact saved eight of twenty statements while one-pass timed out without an accepted chunk. Distinct-enum equality repairs prevented compact from reaching the second document. Completed-workflow speedup and retained conflict recall remain unestablished. Resuming unchanged input is supported; reuse across edited specs still needs dependency-aware invalidation before it can safely avoid retranslation.
+The saved Project C checkpoint's 146 entries re-encode from 76,627 to 38,118 rule-payload bytes (50.3% less), preserving their logical fields. This offline measurement excludes vocabulary and is not a latency, token-cost or accuracy result. Fixture tests cover partial repair/resume, provenance, budgets, unsupported parts, and a cross-document Z3 conflict. The first bounded live comparison (2026-10-25) failed to complete either path: compact saved eight of twenty statements while one-pass timed out without an accepted chunk. Distinct-enum equality repairs prevented compact from reaching the second document. Completed-workflow speedup and retained conflict recall remain unestablished. Resuming unchanged input is supported; reuse across edited specs still needs dependency-aware invalidation before it can safely avoid retranslation.
 
 The prompts describe the method in general terms with an invented example domain; no test project's vocabulary appears in them.
 
-### Code anchoring
-
-Every symbol carries a link to its source: a table, endpoint, enum or handler.
-
-```yaml
-operation: Resource.delete
-anchors:
-  - { kind: http, ref: "DELETE /resources/{id}", file: api/resources.ts, line: 88 }
-  - { kind: ui,   ref: "settings.deleteResource.button" }
-```
-
-Anchors serve three jobs:
-
-- The translator shows code evidence when asking a mapping question.
-- A rename in code is detected and proposed as a registry rename.
-- A deleted anchor flags the symbol for retirement and lists its dependent active rules.
-
 ### Lazy modeling
 
-Only symbols that some active rule references must be reviewed. The rest of the inferred model stays `draft`. A project can start with five operations, not five hundred.
-
-## Mapping as multiple choice
-
-When the translator meets an unresolved term, it shows up to three candidate symbols, each with its code anchor and a synthetic example, plus a "new concept" option.
-
-> "remove their data" means:
->
-> 1. `Resource.delete` · `DELETE /resources/{id}` · button "Remove"
-> 2. `Resource.lock` · `POST /resources/{id}/lock`
-> 3. New concept
-
-### Auto-accept
-
-A mapping is auto-accepted, with no question to the author, only when all three hold ([D-028](design-decisions.md)):
-
-- all sampled translations pick the same candidate,
-- the score margin between the top two candidates exceeds the configured threshold,
-- the structural match is exact and the term has no competing synonym.
-
-LLM self-reported confidence is not used; it is poorly calibrated.
-
-Auto-accept skips the author's question, not review. The synonym it writes appears in the PR diff and the owner approves it with the change, batched with its other vocabulary changes ([D-006](design-decisions.md)).
+Only what a check needs is translated. A change translates the statements it adds or edits; adoption translates the statements a review names as candidate conflicts, those sharing their terms, and areas the owner selects. The rest stays unmodeled, blocks nothing, and is recorded as adoption debt ([08](08-workflows.md#w5-adopting-an-existing-spec-corpus)).
 
 ## Grounding guardrails
 
 | Guardrail | What it does |
 | --- | --- |
-| Structural duplicate detection | Any proposed new symbol is compared to existing ones by type signature, write set and effect. A match blocks creation until the owner maps it, defines it in terms of existing symbols, or justifies it as distinct. |
-| Agreement gate | Terms below the auto-accept bar become questions. |
-| Synonym review queue | New synonyms are reviewed like code, because a wrong synonym silently merges two concepts. |
-| Identical-shape pairs | When two concepts have identical structure, such as `suspended` and `locked`, the owner is asked directly; they are never auto-merged. |
-| Grounding audit sampling | Weekly, a sample of recent groundings is re-checked by a second model and by a human. Disagreement rate is tracked with an alert threshold. |
-| Learning loop | Every confirmation writes a synonym or an anchor. Every rejection is stored as a negative example, so the same wrong candidate is not offered again for that term. |
+| One vocabulary | A rule may name only declared symbols; the loader rejects anything else |
+| Facts first | Vocabulary is proposed across all statements before any is translated, so one fact gets one name |
+| Same-term question | A new term that reads like an existing one is compared with it by the model; same terms are folded in, unclear ones become an owner question, and the answer is a lesson |
+| Owner approval | New terms are approved with the rules that use them |
+| Lessons | What the owner says about the project's words ("Customer and Account are the same person") is read with every later translation |
 
-## Domain packs
+## Designed, not built
 
-The core ships no domain vocabulary. Domain packs are separate, versioned, community-maintained imports that give a project named entities, operations, synonyms and typical rules to adapt instead of a blank page. A pack is just a published context; none is privileged, and local changes are recorded as overrides. See [domain-coverage.md](domain-coverage.md#extension-points).
+These parts of the original design are not in Stele. They are kept here because the design decisions cite them.
 
-## Mapping metrics
+### Model inference
 
-| Metric | Meaning | Direction |
-| --- | --- | --- |
-| Auto-grounded share | Terms resolved with no author question | Rises over time |
-| Clicks per new rule | Human mapping actions per rule merged | Falls over time |
-| Minutes to first model | Time from install to a reviewed model of one context | Under 60 min |
-| Inference precision | Share of inferred symbols accepted without edits | Tracked per source |
-| Wrong auto-accepts | Auto-accepted mappings later corrected | Near zero; each is a cross-time blind spot |
-| Silent-duplication rate | New symbols created where an existing one should have been reused | ≤ 2% of new symbols |
+Deterministic extractors would propose vocabulary from artifacts a project already has: database schemas and migrations, API definitions (OpenAPI, GraphQL, protobuf), ORM models and state enums, policy files, event schemas, and UI text. Today vocabulary comes from the statements, and the code's structure is read with Grove.
+
+### Auto-accept
+
+A term mapping would be accepted with no question when every sampled translation picks the same symbol, the score margin is clear, and the structural match is exact ([D-028](design-decisions.md)). Today a same-term question goes to the owner whenever the model cannot tell.
+
+### Also not built
+
+- Code anchors on symbols (an endpoint, a table, a UI control), with renames in code proposed as registry renames.
+- A reviewed synonym index with negative examples.
+- Domain packs: published, versioned contexts with typical vocabulary and rules for one domain.
+- Weekly sampling of recent groundings by a second model, and the mapping metrics that would track them.

@@ -1,22 +1,22 @@
 # Agent skills
 
-`stele-change/SKILL.md` lets a coding agent check an OpenSpec change with Stele and put the decisions it needs to the owner as questions (D-058). It follows the Agent Skills format, so one file serves both agents.
+`stele-change/SKILL.md` lets a coding agent check a spec change with Stele and put the decisions it needs to the owner as questions (D-058). It follows the Agent Skills format.
 
-Set it up with `stele init`, which installs Stele's loop for every coding agent Prism supports:
+Stele supports Claude Code for now. `stele init` sets it up:
 
 ```sh
-stele init --harness claude,codex,cursor,windsurf,vscode,gemini,opencode .   # a new or an existing project
-stele init --yes .                                                            # refresh the agents recorded in stele.yaml
+stele init .         # a new or an existing project
+stele init --yes .   # refresh what stele.yaml records
 ```
 
-| Agent | What `stele init` writes |
+| What `stele init` writes | Why |
 | --- | --- |
-| Claude Code (`claude`) | a Stele section in `CLAUDE.md`, this skill in `.claude/skills/stele-change/`; `--hook` adds the PostToolUse hook in `.claude/hooks/` and `.claude/settings.json` |
-| Codex CLI (`codex`) | a Stele section in `AGENTS.md`, this skill in `.agents/skills/stele-change/` |
-| Cursor, Windsurf, opencode | a Stele section in `AGENTS.md` |
-| VS Code / GitHub Copilot (`vscode`) | a Stele section in `.github/copilot-instructions.md` |
-| Gemini CLI (`gemini`) | a Stele section in `GEMINI.md` |
+| A Stele section in `CLAUDE.md` (`steering.md`) | The loop in short: when to run the check, how to put its questions to the owner, when to keep a Shale request |
+| This skill in `.claude/skills/stele-change/` | The loop in full, for when the agent edits specs or a Stele message says so |
+| `.claude/hooks/stele-hook.js` and its entries in `.claude/settings.json` (skip with `--hook=false`) | Gives the agent the approved requirements a request touches, and tells it when saved specs drift |
 
-The section (`steering.md`) is the loop in short; it sits between `<!-- stele:begin -->` and `<!-- stele:end -->` markers, so the rest of each file is never touched, a shared or symlinked file gets one section, and running `init` again changes nothing. Deselecting an agent removes its section and its unedited skill copy. Commit the files so every teammate's agent runs the same loop. Interactive `stele init` recommends the agents it finds installed or already used in the project.
+The section sits between `<!-- stele:begin -->` and `<!-- stele:end -->` markers, so the rest of `CLAUDE.md` is never touched, a symlinked file gets one section, and running `init` again changes nothing. Commit the files so every teammate's agent runs the same loop.
 
-The agent then runs `stele change openspec . <id> --json` after a change is written, answers Stele's own misreadings itself, asks the owner the rest in the spec's words (Claude Code's question picker, or numbered options in Codex), records each answer with `stele change answer`, and finishes with the approval, which writes the change's rules into the registry. `stele gate` stays the backstop where a project runs it in CI (a GitHub integration is planned).
+The agent runs the check as soon as a spec draft is written, shows the owner the spec with the check's summary under it, answers Stele's own misreadings itself, and asks the owner the rest in the spec's words. It records each answer with `stele change answer` and finishes with the approval, which writes the change's rules into the registry. `stele gate` stays the backstop where a project runs it in CI.
+
+The setups for Codex, Cursor, Windsurf, VS Code (Copilot), Gemini CLI and opencode remain in the code for projects whose `stele.yaml` already records them, but `stele init` no longer offers them.

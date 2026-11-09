@@ -159,7 +159,7 @@ A contradiction is reported once, where it is, and does not hide the rest:
 
 `self` denotes the rule's subject: the entity of its operation, its `subject:` field, or the one entity that has every attribute or relation the rule reads from `self`. If several entities qualify, the compiler asks for `subject:` and does not guess ([D-040](design-decisions.md)). `request` exists only in rules about an operation.
 
-v0 implements this section and the core tier, without aggregates, dates, durations, `contains` or multi-step reachability. Steps 3 and 4 below (final rules, more-specific-wins) are not implemented yet: v0 reports every allow/deny overlap as a conflict.
+Stele implements this section and the core tier, with counts, dates, durations and `contains`, but not multi-step reachability. Steps 3 and 4 below (final rules, more-specific-wins) are not implemented yet: every allow/deny overlap is reported as a conflict unless a decision or a stated precedence settles it.
 
 ## Rule semantics
 

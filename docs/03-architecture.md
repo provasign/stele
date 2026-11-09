@@ -4,7 +4,7 @@ Stele is one Go binary. A spec statement flows through import, translation and S
 
 ```mermaid
 flowchart LR
-  S[Spec files<br/>Spec Kit, OpenSpec, Kiro, Markdown] --> I[1. Import]
+  S[Spec files<br/>Spec Kit, OpenSpec, Kiro, Markdown,<br/>kept Shale requests] --> I[1. Import]
   I --> T[2. Translate<br/>model]
   T --> V[3. Check the reading<br/>model + solver]
   V --> R[(4. Registry<br/>YAML in git)]
@@ -22,7 +22,7 @@ flowchart LR
 
 ### 1. Import (`internal/importer`)
 
-Extracts each normative statement (MUST, SHALL, SHOULD, EARS criteria, OpenSpec requirements with their scenarios) with a stable ID and source anchor. An OpenSpec change folder is read as its added, modified, removed and renamed requirements.
+Extracts each normative statement (MUST, SHALL, SHOULD, EARS criteria, OpenSpec requirements with their scenarios) with a stable ID and source anchor. An OpenSpec change folder is read as its added, modified, removed and renamed requirements. In a project without spec documents, the requests coding agents declare with Shale are tasks; only those kept as requirements (`stele keep`, listed in `.stele/kept-intents.yaml`) are read as specs.
 
 ### 2. Translate (`internal/vocab`, `internal/translate`, `internal/formalize`) — model
 
@@ -46,7 +46,7 @@ Lowers the registry to SMT-LIB over a transition system and asks Z3, per step an
 
 ### 7. Owner (`internal/change`, agent skill and steering)
 
-The owner decides in the coding agent, never by reading Stele's files ([D-058](design-decisions.md)). `stele change` returns questions in the spec's words, each with a recommended answer from the code where there is one; the agent answers Stele's own misreadings itself and asks the owner the rest. Answers become decision records, approvals and lessons. `stele init --harness` installs this loop for every supported agent.
+The owner decides in the coding agent, never by reading Stele's files ([D-058](design-decisions.md)). `stele change` returns questions in the spec's words, each with a recommended answer from the code where there is one; the agent answers Stele's own misreadings itself and asks the owner the rest. Answers become decision records, approvals and lessons. `stele init` installs this loop for Claude Code, the one agent supported for now.
 
 ### 8. Gate (`internal/gate`)
 
@@ -61,4 +61,4 @@ The owner decides in the coding agent, never by reading Stele's files ([D-058](d
 | Review | candidate contradictions | the solver confirms what it can; the code settles; the owner decides |
 | Code evidence | which statement the code follows | every verdict cites lines, which are checked to exist |
 
-Model backends are the Anthropic and OpenAI APIs and the Claude Code, Codex or any stdin/stdout CLI (`internal/llm`); a run can be capped by calls or by dollars.
+By default Stele's calls run on Claude Code, the agent it is run from, with the model that agent is using; the claude CLI, the Anthropic API or any stdin/stdout command can be named instead (`internal/llm`). A run can be capped by calls or by dollars.

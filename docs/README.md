@@ -20,23 +20,23 @@ Stele was called Spec Registry until 2026-10-24 ([D-033](design-decisions.md)). 
 | — | [Domain coverage](domain-coverage.md) | How any kind of project maps onto the model; assurance levels; theory tiers |
 | — | [Examples](examples/README.md) | Worked examples: web service, embedded controller, data pipeline, infrastructure policy, CLI tool |
 | — | [Prior art](prior-art.md) | Requirements-to-logic tools and papers, and what Stele takes from them |
-| — | [Design decisions](design-decisions.md) | The decision log, D-001 to D-063 |
+| — | [Design decisions](design-decisions.md) | The decision log, D-001 to D-064 |
 | — | [Glossary](glossary.md) | Terms used across these documents |
 
-## Status, 2026-10-31
+## Status, 2026-11-09
 
 | | Built | Planned |
 | --- | --- | --- |
-| Import | Spec Kit, OpenSpec (with change folders), Kiro, Markdown | |
+| Import | Spec Kit, OpenSpec (with change folders), Kiro, Markdown; requests declared with Shale and kept as requirements (`stele keep`) | |
 | Translation | compact translation on a whole-corpus fact vocabulary; clause coverage and scope check; self-contradiction and blocking-rule rereads | |
 | Finding conflicts | Z3 checks (response conflicts, dead responses, vacuity); LLM review with solver confirmation (`stele audit`) | |
 | Deciding | conflicts settled against the code; owner questions in the coding agent; decision records; adoption baseline | |
-| Changes | `stele change` for OpenSpec, Spec Kit and Kiro; approval pinned to text and reading; ledger; renames kept | |
-| Learning | lessons from the owner's answers, in the registry's git | |
+| Changes | `stele change` for OpenSpec, Spec Kit, Kiro and Shale requests; a summary in the owner's words; approval pinned to text and reading; ledger; renames kept; `stele export openspec` from kept requests; a card for the pull request | |
+| Learning | lessons from the owner's own words, in the registry's git | |
 | Agents | `stele init` sets up Claude Code, the one agent supported for now; the setups for Codex, Cursor, Windsurf, VS Code (Copilot), Gemini CLI and opencode stay for projects that recorded them | |
 | CI | `stele gate` | a GitHub integration that runs it on every PR |
 | Code | code evidence for conflict questions | checking each code change against the rules it touches; generated tests ([09](09-enforcement.md)) |
-| No specs | | proposing requirements from code |
+| No specs | requests declared with Shale, kept as requirements when the owner says they last | proposing requirements from code |
 
 ## Conventions
 

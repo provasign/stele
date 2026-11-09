@@ -1,6 +1,6 @@
 # 08. Key workflows
 
-Five workflows cover the lifecycle. W2 is the reason the system exists.
+Six workflows cover the lifecycle. W2 is the reason the system exists; W6 is the same loop for a project with no spec documents.
 
 Each registry has one owner: a person, or a group acting as one ([D-056](design-decisions.md)). The owner approves rules, vocabulary, decisions and the adoption baseline. There is one gate, `stele gate` in CI. Teams, per-context approvers and waivers are left out until a project needs them.
 
@@ -20,7 +20,7 @@ A change is checked as one unit, in the spec tool's own terms ([D-057](design-de
 4. **Check.** The checker runs the change against every approved rule: conflicts, gaps, invariants, vacuity, reachability. A conflict is reported in the tool's terms, for example "this MODIFIED requirement conflicts with capability X, requirement Y", with a counterexample.
 5. **Decide.** The owner fixes the spec, or records a decision. When the new statement replaces old behaviour, the replacement is written into the old spec too: a MODIFIED delta in OpenSpec, an edit with a link in Spec Kit and Kiro. A stale statement left in place is how every case-study corpus went wrong.
 6. **Gate.** CI runs `stele gate`. The change merges when it adds no conflict, every rule it touches is approved, and no approved rule's statement has changed since its approval.
-This is built for OpenSpec change folders and for Spec Kit and Kiro feature branches (stele-research `research/bench/change/README.md`). A branch's change is the difference between its specs and those at the base ref:
+This is built for OpenSpec change folders and for Spec Kit and Kiro feature branches. A branch's change is the difference between its specs and those at the base ref:
 
 ```sh
 stele change speckit . --base main --json                       # or kiro; the change is named after the branch (<branch>-2 once one is approved)
@@ -33,7 +33,7 @@ stele gate --base <main's registry> --head specs/registry      # step 6; blocks 
 
 The change is translated in compact mode over the registry's vocabulary plus the terms it proposes; a new term that may name an existing fact is compared with it, folded in when they are the same, and asked about when Stele cannot tell. A requirement whose text and notes have not changed keeps its earlier translation.
 
-**Where the owner decides ([D-058](design-decisions.md)).** The owner never reads these files. A skill in the coding agent (Claude Code and Codex CLI first) runs `stele change --json` and asks the owner only what needs a person, in the spec's words:
+**Where the owner decides ([D-058](design-decisions.md)).** The owner never reads these files. A skill in the coding agent (Claude Code, the one agent supported for now) runs `stele change --json`, shows the owner the drafted spec with the check's `summary` under it, and asks the owner only what needs a person, in the spec's words, in one round:
 
 - a new term that may mean an existing one: *"Cluster Teardown" says the cluster is torn down; is that the same as "infrastructure torn down" in the current spec?* A term with no near match is accepted without asking;
 - a conflict: which requirement wins, whether one is an exception to the other, or whether the spec should be reworded;
@@ -42,7 +42,7 @@ The change is translated in compact mode over the registry's vocabulary plus the
 
 What the owner's answers teach stays: a same-term answer, "that situation cannot happen" and "you read that wrong" are saved as lessons in the registry (`lessons/`, one file each), committed with the change, and every later change and formalize run is read with them ([D-063](design-decisions.md), [04](04-data-model.md#lesson)). The approval question names the lessons a change adds.
 
-A change usually needs 0 to 3 questions. The agent records each answer with `stele change answer` and checks again, which re-reads only what the answer affects; approving writes the change into the registry and records the approval. New terms are approved with the rules that use them. `stele init --harness claude,codex,cursor,windsurf,vscode,gemini,opencode` sets the loop up for every coding agent Prism supports: the skill where the agent has skills (Claude Code, Codex CLI) and a short Stele section in each agent's instruction file (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.github/copilot-instructions.md`); see `integrations/skills/README.md`. In CI, `stele gate` names anything unapproved and points back to the agent.
+A change usually needs 0 to 3 questions. The agent records each answer with `stele change answer` and checks again, which re-reads only what the answer affects; approving writes the change into the registry and records the approval. New terms are approved with the rules that use them. `stele init` sets the loop up for Claude Code: the skill in `.claude/skills/stele-change/` and a short Stele section in `CLAUDE.md`; see [integrations/skills/README.md](../integrations/skills/README.md). In CI, `stele gate` names anything unapproved and points back to the agent.
 
 7. **Implement.** The coding agent gets the approved rules and their examples with its tasks (Spec Kit `/speckit.tasks` and `/speckit.implement`, Kiro tasks), so it writes tests for the boundary cases first.
 
@@ -150,13 +150,7 @@ The language server publishes native file diagnostics and clears them after a re
 
 The local [VS Code client](../integrations/vscode/package.json) starts the server for each workspace folder containing `stele.yaml`, displays diagnostics in Problems, and provides **Stele: Check Saved Specs** and **Stele: Restart Spec Sync**. Set `stele.serverPath` to the Stele executable if it is not on the extension host's PATH. Build a local preview package with `python3 integrations/vscode/package.py --out /tmp/stele-spec-sync.vsix`, then use **Extensions: Install from VSIX**. This is a desktop/workspace extension; it is not a web extension. Its adapter smoke test uses the real server and a mocked VS Code API; an interactive editor session is a separate validation step. Other LSP clients can launch `stele lsp` with the project as their workspace root. The protocol follows the [LSP specification](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/), and the client supplies a standard [VS Code extension manifest](https://code.visualstudio.com/api/references/extension-manifest).
 
-For Claude Code and Codex, `stele init` installs [stele-hook.js](../integrations/claude/stele-hook.js): one script, because the two agents' hook events share one input and output format. `--hook=false` skips it, and `STELE_BIN` can point to an explicit binary.
-
-- **Claude Code:** the script goes in `.claude/hooks/`, and init merges the [hook configuration](../integrations/claude/settings.example.json) into `.claude/settings.json`, keeping other settings and hooks.
-- **Codex:** the script goes in `.codex/hooks/`, and init merges the [hook configuration](../integrations/codex/hooks.example.json) into `.codex/hooks.json`, keeping other hooks.
-  - Codex sets no project-directory variable for hooks, so the command finds the script from the repository root.
-  - The drift half runs after every tool, because the check takes milliseconds.
-  - Codex runs a project's hooks only after the user reviews them (`/hooks` in Codex). Init says so and never records that trust itself; the trust is the user's to give.
+For Claude Code, `stele init` installs [stele-hook.js](../integrations/claude/stele-hook.js) in `.claude/hooks/` and merges its [hook configuration](../integrations/claude/settings.example.json) into `.claude/settings.json`, keeping other settings and hooks. `--hook=false` skips it, and `STELE_BIN` can point to an explicit binary. In a project whose `stele.yaml` names no specs, the hook says nothing.
 
 The hook has two halves:
 
@@ -168,7 +162,7 @@ The hook has two halves:
   - The injected text tells the agent that a plan must keep these requirements, or name the one it changes and ask the owner first. Nothing blocks at this point; the commit gate and CI block.
 - **After writes, edits and shell commands (`PostToolUse`)** (including shell deletes and renames), it checks saved specs for drift and injects changed diagnostics into the agent's context. It suppresses identical repeated status, and reports recovery too.
 
-Neither half starts a model, modifies approved rules, or prevents a file from being saved. The output uses Claude Code's documented [additional context](https://code.claude.com/docs/en/hooks), which Codex accepts in the same form. These are integration files, not changes to an already-running session. Other coding CLIs can call `stele rules` and the one-shot JSON command from their own hooks or task instructions; the CI check is the enforcement backstop.
+Neither half starts a model, modifies approved rules, or prevents a file from being saved. The output uses Claude Code's documented [additional context](https://code.claude.com/docs/en/hooks). These are integration files, not changes to an already-running session. Other coding CLIs can call `stele rules` and the one-shot JSON command from their own hooks or task instructions; the CI check is the enforcement backstop.
 
 This layer detects drift and prepares work. `in_sync` means no saved-source/provenance drift was found; it is not a coverage or conflict-freedom verdict. Translation/review must still replace affected rules with stable IDs and new versions, explicitly retire removed rules, and run the full registry checker/gate. Watching never advances the accepted snapshot or approves new meaning. Promote the new source snapshot only after those updates are accepted. Semantic conflict diagnostics for newly written prose require that downstream translation/check step; this adapter does not invent them from text changes.
 
@@ -230,11 +224,23 @@ An open conflict is an acknowledged conflict the baseline tolerates until someon
 
 ### Snapshot, not replay
 
-W5 ingests the corpus as it is now ([D-047](design-decisions.md)). Git dates order the statements for triage; the history is not replayed spec by spec. A replay (Experiment B in stele-research `research/theory/README.md`) attributes each conflict to the PR that introduced it, but needs a modeling pass per spec, and triage needs only which statement is newer. Replay remains an evaluation tool.
+W5 ingests the corpus as it is now ([D-047](design-decisions.md)). Git dates order the statements for triage; the history is not replayed spec by spec. A replay attributes each conflict to the PR that introduced it, but needs a modeling pass per spec, and triage needs only which statement is newer. Replay remains an evaluation tool.
 
 ### Evidence and limits
 
-On Project A specs 001–015, one LLM review call found 8 of 10 known contradictions with 8 findings; vocabulary proposal, translation and check found 7 of 10 with 69 findings, for about $7 (ISSUES 25 (stele-research)). The review is the better discovery step, at high reasoning effort: rerun on 2026-10-30, it found 3 to 5 of 10 at the claude CLI's default effort and 6 to 9 at high, for the same cost, so `stele review` defaults to high (sweep step 7 (stele-research `research/bench/sweep/PROGRESS.md`)). The checker adds what the review lacks: a counterexample, a minimal set, a decision record and a regression gate. On Project B (OpenSpec, 756 requirements, about 800k prompt tokens; stele-research `research/adoption/README.md`), the batched review found all 3 known contradictions among 66 findings; X3 spans two areas and only the condensed pass found it. Modeling the 139 cited statements and checking them confirmed 21 of the 66, including 1 of the 3 known ones; 44 were not reproduced and 1 was unproved. Adjudicating all 66 against the spec text: 55 conflict as written (43 contradictions, 12 general-vs-specific pairs), 8 are wrong, 3 unclear. Every confirmed finding was real, and 33 of the 44 not-reproduced ones were real too, so the checker is the step that adds proof, not the step that decides what is real. Triage, baseline, write-back and sync then ran on Project B with decisions simulated from that adjudication, in under 30 seconds. The draft pointed X1–X3 at the statement the code follows, 15 decisions retired 23 rules, and 87 open conflicts let the baseline pass the gate. 68 notes written back changed no statement's hash. One run, one model; the review design was chosen knowing where X1–X3 sit.
+On Project A specs 001–015, one LLM review call found 8 of 10 known contradictions with 8 findings; vocabulary proposal, translation and check found 7 of 10 with 69 findings, for about $7. The review is the better discovery step, at high reasoning effort: rerun on 2026-10-30, it found 3 to 5 of 10 at the claude CLI's default effort and 6 to 9 at high, for the same cost, so `stele review` defaults to high. The checker adds what the review lacks: a counterexample, a minimal set, a decision record and a regression gate. On Project B (OpenSpec, 756 requirements, about 800k prompt tokens), the batched review found all 3 known contradictions among 66 findings; X3 spans two areas and only the condensed pass found it. Modeling the 139 cited statements and checking them confirmed 21 of the 66, including 1 of the 3 known ones; 44 were not reproduced and 1 was unproved. Adjudicating all 66 against the spec text: 55 conflict as written (43 contradictions, 12 general-vs-specific pairs), 8 are wrong, 3 unclear. Every confirmed finding was real, and 33 of the 44 not-reproduced ones were real too, so the checker is the step that adds proof, not the step that decides what is real. Triage, baseline, write-back and sync then ran on Project B with decisions simulated from that adjudication, in under 30 seconds. The draft pointed X1–X3 at the statement the code follows, 15 decisions retired 23 rules, and 87 open conflicts let the baseline pass the gate. 68 notes written back changed no statement's hash. One run, one model; the review design was chosen knowing where X1–X3 sit.
+
+## W6. Without spec documents: Shale requests
+
+A project that writes no spec documents can still keep requirements. Its coding agents declare each task with Shale (`shale intent "<title>"`), and `stele init` reads those requests when `stele.yaml` says `format: shale`.
+
+1. **A request is a task.** What the agent is about to do: a fix, a review, a feature. Stele says nothing about it, and the owner is not asked.
+2. **Keep the lasting ones.** When the owner says something lasts ("from now on", "always", "never", a default or a limit), the agent keeps the request as a requirement before it builds (`stele keep --by agent`, recorded in `.stele/kept-intents.yaml`) and runs `stele change shale . --base <branch> --json`. The check, its questions and the approval follow W1.
+3. **Offer once.** A request worded as a job that turns out to state a rule ("add a return command; only the holder can return a packet") is built first. When the work is done the agent offers, in one line, to keep the rule. A no is final: `stele keep <request> --decline` sets it aside, and it is never offered again. `stele keep --list` shows each request as kept, set aside or a task.
+4. **Change a kept request** by declaring it again with `shale intent` in its new wording. The check asks whether the new one replaces the earlier one, is an exception to it, or takes precedence where they meet.
+5. **Grow into a spec tool.** `stele export openspec` writes the kept requests as the project's first OpenSpec spec. The approved rules follow their statements under the new names, and Shale stays as the record of tasks.
+
+Where Shale is installed in a project with a spec tool, the task that implements a spec change names it (`shale intent --for <change-id>`), and the pull-request card shows the requirement, the task and the code together.
 
 ## Rule lifecycle
 
