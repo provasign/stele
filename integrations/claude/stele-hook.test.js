@@ -80,6 +80,12 @@ test('Claude post-edit hook reminds the agent of a request the owner has not app
   fs.writeFileSync(path.join(f.project, 'registry', 'rules.yaml'), '');
   fs.mkdirSync(path.join(f.project, '.shale'));
   fs.writeFileSync(path.join(f.project, '.shale', 's1.yaml'), 'id: s1\nintent:\n    title: Lock the door at night\n');
+  // A request is a task unless kept as a requirement (stele keep): only
+  // kept requests wait for the owner's approval.
+  const keep = ids => {
+    fs.mkdirSync(path.join(f.project, '.stele'), { recursive: true });
+    fs.writeFileSync(path.join(f.project, '.stele', 'kept-intents.yaml'), ids.map(id => `- id: intent/${id}\n  title: t\n  by: agent\n  at: "2026-11-09"\n`).join(''));
+  };
   const invoke = () => {
     const result = spawnSync(process.execPath, [path.join(__dirname, 'stele-hook.js')], {
       input: JSON.stringify({ hook_event_name: 'PostToolUse', cwd: f.project, session_id: 'request-test' }),
@@ -88,6 +94,8 @@ test('Claude post-edit hook reminds the agent of a request the owner has not app
     assert.equal(result.status, 0, result.stderr);
     return result.stdout.trim() ? JSON.parse(result.stdout) : null;
   };
+  assert.equal(invoke(), null, 'a request not kept is a task: no reminder');
+  keep(['s1']);
   const output = invoke();
   assert.match(output.hookSpecificOutput.additionalContext, /not approved by the owner yet: "Lock the door at night"/);
   assert.doesNotMatch(output.hookSpecificOutput.additionalContext, /run `run /, 'the next step was wrapped in a second run');
@@ -96,6 +104,7 @@ test('Claude post-edit hook reminds the agent of a request the owner has not app
   // Many waiting: the session's own by name, the rest as a count.
   for (let i = 2; i <= 6; i++) fs.writeFileSync(path.join(f.project, '.shale', `old${i}.yaml`), `id: old${i}\nintent:\n    title: Earlier request ${i}\n`);
   fs.writeFileSync(path.join(f.project, '.shale', 'request-test.yaml'), 'id: request-test\nintent:\n    title: Open the gate at dawn\n');
+  keep(['s1', 'old2', 'old3', 'old4', 'old5', 'old6', 'request-test']);
   const many = invoke().hookSpecificOutput.additionalContext;
   assert.match(many, /not approved by the owner yet: "Open the gate at dawn" \(and 6 others\)/);
   assert.doesNotMatch(many, /Earlier request/);

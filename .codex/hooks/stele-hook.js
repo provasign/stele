@@ -70,7 +70,9 @@ function main() {
   // say nothing, rather than a failure on every command (2026-11-07).
   let config = '';
   try { config = fs.readFileSync(path.join(project, 'stele.yaml'), 'utf8'); } catch {}
-  const hasSpecs = /^specs:/m.test(config);
+  // `specs:` at the start of a line, or `"specs":` in the flow (JSON)
+  // form YAML also reads; CI's fixtures write the latter (2026-11-09).
+  const hasSpecs = /(^|[{,]\s*)["']?specs["']?\s*:/m.test(config);
   const result = hasSpecs ? spawnSync(process.env.STELE_BIN || 'stele',
     ['watch', '--project', project, '--once', '--json'],
     { cwd: project, encoding: 'utf8', timeout: 10000, maxBuffer: 8 * 1024 * 1024 }) : null;
