@@ -267,7 +267,11 @@ func summarize(res *change.Result, outDir string) changeSummary {
 	case len(res.Gate.Errors) > 0:
 		s.Status, s.Next = "broken", "the registry after this change does not compile; see errors"
 	case len(res.Failed) > 0:
-		s.Status, s.Next = "failed", fmt.Sprintf("the model could not translate %d requirement(s), so nothing was checked for them (see failed); fix what the error names (the model command, its login or sandbox) and run the same check again: it retries them", len(res.Failed))
+		// A reading Stele could not compile (type errors) arrives here as
+		// well as a model call that failed; the next step said only the
+		// latter, and the agent told the owner of a "missing role term"
+		// (a live trial, 2026-11-08).
+		s.Status, s.Next = "failed", fmt.Sprintf("Stele could not read %d requirement(s), so nothing was checked for them (see failed). If the error names the model command, its login or sandbox, fix that; otherwise Stele's reading did not compile, which is not the owner's to fix. Either way run the same check again, without rewording the spec: it retries them", len(res.Failed))
 		if !slices.ContainsFunc(slices.Collect(maps.Values(res.Failed)), func(why string) bool { return !strings.HasPrefix(why, change.NoRules) }) {
 			// The model answered, with no rules: nothing to fix but to ask again.
 			s.Next = fmt.Sprintf("the model gave no rules for %d requirement(s) (see failed); run the same check again, without rewording them: it retries them once, and a requirement read so again is reported as unchecked", len(res.Failed))
@@ -309,9 +313,17 @@ func summarize(res *change.Result, outDir string) changeSummary {
 // ownerSummary is the check as the owner reads it: how many requirements,
 // what they were checked against, whether they agree, what Stele cannot
 // check, and what needs deciding. No rule syntax, no symbol names.
+// ruleLegend tells the agent how to read Stele's rules before it explains
+// them to the owner. An agent read count(p in instances(Packet): ...) <= 2
+// as a limit of two, told the owner a correct reading of "at most three" was
+// off by one, and spent two turns and a reread making it weaker (a live
+// trial, 2026-11-08).
+const ruleLegend = "How to read the rules: `instances(E)` is every other instance of E, never `self`, so `count(p in instances(Packet): ...) <= 2` on a packet allows three with that one; `old(x)` is x before the step; `result.x` is what the step reports. A rule that looks wrong is Stele's to settle: its findings below say where a reading is narrower or broader than the text. Explain the rules to the owner in the requirement's words, never their syntax, and do not reread a requirement only because a rule looks wrong to you."
+
 func ownerSummary(res *change.Result, status string) string {
 	title := func(id string) string { return `"` + card.Title(res.Statements[id], id) + `"` }
 	n := len(res.Added) + len(res.Modified)
+	approved := 0
 	var b strings.Builder
 	switch {
 	case n == 0 && len(res.Removed) == 0:
@@ -327,8 +339,8 @@ func ownerSummary(res *change.Result, status string) string {
 		}
 		fmt.Fprintf(&b, "Stele read %s", what)
 		if reg, err := ir.LoadDir(res.Registry); err == nil {
-			if k := approvedStatements(reg); k > 0 {
-				fmt.Fprintf(&b, " and checked %s against the %d approved before", pick(n == 1, "it", "them"), k)
+			if approved = approvedStatements(reg); approved > 0 {
+				fmt.Fprintf(&b, " and checked %s against the %d approved before", pick(n == 1, "it", "them"), approved)
 			}
 		}
 		b.WriteString(".")
@@ -338,7 +350,7 @@ func ownerSummary(res *change.Result, status string) string {
 	}
 	switch status {
 	case "failed":
-		fmt.Fprintf(&b, " The model could not read %d of them, so nothing is checked yet.", len(res.Failed))
+		fmt.Fprintf(&b, " Stele could not read %d of them, so nothing is checked yet.", len(res.Failed))
 		return b.String()
 	case "broken":
 		b.WriteString(" Stele could not check this change: its readings do not fit together.")
@@ -360,7 +372,17 @@ func ownerSummary(res *change.Result, status string) string {
 		}
 	}
 	if len(clashes) == 0 && len(decisions) == 0 {
-		b.WriteString(pick(n == 1, " It agrees", " They agree") + " with the approved requirements.")
+		// With none approved yet, the check is the change against itself
+		// (an adoption said "they agree with the approved requirements"
+		// when there were none: a live trial, 2026-11-08).
+		switch {
+		case approved > 0:
+			b.WriteString(pick(n == 1, " It agrees", " They agree") + " with the approved requirements.")
+		case n > 1:
+			b.WriteString(" They agree with each other; none was approved before.")
+		default:
+			b.WriteString(" Nothing contradicts it; none was approved before.")
+		}
 	}
 	if len(clashes) > 0 {
 		fmt.Fprintf(&b, " %s cannot both hold: %s.", pick(len(clashes) == 1, "Two requirements", "Some requirements"), strings.Join(clashes, "; "))
@@ -529,7 +551,7 @@ func changeReport(res *change.Result, head *ir.Registry) string {
 		}
 	}
 	if len(res.NewTerms) > 0 || len(res.SameTerms) > 0 {
-		b.WriteString("## New terms\n\n")
+		b.WriteString("## New terms\n\nStele's own names for what the code has, for the agent; they are not a decision for the owner.\n\n")
 		if len(res.NewTerms) > 0 {
 			fmt.Fprintf(&b, "The change adds: %s.\n", strings.Join(res.NewTerms, ", "))
 		}
@@ -549,7 +571,7 @@ func changeReport(res *change.Result, head *ir.Registry) string {
 		b.WriteString("\n")
 	}
 	if len(res.Failed) > 0 {
-		b.WriteString("## Not translated\n\nThe model could not translate these requirements, so nothing was checked for them and the change cannot be approved yet. Fix what the error names and run the same check again; it retries them:\n\n")
+		b.WriteString("## Not translated\n\nStele could not read these requirements, so nothing was checked for them and the change cannot be approved yet. If an error names the model command, its login or sandbox, fix that; otherwise it is Stele's reading. Run the same check again; it retries them:\n\n")
 		for _, id := range sortedKeys(res.Failed) {
 			fmt.Fprintf(&b, "- %s: %s\n", id, oneLine(res.Failed[id], 200))
 		}
@@ -571,7 +593,7 @@ func changeReport(res *change.Result, head *ir.Registry) string {
 				checked = append(checked, id)
 			}
 		}
-		b.WriteString("## Rules to approve\n\nRead each rule as a reading of its requirement. The owner approves them by answering the check's approval question (`stele change answer <change> <approve question> approve`), which applies the change and records the approval.\n\n")
+		b.WriteString("## Rules to approve\n\nRead each rule as a reading of its requirement. The owner approves them by answering the check's approval question (`stele change answer <change> <approve question> approve`), which applies the change and records the approval.\n\n" + ruleLegend + "\n\n")
 		byStmt := map[string][]string{}
 		var stmts []string
 		for _, id := range checked {

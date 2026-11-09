@@ -810,6 +810,7 @@ func (l *loader) finish() {
 		}
 	}
 	l.instanceRelations()
+	l.openActorEnums()
 	for _, e := range l.reg.Entities {
 		for _, a := range e.Attrs {
 			for _, x := range []*Attr{a, a.Elem, a.Key} {
@@ -1370,6 +1371,78 @@ func (l *loader) instanceRelations() {
 					ent.Relations[InstancesRelation] = &Relation{Name: InstancesRelation, To: ent.Name, Many: true, Max: DefaultMaxInstances}
 				}
 			}
+		}
+	}
+}
+
+// openActorEnums adds to the platform's Actor.role and Actor.kind each name
+// a rule compares them with. The platform ships them empty for projects to
+// extend, and a role a requirement names ("the librarian adds a packet") is
+// the project's word for one: a reading that compares actor.role with
+// librarian names that role, so it is a value, not an error. Without this, a
+// fresh registry failed every requirement that named a role unless the
+// model also declared the role's values, which nothing told it to do.
+func (l *loader) openActorEnums() {
+	actor := l.reg.Entities["Actor"]
+	if actor == nil || actor.Context != "platform" {
+		return
+	}
+	add := func(attr string, e Expr) {
+		a := actor.Attrs[attr]
+		id, ok := e.(*Ident)
+		if a == nil || a.Kind != Enum || !ok || slices.Contains(a.Values, id.Name) {
+			return
+		}
+		a.Values = append(a.Values, id.Name)
+	}
+	actorAttr := func(e Expr) string {
+		if p, ok := e.(*Path); ok && len(p.Segs) == 2 && p.Segs[0] == "actor" && (p.Segs[1] == "role" || p.Segs[1] == "kind") {
+			return p.Segs[1]
+		}
+		return ""
+	}
+	var walk func(Expr)
+	walk = func(e Expr) {
+		switch e := e.(type) {
+		case *Binary:
+			for _, side := range [][2]Expr{{e.L, e.R}, {e.R, e.L}} {
+				attr := actorAttr(side[0])
+				if attr == "" || (e.Op != "=" && e.Op != "!=" && e.Op != "in") {
+					continue
+				}
+				switch o := side[1].(type) {
+				case *Set:
+					for _, x := range o.Elems {
+						add(attr, x)
+					}
+				case *ListLit:
+					for _, x := range o.Elems {
+						add(attr, x)
+					}
+				default:
+					add(attr, o)
+				}
+			}
+			walk(e.L)
+			walk(e.R)
+		case *Not:
+			walk(e.X)
+		case *Quant:
+			walk(e.Coll)
+			walk(e.Body)
+		case *Call:
+			for _, x := range e.Args {
+				walk(x)
+			}
+		}
+	}
+	for _, x := range l.reg.Rules {
+		walk(x.When)
+		walk(x.Assert)
+	}
+	for _, d := range l.reg.Decisions {
+		if d.Supersede != nil {
+			walk(d.Supersede.When)
 		}
 	}
 }

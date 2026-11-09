@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -587,5 +588,34 @@ assert: len(self.holdsBy) = 2
 	_, err = lower.Lower(reg, lower.Options{})
 	if err == nil || !strings.Contains(err.Error(), "a map has no length") || !strings.Contains(err.Error(), "has(m, k)") {
 		t.Errorf("err = %v, want the map-length message", err)
+	}
+}
+
+// A role a requirement names is a value of the platform's open role list:
+// a fresh registry whose rules compare actor.role with librarian and member
+// loads and checks without declaring the roles.
+func TestRolesNamedByRules(t *testing.T) {
+	roles := resources + `---
+id: R50
+kind: permission
+effect: allow
+operation: Resource.delete
+when: actor.role = librarian
+---
+id: R51
+kind: permission
+effect: deny
+operation: Resource.delete
+when: actor.role in {member, guest}
+`
+	reg, err := ir.LoadDir(writeRegistry(t, roles))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reg.Entities["Actor"].Attrs["role"].Values; !slices.Equal(got, []string{"librarian", "member", "guest"}) {
+		t.Errorf("Actor.role values = %v, want librarian, member, guest", got)
+	}
+	if _, err := lower.Lower(reg, lower.Options{}); err != nil {
+		t.Errorf("lower: %v", err)
 	}
 }

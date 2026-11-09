@@ -91,6 +91,7 @@ func cmdChangeAnswer(args []string, out io.Writer) int {
 	}
 	if choice == "impossible" {
 		// The situation the owner rules out, plus the owner's words.
+		a.Said = strings.TrimSpace(a.Note)
 		a.Note = strings.TrimSpace(q.Example + ". " + a.Note)
 	}
 	if q.Kind == "self_conflict" && a.Note == "" {

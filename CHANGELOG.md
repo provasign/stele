@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+Found by a live trial of both flows with Claude Code on an invented project: an OpenSpec feature from adoption to build, and four requests on a project without a spec tool (about $3.80 in all).
+
+- **A role a requirement names is a value of the actor's role.** The platform's actor role and kind start empty for a project to extend, and a reading that compared the actor with "librarian" failed on a fresh registry unless the model also declared the role, which nothing told it to do. Names a rule compares them with are now their values. An adoption of two requirements failed on its first run this way.
+- **A failed check no longer blames the model command.** A reading Stele could not compile is reported in the same place as a model call that failed; the next step now names both, and says the spec needs no rewording.
+- **The summary of a check with nothing approved yet** says the requirements agree with each other, not "with the approved requirements".
+- **The approval question no longer counts new terms.** Agents relayed them to the owner as Stele's internal names. The report still lists them, marked as Stele's names for the agent.
+- **The report says how to read its rules.** An agent read `count(p in instances(Packet): ...) <= 2` as a limit of two, told the owner a correct reading of "at most three" was off by one, and spent two turns and a reread making it weaker. `instances(E)` is every other instance, never `self`; the report and the skill now say so, and that a rule that only looks wrong is no reason to reread.
+- **A "cannot happen" lesson keeps the owner's words** without the solver's situation the answer carries for the reread.
+- **Agent instructions:** `--quoted` is for the owner's words copied as said, never a paraphrase or a prefix such as "Owner:" (the trial's agent quoted its own summary of "Exception."); lessons are described without their IDs; a request is kept before building only when the owner says it lasts, and a request worded as a job is built first, its rule offered once after.
+
 ## v0.1.8 - 2026-11-08
 
 - **A check reads its prompt from the cache in every wave.** The vocabulary a check starts from goes in the cached system prompt, and the terms its own earlier waves added go in each request, so repairs and rereads read the same cached prompt instead of writing a new one. Before, every new term changed the prompt: a two-requirement check on v0.1.6 sent a 15,000-token prompt five times and read none of it from the cache. On a two-requirement check with Sonnet it cost $0.12 instead of $0.17, in 40 seconds instead of 48.

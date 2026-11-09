@@ -1041,6 +1041,11 @@ func TestAnswersBecomeLessons(t *testing.T) {
 	if len(res.NewLessons) != 1 || !strings.Contains(res.NewLessons[0], "a locked resource is one with holds") {
 		t.Fatalf("new lessons = %v, want only the owner's", res.NewLessons)
 	}
+	// A situation the owner rules out is saved in their words, without the
+	// solver's slots the answer carries for the reread.
+	if got := lessonsFrom([]Answer{{Question: "conflict-x", Kind: "conflict", Choice: "impossible", Note: "packet: other #1: holder id is \"a\". A packet with a holder is always borrowed.", Said: "A packet with a holder is always borrowed.", Quoted: true, By: "owner"}}, "c1"); len(got) != 1 || got[0].Says != "This situation cannot happen in this project: A packet with a holder is always borrowed." {
+		t.Errorf("impossible lesson = %+v", got)
+	}
 	files, _ := filepath.Glob(filepath.Join(res.Head, "lessons", "*.yaml"))
 	if len(files) != 1 {
 		t.Fatalf("lesson files in the head = %v", files)

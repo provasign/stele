@@ -1245,7 +1245,11 @@ func lessonsFrom(as []Answer, change string) []ir.Lesson {
 		case !a.Quoted:
 			// Only the owner's own words teach: see Answer.Quoted.
 		case a.Kind == "conflict" && a.Choice == "impossible" && strings.TrimSpace(a.Note) != "":
-			out = append(out, ir.Lesson{Kind: ir.LessonFact, Says: "This situation cannot happen in this project: " + strings.TrimSpace(a.Note),
+			says := strings.TrimSpace(a.Note)
+			if a.Said != "" {
+				says = a.Said // the owner's words, not the solver's situation
+			}
+			out = append(out, ir.Lesson{Kind: ir.LessonFact, Says: "This situation cannot happen in this project: " + says,
 				From: from, By: a.By, At: at})
 		case (a.Kind == "reread" || ((a.Kind == "conflict" || a.Kind == "self_conflict") && a.Choice == "misread") || a.Kind == "free_setting" && a.Choice == "fixed") && strings.TrimSpace(a.Note) != "" && len(a.Statements) > 0:
 			out = append(out, ir.Lesson{Kind: ir.LessonReading, Says: strings.TrimSpace(a.Note), Statements: a.Statements, From: from, By: a.By, At: at})

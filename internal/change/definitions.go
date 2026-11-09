@@ -132,7 +132,7 @@ func ownerFacts(as []Answer, head *ir.Registry) []string {
 	}
 	for _, a := range as {
 		if a.Kind == "conflict" && a.Choice == "impossible" && a.By != "agent" {
-			add("This situation cannot happen in this project: " + a.Note) // as its lesson says it
+			add("This situation cannot happen in this project: " + a.Note) // the situation and the owner's words; its lesson keeps the words
 		}
 	}
 	for _, l := range head.Lessons {

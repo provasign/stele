@@ -96,7 +96,11 @@ type Answer struct {
 	// itself or to explain the owner's one-word answer, guides this
 	// change's reading and is not the owner's (2026-11-07: the owner said
 	// "1", and the agent's explanation was about to be saved as theirs).
-	Quoted   bool   `json:"quoted,omitempty"`
+	Quoted bool `json:"quoted,omitempty"`
+	// Said is the owner's note as given, where Note adds to it what Stele
+	// needs to act on it (the situation a "cannot happen" answer rules
+	// out). A lesson keeps Said: the situation is the solver's slots.
+	Said     string `json:"said,omitempty"`
 	By       string `json:"by,omitempty"`
 	Term     string `json:"term,omitempty"`
 	Existing string `json:"existing,omitempty"`
@@ -834,9 +838,9 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 			}
 			q.Text += fmt.Sprintf("; %d could not be checked (%s)", n, strings.Join(titles, ", "))
 		}
-		if len(res.NewTerms) > 0 {
-			q.Text += fmt.Sprintf(". The change adds %d new term(s)", len(res.NewTerms))
-		}
+		// The count of new terms was Stele's bookkeeping, not the owner's
+		// decision; agents relayed it as a list of internal names (a live
+		// trial, 2026-11-08). The report still lists them for the agent.
 		if k := keeps(as); len(k) > 0 {
 			var said []string
 			for _, op := range slices.Sorted(maps.Keys(k)) {

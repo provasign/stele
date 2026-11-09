@@ -120,7 +120,7 @@ func TestOwnerSummary(t *testing.T) {
 			t.Errorf("summary %q\nmissing %q", got, want)
 		}
 	}
-	if got := ownerSummary(&change.Result{Added: []string{"x"}, Statements: map[string]string{"x": "One rule"}, Registry: t.TempDir()}, "ready"); got != "Stele read 1 requirement. It agrees with the approved requirements." {
+	if got := ownerSummary(&change.Result{Added: []string{"x"}, Statements: map[string]string{"x": "One rule"}, Registry: t.TempDir()}, "ready"); got != "Stele read 1 requirement. Nothing contradicts it; none was approved before." {
 		t.Errorf("clean summary = %q", got)
 	}
 }
