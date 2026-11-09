@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.1.9 - 2026-11-09
 
 Found by a live trial of both flows with Claude Code on an invented project: an OpenSpec feature from adoption to build, and four requests on a project without a spec tool (about $3.80 in all).
 
@@ -10,6 +10,8 @@ Found by a live trial of both flows with Claude Code on an invented project: an 
 - **The approval question no longer counts new terms.** Agents relayed them to the owner as Stele's internal names. The report still lists them, marked as Stele's names for the agent.
 - **The report says how to read its rules.** An agent read `count(p in instances(Packet): ...) <= 2` as a limit of two, told the owner a correct reading of "at most three" was off by one, and spent two turns and a reread making it weaker. `instances(E)` is every other instance, never `self`; the report and the skill now say so, and that a rule that only looks wrong is no reason to reread.
 - **A "cannot happen" lesson keeps the owner's words** without the solver's situation the answer carries for the reread.
+- **A clash that needs another instance in a state no step leaves is set aside.** Stele already set aside a clash whose step acts on an instance no step could have left so; it now tests every other instance the situation has as well. Two readings of "holds" (borrowed and held by the member; held by the member) clashed only when another packet was held yet available, which no step leaves, and the owner was asked whether that could happen. A step that can leave such a packet keeps the clash.
+- **A clash's example names each instance once,** with its values, and leaves out slots that hold no instance: "packet: other #1: holder id is <other text 1>, status is borrowed", not one entry per value with "no packet: other #4" beside that packet's values. The step's own instance comes first.
 - **Agent instructions:** `--quoted` is for the owner's words copied as said, never a paraphrase or a prefix such as "Owner:" (the trial's agent quoted its own summary of "Exception."); lessons are described without their IDs; a request is kept before building only when the owner says it lasts, and a request worded as a job is built first, its rule offered once after.
 
 ## v0.1.8 - 2026-11-08

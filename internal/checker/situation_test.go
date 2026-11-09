@@ -16,6 +16,7 @@ func TestSlotsInSituation(t *testing.T) {
 		{Name: "Shed.tools#2.id", Value: "0"},
 		{Name: "Shed.tools#2:in", Value: "true"},
 		{Name: "Shed.tools#3:in", Value: "false"},
+		{Name: "Shed.tools#3.id", Value: "9"},
 		{Name: "Shed.tools#2.borrowerEmail?", Value: "false"},
 		{Name: "Tool.*instances#1.id", Value: "4"},
 		{Name: "Result.ids#n", Value: "1"},
@@ -23,11 +24,17 @@ func TestSlotsInSituation(t *testing.T) {
 	}
 	got := Plain(Situation(nil, bs))
 	for _, want := range []string{
-		"shed: tools #1: id is 0", "shed: tools #1 exists", "shed: tools #2: id is 0",
-		"no shed: tools #3", "shed: tools #2: borrower email is unset", "tool: other #1: id is 4", "result: ids is [7]",
+		"shed: tools #1: id is 0", "shed: tools #2: id is 0, borrower email is unset", "tool: other #1: id is 4", "result: ids is [7]",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in %q", want, got)
+		}
+	}
+	// A slot holding no instance is left out, values and all; one that
+	// holds one is said by its values (a live trial, 2026-11-08).
+	for _, not := range []string{"tools #3", "exists"} {
+		if strings.Contains(got, not) {
+			t.Errorf("%q in %q", not, got)
 		}
 	}
 }

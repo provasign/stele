@@ -359,3 +359,83 @@ when: self.held = 4
 		t.Fatalf("below the limit: %s %q", res.Verdict, cores(res))
 	}
 }
+
+// Two readings of "holds" (borrowed and held by the member; held by the
+// member) disagree only when another packet is held yet available, which no
+// step leaves: add makes a packet available with no holder, borrow makes it
+// borrowed with one, return makes it available with none. The clash is set
+// aside, not put to the owner (a live trial, 2026-11-08). A return that
+// keeps the holder makes the state reachable, and the clash stands.
+const packets = `context: c
+formatVersion: 1
+---
+entity: Packet
+context: c
+createdBy: [Packet.add]
+attributes:
+  status: { type: enum, values: [available, borrowed] }
+  holder: { type: optional<string> }
+---
+extend: platform.Request
+context: c
+attributes:
+  member: { type: string }
+---
+operation: Packet.add
+context: c
+default: allow
+writes: [Packet.status, Packet.holder]
+---
+operation: Packet.borrow
+context: c
+default: allow
+writes: [Packet.status, Packet.holder]
+---
+operation: Packet.giveBack
+context: c
+default: allow
+writes: [Packet.status, Packet.holder]
+---
+id: added-free
+kind: invariant
+on: Packet.add
+assert: self.status = available and not isSet(self.holder)
+---
+id: returned-free
+kind: invariant
+on: Packet.giveBack
+assert: self.status = available and not isSet(self.holder)
+---
+id: borrow-under-limit
+kind: invariant
+on: Packet.borrow
+when: "old(self.status) = available and count(p in instances(Packet): p.status = borrowed and p.holder = request.member) < 3"
+assert: self.status = borrowed and self.holder = request.member
+---
+id: held-refused
+kind: invariant
+on: Packet.borrow
+when: old(self.status) = borrowed
+assert: self.status = old(self.status) and self.holder = old(self.holder)
+---
+id: limit
+kind: invariant
+on: Packet.borrow
+when: "count(p in instances(Packet): p.holder = request.member) >= 3"
+assert: self.status = old(self.status) and self.holder = old(self.holder)
+`
+
+func TestClashNeedingAnotherInstanceInUnreachableState(t *testing.T) {
+	needZ3(t)
+	res := checkSource(t, packets)
+	if len(res.Conflicts) != 0 {
+		t.Fatalf("conflicts %+v, want the clash set aside (unreachable %+v)", res.Conflicts, res.Unreachable)
+	}
+	kept := strings.Replace(packets, "assert: self.status = available and not isSet(self.holder)\n---\nid: borrow-under-limit", "assert: self.status = available\n---\nid: borrow-under-limit", 1)
+	if kept == packets {
+		t.Fatal("fixture edit did not apply")
+	}
+	if res := checkSource(t, kept); len(res.Conflicts) != 1 {
+		t.Fatalf("return keeps the holder: conflicts %+v, unreachable %+v", res.Conflicts, res.Unreachable)
+	}
+}

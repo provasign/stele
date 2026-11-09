@@ -48,17 +48,53 @@ func unreachable(ctx context.Context, z *solver.Z3, prog *lower.Program, cf Conf
 	if unit == nil || unit.Op == nil {
 		return false, "", nil
 	}
-	fixed := map[string]string{} // label -> raw value
-	names := map[string]string{} // label -> the unit's variable
+	// The instance the step acts on is one group; each other instance the
+	// situation has present (instances(E) slots, "E.*instances#k.attr") is
+	// another. No step acts on another instance, so it is in a state no
+	// trace reaches when no step ever leaves an instance so. A clash between
+	// two readings of "holds" needed another packet held by a member yet
+	// available, which no step leaves, and the owner was asked whether that
+	// could happen (a live trial, 2026-11-08).
+	type group struct {
+		fixed map[string]string // the attribute's label (E.a, E.a?) -> raw value
+		names map[string]string // that label -> the unit's variable
+	}
+	groups := map[string]*group{}
+	get := func(key string) *group {
+		if groups[key] == nil {
+			groups[key] = &group{fixed: map[string]string{}, names: map[string]string{}}
+		}
+		return groups[key]
+	}
 	for _, v := range unit.Vars {
 		raw, ok := cf.before[v.Label]
-		if !ok || raw == "" || v.Post || v.Attr == nil || v.Attr.Entity == nil || v.Label != v.Attr.QName() && v.Label != v.Attr.QName()+"?" {
-			continue // only scalar state before the step, and whether it is set
+		if !ok || raw == "" || v.Post || v.Attr == nil || v.Attr.Entity == nil {
+			continue // only state before the step
+		}
+		key, label := "", ""
+		switch q := v.Attr.QName(); {
+		case v.Label == q || v.Label == q+"?":
+			label = v.Label
+		default:
+			// Another instance: E.*instances#k.a or E.*instances#k.a?
+			pre := v.Attr.Entity.Name + "." + ir.InstancesRelation + "#"
+			rest, ok := strings.CutPrefix(v.Label, pre)
+			if !ok {
+				continue
+			}
+			k, attr, ok := strings.Cut(rest, ".")
+			if !ok || strings.TrimSuffix(attr, "?") != v.Attr.Name {
+				continue // a list or map slot: only scalar state
+			}
+			if cf.before[pre+k+":in"] != "true" {
+				continue // not present: its values mean nothing
+			}
+			key, label = pre+k, q+strings.TrimPrefix(attr, v.Attr.Name)
 		}
 		if !written[v.Attr] {
 			continue // the world sets it: any value can be reached
 		}
-		if v.Label == v.Attr.QName() && cf.before[v.Label+"?"] == "false" {
+		if label == v.Attr.QName() && cf.before[strings.TrimSuffix(v.Label, "?")+"?"] == "false" {
 			continue // unset: its value means nothing
 		}
 		if len(v.Attr.Entity.CreatedBy) == 0 {
@@ -70,37 +106,89 @@ func unreachable(ctx context.Context, z *solver.Z3, prog *lower.Program, cf Conf
 			// 2026-11-03).
 			continue
 		}
-		fixed[v.Label] = raw
-		names[v.Label] = v.Name
+		g := get(key)
+		g.fixed[label] = raw
+		g.names[label] = v.Name
 	}
-	if len(fixed) == 0 {
-		return false, "", nil
-	}
-	if off, err = neverEntered(ctx, z, prog, fixed); err != nil || !off {
-		return false, "", err
-	}
-	labels := slices.Sorted(maps.Keys(fixed))
-	if widen {
-		for _, l := range labels {
-			if len(fixed) == 1 {
-				break
-			}
-			raw := fixed[l]
-			delete(fixed, l)
-			if still, err := neverEntered(ctx, z, prog, fixed); err != nil {
-				return false, "", err
-			} else if !still {
-				fixed[l] = raw
+	for _, key := range slices.Sorted(maps.Keys(groups)) {
+		g := groups[key]
+		if len(g.fixed) == 0 {
+			continue
+		}
+		if off, err = neverEntered(ctx, z, prog, g.fixed); err != nil {
+			return false, "", err
+		} else if !off {
+			continue
+		}
+		labels := slices.Sorted(maps.Keys(g.fixed))
+		if widen {
+			for _, l := range labels {
+				if len(g.fixed) == 1 {
+					break
+				}
+				raw := g.fixed[l]
+				delete(g.fixed, l)
+				if still, err := neverEntered(ctx, z, prog, g.fixed); err != nil {
+					return false, "", err
+				} else if !still {
+					g.fixed[l] = raw
+				}
 			}
 		}
+		return true, everyInstance(unit, g.fixed), nil
 	}
-	var in []string
-	for _, l := range labels {
-		if raw, ok := fixed[l]; ok {
-			in = append(in, fmt.Sprintf("(= %s %s)", names[l], raw))
+	return false, "", nil
+}
+
+// everyInstance is the region where any instance a unit holds, the one the
+// step acts on or another present one, has the values fixed (labels E.a and
+// E.a?): no trace reaches any of them, so a clash resampled outside the
+// region cannot put the same state in the next slot.
+func everyInstance(unit *lower.Unit, fixed map[string]string) string {
+	byLabel := map[string]string{}
+	slots := map[string]bool{}
+	for _, v := range unit.Vars {
+		if v.Post {
+			continue
+		}
+		byLabel[v.Label] = v.Name
+		if pre, _, ok := strings.Cut(v.Label, ":in"); ok && strings.Contains(pre, "."+ir.InstancesRelation+"#") && strings.HasSuffix(v.Label, ":in") {
+			slots[pre] = true
 		}
 	}
-	return true, conjoin(in), nil
+	var places []string
+	at := func(prefix, in string) {
+		parts := []string{}
+		if in != "" {
+			parts = append(parts, in)
+		}
+		for _, l := range slices.Sorted(maps.Keys(fixed)) {
+			ent, attr, _ := strings.Cut(l, ".")
+			name := byLabel[l]
+			if prefix != "" {
+				if !strings.HasPrefix(prefix, ent+".") {
+					return
+				}
+				name = byLabel[prefix+"."+attr]
+			}
+			if name == "" {
+				return // this instance has no such slot here
+			}
+			parts = append(parts, fmt.Sprintf("(= %s %s)", name, fixed[l]))
+		}
+		places = append(places, conjoin(parts))
+	}
+	at("", "")
+	for _, slot := range slices.Sorted(maps.Keys(slots)) {
+		at(slot, byLabel[slot+":in"])
+	}
+	switch len(places) {
+	case 0:
+		return "false"
+	case 1:
+		return places[0]
+	}
+	return "(or " + strings.Join(places, " ") + ")"
 }
 
 // neverEntered reports whether no step leaves an instance with the values

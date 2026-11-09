@@ -111,22 +111,53 @@ func Situation(reg *ir.Registry, bs []Binding) []string {
 // "not cluster: flush recorded", whether a step runs
 // ("Workspace.delete:runs=true") as "workspace: delete runs", first, and the
 // values after the step ("Workspace.status'=running") last, as "after the
-// step, workspace: status is running" (ISSUES 10).
+// step, workspace: status is running" (ISSUES 10). Each instance is named
+// once with its values ("packet: other #1: holder is "a", status is
+// borrowed"), and a slot that holds no instance is left out with its
+// values: the solver's slot-by-slot listing, absent slots included, was
+// what the owner was shown (a live trial, 2026-11-08).
 func Plain(s []string) string {
-	var now, runs, after []string
+	absent := map[string]bool{}
+	present := map[string]bool{}
+	for _, b := range s {
+		if name, val, ok := strings.Cut(b, "="); ok {
+			if slot, ok := strings.CutSuffix(name, ":in"); ok {
+				absent[slot], present[slot] = val == "false", val == "true"
+			}
+		}
+	}
+	inAbsent := func(name string) bool {
+		for slot := range absent {
+			if absent[slot] && (name == slot || strings.HasPrefix(name, slot+".")) {
+				return true
+			}
+		}
+		return false
+	}
+	type group struct {
+		subject string
+		phrases []string
+	}
+	var runs []string
+	var now, after []*group
+	find := func(gs *[]*group, subject string) *group {
+		for _, g := range *gs {
+			if g.subject == subject {
+				return g
+			}
+		}
+		g := &group{subject: subject}
+		*gs = append(*gs, g)
+		return g
+	}
+	described := map[string]bool{}
 	for _, b := range s {
 		name, val, ok := strings.Cut(b, "=")
 		if !ok {
 			name, val = strings.TrimSuffix(b, " unset"), "unset"
 		}
-		if slot, ok := strings.CutSuffix(name, ":in"); ok {
-			switch val {
-			case "true":
-				now = append(now, Words(slot)+" exists")
-			case "false":
-				now = append(now, "no "+Words(slot))
-			}
-			continue
+		if strings.HasSuffix(name, ":in") {
+			continue // said by the slot's values, or below when it has none
 		}
 		if op, ok := strings.CutSuffix(name, ":runs"); ok {
 			switch val {
@@ -141,24 +172,70 @@ func Plain(s []string) string {
 		if n, ok := strings.CutSuffix(name, "'"); ok {
 			name, into = n, &after
 		}
-		subject := Words(name)
+		if inAbsent(name) {
+			continue
+		}
+		subject, attr := name, ""
+		if i := strings.LastIndex(name, "."); i > 0 {
+			subject, attr = name[:i], name[i+1:]
+		}
+		described[subject] = true
+		g := find(into, subject)
+		what := SplitName(attr)
+		if attr == "" {
+			what = ""
+		}
 		switch val {
 		case "true":
-			*into = append(*into, subject)
+			g.phrases = append(g.phrases, what)
 		case "false":
-			*into = append(*into, "not "+subject)
+			g.phrases = append(g.phrases, "not "+what)
 		case `""`:
-			*into = append(*into, subject+" is empty")
+			g.phrases = append(g.phrases, what+" is empty")
 		default:
-			*into = append(*into, subject+" is "+SplitName(val))
+			g.phrases = append(g.phrases, strings.TrimSpace(what+" is "+SplitName(val)))
 		}
 	}
-	out := strings.Join(append(runs, now...), ", ")
+	for _, b := range s {
+		if name, val, ok := strings.Cut(b, "="); ok && val == "true" {
+			if slot, ok := strings.CutSuffix(name, ":in"); ok && !described[slot] {
+				find(&now, slot).phrases = append(find(&now, slot).phrases, "exists")
+			}
+		}
+	}
+	say := func(gs []*group) []string {
+		// The step's own instance and request first, then the other
+		// instances and slots it looks at.
+		slices.SortStableFunc(gs, func(a, b *group) int {
+			ka, kb := strings.Contains(a.subject, "#"), strings.Contains(b.subject, "#")
+			switch {
+			case ka == kb:
+				return 0
+			case kb:
+				return -1
+			}
+			return 1
+		})
+		var out []string
+		for _, g := range gs {
+			subject := Words(g.subject)
+			if !strings.Contains(g.subject, ".") {
+				subject = SplitName(g.subject)
+			}
+			if len(g.phrases) == 1 && g.phrases[0] == "exists" {
+				out = append(out, subject+" exists")
+				continue
+			}
+			out = append(out, subject+": "+strings.Join(g.phrases, ", "))
+		}
+		return out
+	}
+	out := strings.Join(append(runs, say(now)...), "; ")
 	if len(after) > 0 {
 		if out != "" {
 			out += "; "
 		}
-		out += "after the step, " + strings.Join(after, ", ")
+		out += "after the step, " + strings.Join(say(after), "; ")
 	}
 	return out
 }
