@@ -129,7 +129,9 @@ type Result struct {
 	RenameGuesses []RenameGuess `json:"rename_guesses,omitempty"`
 	Head          string        `json:"head"`
 	Gate          *gate.Result  `json:"gate"`
-	Usage         llm.Usage     `json:"usage"`
+	// Open counts the conflicts the owner left open at this adoption.
+	Open  int       `json:"open,omitempty"`
+	Usage llm.Usage `json:"usage"`
 	// Reused lists the statements whose earlier translation was kept: their
 	// text and notes are unchanged.
 	Reused []string `json:"reused,omitempty"`
@@ -369,6 +371,12 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 		}
 		var all []translate.Candidate
 		for _, s := range pending {
+			if leftUnchecked(answers, s.ID, translate.TextHash(res.Statements[s.ID])) {
+				// Read twice, its rules contradicted each other both times,
+				// and the owner chose to record it without rules.
+				all = append(all, translate.Candidate{StatementID: s.ID, Outcome: "informal", Rationale: "Stele's readings of it contradicted themselves; recorded without rules at the owner's word"})
+				continue
+			}
 			all = append(all, c.Entries[s.ID].Cands...)
 			if f := c.Entries[s.ID].Findings; len(f) > 0 {
 				if res.Findings == nil {
@@ -611,6 +619,26 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 	}
 	if head, err = ir.LoadDir(res.Head); err != nil {
 		head = base
+	}
+	if res.Change == Adoption && res.Gate.Check != nil {
+		// Conflicts the owner chose to decide later are recorded as open,
+		// and the check is run again without them.
+		if open := leftOpen(res, head, answers); len(open) > 0 {
+			if err := adopt.WriteOpen(res.Head, head, open, time.Now().Format("2006-01-02")); err != nil {
+				return nil, err
+			}
+			if res.Gate, err = gate.Dirs(ctx, z, opt.Registry, res.Head); err != nil {
+				return nil, err
+			}
+			if head, err = ir.LoadDir(res.Head); err != nil {
+				return nil, err
+			}
+			for _, a := range answers {
+				if a.Kind == "conflict" && a.Choice == "later" {
+					res.Open++ // as the owner counts them: by question
+				}
+			}
+		}
 	}
 	if res.Gate.Check != nil {
 		var sets [][]string
@@ -1436,4 +1464,54 @@ func firstLine(s string) string {
 // conflictKey names a conflict: its step and rules.
 func conflictKey(cf checker.Conflict) string {
 	return cf.Unit + ":" + strings.Join(cf.Rules, "+")
+}
+
+// Adoption is the change that reads a project's existing specs.
+const Adoption = "adopt"
+
+// leftOpen lists the conflicts of an adoption the owner answered "later":
+// every requirement of the conflict is one the answer was given for, as it
+// is now written. A first adoption of 179 requirements asked its owner 12
+// conflicts, then 8 and 13 over two more rounds (2026-11-10); the registry
+// and the gate have held open conflicts since D-044, and the questions
+// never offered them. A new user approves what they can decide today, and
+// the rest stays listed until a change settles it; the gate lets the count
+// only fall.
+func leftOpen(res *Result, head *ir.Registry, answers []Answer) []adopt.LeftOpen {
+	var out []adopt.LeftOpen
+	for _, cf := range res.Gate.Check.Conflicts {
+		var stmts []string
+		for _, r := range cf.Rules {
+			if x := head.Rule(r); x != nil && x.StatementID != "" && !slices.Contains(stmts, x.StatementID) {
+				stmts = append(stmts, x.StatementID)
+			}
+		}
+		if len(stmts) == 0 {
+			continue
+		}
+		for _, a := range answers {
+			if a.Kind != "conflict" || a.Choice != "later" {
+				continue
+			}
+			if !slices.ContainsFunc(stmts, func(id string) bool { return a.Statements[id] != translate.TextHash(res.Statements[id]) }) {
+				out = append(out, adopt.LeftOpen{Rules: cf.Rules, Situation: plainSituation(checker.Situation(head, cf.Counterexample)), By: a.By})
+				break
+			}
+		}
+	}
+	return out
+}
+
+// leftUnchecked reports whether the owner answered that a requirement whose
+// readings contradict themselves is to be recorded without rules. Asked
+// only "what did Stele misread?" or "reword it", the owner of a 76-
+// requirement adoption owed three explanations of Stele's own misreadings
+// before anything could be approved (2026-11-10).
+func leftUnchecked(as []Answer, id, hash string) bool {
+	for _, a := range as {
+		if a.Kind == "self_conflict" && a.Choice == "unchecked" && a.Statements[id] == hash {
+			return true
+		}
+	}
+	return false
 }

@@ -218,7 +218,7 @@ An open conflict is an acknowledged conflict the baseline tolerates until someon
 - The gate does not block a conflict whose minimal set is exactly an open conflict's pinned set. It blocks every other conflict, so the count can only stay or fall.
 - Live, current open conflicts do not consume the enumeration limit. If enumeration of new conflicts is incomplete, the gate remains blocked even when every reported conflict is tolerated.
 - Editing a pinned rule makes the record stale. If the conflict remains, it blocks like a new one; if it is gone, the gate reports the record resolved, to be closed (`status: closed`). Deleting the record is an error, like deleting a rule.
-- Open conflicts are created only by an adoption baseline, approved by the owner: the gate lists each one a change adds or re-pins for approval. Conflicts found later need a decision.
+- Open conflicts are created only at adoption, approved by the owner: by `stele baseline`, or by the owner answering "Decide later" to a conflict question of `stele adopt`, which records that contradiction as open and lets the adoption be approved with it: the gate lists each one a change adds or re-pins for approval. Conflicts found later need a decision.
 - At runtime the precedence order still applies. The open conflict is shown with its counterexample wherever its rules are shown, including the rule slices Prism gives agents.
 - `stele check` lists open conflicts by age; the adoption report tracks their count over time.
 

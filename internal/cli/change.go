@@ -340,6 +340,17 @@ func summarize(res *change.Result, outDir string) changeSummary {
 		// many or what about (2026-11-07): say so before the first.
 		if n := ownerQuestions(res.Questions); n > 1 {
 			s.Next = fmt.Sprintf("answer the questions with ask_owner false yourself; %d questions wait for the owner: before the first, tell them in one sentence how many there are and what they are about, then ask them one at a time in their words; record each with `stele change answer`, act on its result, then run `stele change` again", n)
+			if res.Change == change.Adoption {
+				conflicts := 0
+				for _, q := range res.Questions {
+					if q.Kind == "conflict" && q.AskOwner {
+						conflicts++
+					}
+				}
+				if conflicts > 3 {
+					s.Next += fmt.Sprintf(". %d are contradictions between requirements: tell the owner they may settle the ones that matter now and answer `later` to the rest, which stay recorded as open", conflicts)
+				}
+			}
 		}
 	case res.Gate.Accepted:
 		s.Status, s.Next = "clean", "nothing to decide or approve"

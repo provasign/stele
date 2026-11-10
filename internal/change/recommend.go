@@ -71,6 +71,12 @@ func implies(ctx context.Context, z *solver.Z3, files []string, head *ir.Registr
 	if err != nil {
 		return false, false
 	}
+	if sx == nil && x.Op()+y.Op() == "" {
+		// Two rules over the state that name no subject ("order.paid"):
+		// there is no instance to compare their conditions on, and the
+		// check of a change with such a pair crashed here (2026-11-10).
+		return false, false
+	}
 	if sy, err := head.SubjectOf(y); err != nil || sy != sx {
 		return false, false
 	}
@@ -87,7 +93,10 @@ func implies(ctx context.Context, z *solver.Z3, files []string, head *ir.Registr
 	defer os.RemoveAll(dir)
 	f := filepath.Join(dir, "implies.yaml")
 	// A condition may read the request, which exists only within a step.
-	where := "subject: " + sx.Name
+	where := ""
+	if sx != nil {
+		where = "subject: " + sx.Name
+	}
 	if op := x.Op() + y.Op(); op != "" {
 		if x.Op() != "" {
 			op = x.Op()

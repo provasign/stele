@@ -454,6 +454,21 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 							{Choice: "creates", Label: "Yes, it creates it", Then: "Stele records that the step creates the " + split(op.Entity.Name) + "; run `stele change` again"},
 							{Choice: "existing", Label: "No, it can run on an existing one", Then: "the clashes are asked as conflicts; run `stele change` again"},
 						}
+						// The step's own name, or its requirements' words, usually
+						// say it: answered "existing" for a step named create, three
+						// clashes went to the owner that no new instance can have
+						// (a first adoption, 2026-11-10).
+						said := 0
+						for _, r := range cf.Rules {
+							if id := stmtOf(r); id != "" && makesNew.MatchString(res.Statements[id]) {
+								said++
+							}
+						}
+						_, verb, _ := strings.Cut(op.Name, ".")
+						if v := strings.ToLower(verb); strings.HasPrefix(v, "create") || strings.HasPrefix(v, "add") || strings.HasPrefix(v, "register") || strings.HasPrefix(v, "new") || said > 0 {
+							q.Recommended = "creates"
+							q.Why = fmt.Sprintf("the step is %s, and %d of the requirements in the clash speak of creating or of a new %s; answer existing only if the spec or the code shows it running on one that already exists (re-running, updating)", strings.Trim(Words(op.Name, ""), `"`), said, split(op.Entity.Name))
+						}
 						qs = append(qs, q)
 					}
 					continue
@@ -541,9 +556,12 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 				}
 				if q.AskOwner {
 					q.Options = []Option{
+						{Choice: "unchecked", Label: "Leave it unchecked: keep the requirement, with no rules", Then: "Stele records the requirement and checks nothing for it; run `stele change` again"},
 						{Choice: "misread", Label: "Stele misread it", Then: "Stele reads the requirement again with the owner's note; run `stele change` again", Note: true},
 						q.Options[1],
 					}
+					q.Recommended = "unchecked"
+					q.Why = "Stele read it twice and its rules contradicted each other both times, which is usually Stele's reading and not the requirement. Recording it unchecked keeps the requirement and loses only Stele's check of it; say what Stele misread instead if this requirement matters for the checks"
 				}
 				qs = append(qs, q)
 				continue
@@ -616,6 +634,9 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 				k := slices.IndexFunc(q.Options, func(o Option) bool { return o.Choice == "exception" })
 				q.Options = append([]Option{q.Options[k]}, slices.Delete(slices.Clone(q.Options), k, k+1)...)
 			}
+			if res.Change == Adoption {
+				q.Options = append(q.Options, Option{Choice: "later", Label: "Decide later: adopt with this contradiction recorded as open", Then: "Stele records it as an open conflict the owner acknowledged: it is listed at the approval and by `stele check` until a change settles it, and no new one may join it; run `stele change` again"})
+			}
 			if len(mine) == 0 { // only the older requirements conflict: nothing in this change to re-read
 				q.Options = slices.DeleteFunc(q.Options, func(o Option) bool { return o.Choice == "misread" || o.Choice == "change" || o.Choice == "impossible" })
 			}
@@ -668,6 +689,10 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 	if g != nil {
 		made, kept := creators(as), keeps(as)
 		for _, ch := range g.NeedsApproval {
+			if strings.HasPrefix(ch.Kind, "open-conflict-") {
+				// The owner's own "decide later": the approval names them.
+				continue
+			}
 			if len(ch.Affected) == 0 {
 				continue
 			}
@@ -903,7 +928,13 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 			for _, id := range sortedKeys(res.Unchecked) {
 				titles = append(titles, fmt.Sprintf("%q", req(id).Title))
 			}
-			q.Text += fmt.Sprintf("; %d could not be checked (%s)", n, strings.Join(titles, ", "))
+			if n > 3 {
+				// An adoption's approval named 59 of them in one sentence
+				// (2026-11-10); the report lists each with its text.
+				q.Text += fmt.Sprintf("; %d could not be checked (the report lists each)", n)
+			} else {
+				q.Text += fmt.Sprintf("; %d could not be checked (%s)", n, strings.Join(titles, ", "))
+			}
 		}
 		// The count of new terms was Stele's bookkeeping, not the owner's
 		// decision; agents relayed it as a list of internal names (a live
@@ -921,6 +952,9 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 		}
 		if n := len(res.NewLessons); n > 0 {
 			q.Text += fmt.Sprintf(". Your answers also teach Stele %d lesson(s) about this project, saved in the registry with the change: %s", n, strings.Join(res.NewLessons, "; "))
+		}
+		if res.Open > 0 {
+			q.Text += fmt.Sprintf(". The %d contradiction(s) you chose to decide later stay open: `stele check` lists them, and no new one may join them", res.Open)
 		}
 		q.Text += ". Approve this change?"
 		q.Detail = strings.Join(append(slices.Clone(g.Unapproved), res.Retired...), "\n")
@@ -1104,6 +1138,9 @@ func RemoveAnswer(dir, question string) (bool, error) {
 	}
 	return true, os.WriteFile(filepath.Join(dir, answersFile), append(js, '\n'), 0o644)
 }
+
+// makesNew finds a requirement's words for a step that makes a new instance.
+var makesNew = regexp.MustCompile(`(?i)\b(creat(e|es|ed|ing|ion)|a new|is added|are added|registers?|registered)\b`)
 
 // groupConflicts merges the conflicts one requirement of the change has,
 // within one step, with several others: usually one missing exception,
