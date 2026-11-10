@@ -83,6 +83,9 @@ type Options struct {
 	// that stalls fails and is retried, instead of using up the whole run.
 	RequestTimeout time.Duration
 
+	// NoReview skips an adoption's review of its texts for contradictions
+	// the rules do not show (crosscheck.go).
+	NoReview bool
 	// NoAudit skips the check of a conflict's rules against their texts.
 	NoAudit bool
 	rounds  int          // times the glossary's definitions added facts this run
@@ -141,6 +144,9 @@ type Result struct {
 	// adoption has read yet.
 	AdoptSpecs  []string `json:"adopt_specs,omitempty"`
 	UnreadSpecs []string `json:"unread_specs,omitempty"`
+	// Possible are the contradictions a review of the texts found that
+	// the rules do not show, after their requirements were read again.
+	Possible []Possible `json:"possible_conflicts,omitempty"`
 	// FlagOnly are the requirements whose only rules state one yes/no fact
 	// nothing else reads: recorded, and checked against nothing yet.
 	FlagOnly []string `json:"flag_only,omitempty"`
@@ -330,6 +336,7 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 	// vocabulary and the terms the change proposes.
 	for i := range pending {
 		pending[i].Notes = append(pending[i].Notes, notes(answers, pending[i])...)
+		pending[i].Notes = append(pending[i].Notes, crossNotes(opt.Out, pending[i])...)
 		// What the owner taught Stele earlier (D-063); in the notes, so the
 		// translation cache notices a changed lesson.
 		for _, l := range lesson.Relevant(base.Lessons, pending[i].ID, translate.TextHash(pending[i].Prose), pending[i].Prose, 8) {
@@ -701,6 +708,19 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 			if opt.Log != nil {
 				fmt.Fprintf(opt.Log, "definitions: %d world fact(s) from the glossary; checking again\n", n)
 			}
+			opt.rounds++
+			again, err := Run(ctx, opt)
+			if err != nil {
+				return nil, err
+			}
+			again.Usage.Add(res.Usage)
+			return again, nil
+		}
+	}
+	// At an adoption the texts are reviewed too: a contradiction they
+	// suggest and the rules do not show has its requirements read again.
+	if opt.rounds < 5 {
+		if n := crossCheck(ctx, opt, res, head, answers); n > 0 {
 			opt.rounds++
 			again, err := Run(ctx, opt)
 			if err != nil {

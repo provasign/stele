@@ -95,7 +95,7 @@ At an adoption, a conflict question also offers `later`: the contradiction is re
    ```
 
    Then check again; handle any new questions as in step 4. Re-read a requirement at most once yourself (Stele refuses a second `--by agent` reread of it, and a second `misread` answer from you): if it still reads wrong, tell the owner in the approval question. This is Stele's reading, not the owner's intent, so it needs no question; but when you ask for the approval, say in one line which requirements you had re-read and why.
-7. The approval is one act for the owner. `next` names the command that records it, with the approval question's `id`:
+7. When the JSON has `possible_conflicts` (an adoption's requirements that may contradict each other by their texts, though Stele's rules do not show it), tell the owner each one before the approval, in a sentence: the requirements by their `titles`, the `situation`, and that Stele could not prove it (`why`). These are not questions and need no answer: the owner may reword a requirement, or approve knowing of them. The approval is one act for the owner. `next` names the command that records it, with the approval question's `id`:
 
    ```sh
    stele change answer <change-id> <approve-question-id> approve
