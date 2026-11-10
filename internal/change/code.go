@@ -156,11 +156,18 @@ func rereadFirst(q *Question, as []Answer) bool {
 	}
 	for _, r := range q.Requirements {
 		if slices.Contains(q.Statements, r.ID) && AgentReread(as, r.ID, translate.TextHash(r.Text)) {
+			if q.Recommended == "" {
+				// Read again and still clashing, where the code does both:
+				// the owner got the question with nothing recommended and
+				// an example made of Stele's own reading (a trial,
+				// 2026-11-10).
+				recommend(q, "later", "Stele read these again and they still clash, while the code does what both say: this is most likely Stele's reading, not the specs. Deciding later keeps both requirements and records the clash as open")
+			}
 			return false
 		}
 	}
 	q.AskOwner = false
-	recommend(q, "misread", q.Code.Says+" So this is most likely Stele's reading, not a contradiction in the spec: answer `misread` with --by agent and what the code does as the note. Stele reads the requirements again, and asks the owner only if they still clash.")
+	recommend(q, "misread", q.Code.Says+" So this is most likely Stele's reading, not a contradiction in the spec: answer `misread` with --by agent, and as the note say what the requirement's own words mean that Stele's reading missed (the code shows which reading is meant; do not put what the code does into the requirement). Stele reads the requirements again, and asks the owner only if they still clash.")
 	return true
 }
 
@@ -229,6 +236,11 @@ func applyCode(q *Question, v adjudicate.Verdict) {
 		c.Outcome, c.Says = "not_implemented", "The code does not implement this yet: "+v.Reason
 	case v.Kind == "compatible" || v.Kind == "resolved_in_text":
 		c.Outcome, c.Says = "compatible", "In the code the two do not clash: "+v.Reason+where()
+		if strings.HasPrefix(q.Recommended, "prevails") {
+			// The owner hears that the code keeps the two apart and is
+			// offered an exception: say that the answer records just that.
+			q.Why += "; the code already keeps the two apart, and this answer records that order with no edit to the spec"
+		}
 	default:
 		return // nothing the owner can use
 	}

@@ -54,7 +54,11 @@ func cmdChangeAnswer(args []string, out io.Writer) int {
 		if !ok {
 			return failf("change answer", fmt.Errorf("no recorded answer to %s", qid))
 		}
-		fmt.Fprintf(out, "Removed the answer to %s. Next: run `stele change` again.\n", qid)
+		next := "Next: run `stele change` again."
+		if id == adoptChange {
+			next = forAdoption(next)
+		}
+		fmt.Fprintf(out, "Removed the answer to %s. %s\n", qid, next)
 		return 0
 	}
 	if choice == "" {
@@ -308,7 +312,11 @@ func cmdChangeReread(args []string, out io.Writer) int {
 	if err := change.SaveAnswer(*outDir, a); err != nil {
 		return failf("change reread", err)
 	}
-	fmt.Fprintf(out, "Recorded: Stele reads %s again with the note. Next: run `stele change` again.\n", found[0])
+	next := "Next: run `stele change` again."
+	if id == adoptChange {
+		next = forAdoption(next) // an agent adopting was sent to `stele change` (a trial, 2026-11-10)
+	}
+	fmt.Fprintf(out, "Recorded: Stele reads %s again with the note. %s\n", found[0], next)
 	return 0
 }
 

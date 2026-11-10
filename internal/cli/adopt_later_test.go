@@ -72,7 +72,7 @@ func TestAdoptionLeavesAConflictOpen(t *testing.T) {
 		t.Fatalf("later: %d\n%s", code, out.String())
 	}
 	s = adopt()
-	if s.Status != "ready" || len(s.Questions) != 1 || s.Questions[0].Kind != "approve" || !strings.Contains(s.Questions[0].Text, "decide later stay open") {
+	if s.Status != "ready" || len(s.Questions) != 1 || s.Questions[0].Kind != "approve" || !strings.Contains(s.Questions[0].Text, "decide later stays open") {
 		t.Fatalf("after deciding later: %+v", s)
 	}
 	out.Reset()

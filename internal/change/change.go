@@ -133,6 +133,9 @@ type Result struct {
 	Gate          *gate.Result  `json:"gate"`
 	// Open counts the conflicts the owner left open at this adoption.
 	Open int `json:"open,omitempty"`
+	// FlagOnly are the requirements whose only rules state one yes/no fact
+	// nothing else reads: recorded, and checked against nothing yet.
+	FlagOnly []string `json:"flag_only,omitempty"`
 	// SetAside counts the rules of the change set aside because they
 	// clashed with another requirement and did not say what their own
 	// text says (audit.go).
@@ -675,6 +678,7 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 		}
 		res.reportedWrites = reportedWrites(head, res)
 	}
+	res.FlagOnly = flagOnly(head, res)
 	res.Questions = questions(res, head, c, known, answers)
 	// A conflict that comes from glossary definitions left out of the
 	// rules is read again with them before the owner is asked (ISSUES 62).
