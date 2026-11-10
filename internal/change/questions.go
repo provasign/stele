@@ -297,6 +297,19 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 	for _, id := range append(append([]string{}, res.Added...), res.Modified...) {
 		inChange[id] = true
 	}
+	// Several specs number their requirements alike ("Requirement 5 (R5.1)"
+	// in two Kiro features): a title made of a shared heading and such a
+	// code then names its spec, or a conflict between the two reads as one
+	// requirement against itself (a first adoption, 2026-11-10).
+	specs := map[string]map[string]bool{} // a requirement's code -> the specs that use it
+	for id := range res.Statements {
+		if cap, _, ok := strings.Cut(id, "/"); ok {
+			if specs[title(id)] == nil {
+				specs[title(id)] = map[string]bool{}
+			}
+			specs[title(id)][cap] = true
+		}
+	}
 	req := func(id string) Requirement {
 		r := Requirement{ID: id, Title: id, Where: "current spec", Source: res.Sources[id], Text: res.Statements[id]}
 		if cap, title, ok := strings.Cut(id, "/"); ok {
@@ -312,6 +325,9 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 				// A heading several criteria share (Kiro's "Requirement 2:
 				// ..."): add the criterion's label.
 				r.Title += " (" + title(id) + ")"
+				if len(specs[title(id)]) > 1 {
+					r.Title = r.Capability + ": " + r.Title
+				}
 			}
 		}
 		for _, a := range res.Added {
@@ -915,7 +931,14 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 		}
 		qs = append(qs, q)
 	}
-	return qs
+	// One question, asked once: two pairs of new names for one fact gave the
+	// same question twice (a first adoption, 2026-11-10).
+	asked := map[string]bool{}
+	return slices.DeleteFunc(qs, func(q Question) bool {
+		dup := asked[q.ID]
+		asked[q.ID] = true
+		return dup
+	})
 }
 
 // mentions reports whether a candidate's text names the attribute's last segment.

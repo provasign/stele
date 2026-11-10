@@ -1,9 +1,17 @@
 # Changelog
 
-## Unreleased
+## v0.1.12 - 2026-11-10
+
+Found by adopting a held-out project of 179 requirements in eight specs, end to end, as a new user would.
 
 - **An adoption names each fact once.** When the requirements to translate span more than one model request (an adoption, a large change), Stele first proposes the facts over all of them, and every request reuses those names. Requests sent at once used to name one fact each their own way, and rules over different names never meet. On two held-out sets with independent labels, the check then found 16 of 20 and 8 of 13 known contradictions, against 4 and 4, and 25 of its 26 findings across requirements held a labelled one; the spend rose from $1.21 to $1.70 and from $0.56 to $0.66. A change of 20 requirements or fewer is translated as before, and a check already under way keeps the way it started.
 - **`stele adopt` runs again on a project with OpenSpec, Spec Kit or Kiro specs.** v0.1.11 refused it with "this project's specs are not adopted yet" and sent the owner back to `stele adopt`: the check that sends a change before adoption to adopt took the adoption itself for such a change. Projects with a `requirements/` folder or Shale requests were not affected.
+- **A first adoption no longer ends with "nothing is checked yet".** When the model gives no rules for a few requirements, the check reads them once more itself and reports what stays so as unchecked, instead of stopping as failed and asking for the same command again.
+- **A clash the code shows to be none goes to the agent first.** When the code does what both requirements say in the situation Stele found, the agent has Stele read them again with what the code does as the note, and the owner is asked only if they still clash. Four of the twelve conflicts a first adoption asked its owner were of this kind, each with nothing recommended.
+- **Requirements that share a number name their spec.** Two specs with a "Requirement 5 (R5.1)" appear in a question as "loans: Requirement 5 (R5.1)" and "returns: Requirement 5 (R5.1)".
+- **The summary counts unchecked requirements when there are many** (it named 59, "Requirement 4" over and over); the report lists each.
+- **`--max-cost` covers the whole check.** The calls that read the code for each conflict came on top of it: an adoption capped at $3 spent $3.66. Past the limit, conflicts are asked without what the code does.
+- **A question is asked once.** Two pairs of new names for one fact gave the same question twice.
 
 ## v0.1.11 - 2026-11-09
 
