@@ -250,6 +250,9 @@ func cmdChange(args []string, out io.Writer) int {
 	blocked := len(res.Gate.Errors) > 0 || res.Gate.Check == nil || !res.Gate.Accepted || len(res.Failed) > 0
 	if *asJSON {
 		js, _ := json.MarshalIndent(summarize(res, *outDir), "", "  ")
+		// The same JSON on disk: an adoption's is tens of kilobytes, more
+		// than some agents' tools show of one command's output.
+		_ = os.WriteFile(filepath.Join(*outDir, "summary.json"), append(js, '\n'), 0o644)
 		fmt.Fprintln(out, string(js))
 		if blocked {
 			return 1
@@ -367,6 +370,12 @@ func summarize(res *change.Result, outDir string) changeSummary {
 	if res.Change == adoptChange {
 		s.Next = forAdoption(s.Next)
 		for i, q := range s.Questions {
+			if q.Kind == "approve" {
+				// An adoption is no change: the approval spoke of "this
+				// change" to an owner adopting specs (a trial, 2026-11-10).
+				t := strings.ReplaceAll(q.Text, "in this change", "in these specs")
+				s.Questions[i].Text = strings.ReplaceAll(t, "Approve this change?", "Approve the adoption?")
+			}
 			opts := slices.Clone(q.Options)
 			for k := range opts {
 				opts[k].Then = forAdoption(opts[k].Then)
@@ -439,6 +448,11 @@ func ownerSummary(res *change.Result, status string) string {
 		}
 		if q.Kind == "conflict" && len(names) == 2 {
 			clashes = append(clashes, names[0]+" and "+names[1])
+		} else if q.Kind == "conflict" && len(names) > 2 {
+			// A clash of several is a contradiction too: the summary said
+			// "2 other decisions" where the next step counted four
+			// contradictions (a trial, 2026-11-10).
+			clashes = append(clashes, fmt.Sprintf("%s and %d others", names[0], len(names)-1))
 		} else {
 			decisions = append(decisions, q.Kind)
 		}
@@ -462,7 +476,7 @@ func ownerSummary(res *change.Result, status string) string {
 		fmt.Fprintf(&b, " %s cannot both hold: %s.", pick(len(clashes) == 1, "Two requirements", "Some requirements"), strings.Join(clashes, "; "))
 	}
 	if len(decisions) > 0 {
-		fmt.Fprintf(&b, " %d other decision%s %s needed.", len(decisions), plural(len(decisions)), pick(len(decisions) == 1, "is", "are"))
+		fmt.Fprintf(&b, " %d %sdecision%s %s needed.", len(decisions), pick(len(clashes) > 0, "other ", ""), plural(len(decisions)), pick(len(decisions) == 1, "is", "are"))
 	}
 	if len(res.Unchecked) > 0 {
 		ids := slices.Sorted(maps.Keys(res.Unchecked))
@@ -496,6 +510,9 @@ func ownerSummary(res *change.Result, status string) string {
 	}
 	if partial > 0 {
 		fmt.Fprintf(&b, " %d %s checked in part; the report lists the clauses no rule checks.", partial, pick(partial == 1, "is", "are"))
+	}
+	if n := len(res.FlagOnly); n > 0 {
+		fmt.Fprintf(&b, " %d %s recorded as a single yes/no fact nothing else reads (usually a requirement about how the code is built): Stele would catch only a later requirement that says the opposite.", n, pick(n == 1, "is", "are"))
 	}
 	if res.SetAside > 0 {
 		fmt.Fprintf(&b, " Stele set aside %d of its own rules that clashed with another requirement and did not say what their requirement says; the report lists them.", res.SetAside)

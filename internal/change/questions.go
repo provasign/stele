@@ -230,6 +230,15 @@ func notes(as []Answer, s translate.Statement) []string {
 		if was != h {
 			review = "review (the owner said this of an earlier wording of this requirement; follow it where the current wording allows): "
 		}
+		if a.By == "agent" && (a.Kind == "reread" || a.Choice == "misread") {
+			// The agent's note is not the owner's word, and it often says
+			// what the code does: told "the owner says", the translation
+			// wrote the code's behaviour into the rule, and a requirement
+			// to show an expiry message came out forbidding the step to
+			// succeed (a trial, 2026-11-10).
+			out = append(out, review+"a reviewer (not the owner) says an earlier reading of this requirement was wrong: "+a.Note+" Follow this only where the requirement's own words say so: correct the reading, and add no condition or outcome the text does not state, even one the note mentions.")
+			continue
+		}
 		switch {
 		case a.Kind == "same_term" && a.Choice == "same":
 			out = append(out, review+fmt.Sprintf("the owner says %s means the same as the existing %s; use %s and do not propose %s.", a.Term, a.Existing, a.Existing, a.Term))
@@ -879,11 +888,10 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 		for _, id := range stmts {
 			q.Requirements = append(q.Requirements, req(id))
 		}
-		q.Text = fmt.Sprintf("Stele read %q through a new setting, %s, that no requirement gives a value, so it checks the rules for every value of it rather than the one meant, and a clash with that value goes unseen. Does the request mean a fixed value, or one named by an approved requirement?", q.Requirements[0].Title, Words(sym.name, ""))
-		q.Recommended, q.Why = "fixed", "a value the requirements fix is checked against them; a free setting is not"
+		q.Text = fmt.Sprintf("Stele read %q through a new setting, %s, that no requirement gives a value, so it checks the rules for every value of it rather than the one meant, and a clash with that value goes unseen. Is it one fixed value, or a value that is configured or comes from the data?", q.Requirements[0].Title, Words(sym.name, ""))
 		q.Options = []Option{
 			{Choice: "fixed", Label: "A fixed value: say which (the owner's words)", Then: "Stele reads the requirement again with the owner's note; run `stele change` again", Note: true},
-			{Choice: "setting", Label: "A setting someone configures: any value", Then: "run `stele change` again"},
+			{Choice: "setting", Label: "A value that is configured or comes from the data: any value", Then: "run `stele change` again"},
 		}
 		if !answered(as, q) {
 			qs = append(qs, q)
@@ -948,25 +956,44 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 			}
 			q.Requirements = append(q.Requirements, r)
 		}
+		// A requirement whose only rule states one yes/no fact that nothing
+		// else reads is not counted as checked: it can clash with nothing
+		// yet. Requirements about the code's structure were read so in one
+		// run and recorded unchecked in the next, 21 against 9 of 76, and
+		// the count of checked requirements moved with them (2026-11-10).
+		flags := 0
+		for _, id := range checked {
+			if slices.Contains(res.FlagOnly, id) {
+				flags++
+			}
+		}
+		solid := len(checked) - flags
 		switch {
 		case len(checked) == 0 && len(res.Retired) == 0:
 			q.Text = "Stele has no rule to check for this change, so approving it records its requirements unchecked"
 		case len(checked) == 0:
 			q.Text = fmt.Sprintf("This change retires %d approved rule(s) (%s) and adds none", len(res.Retired), strings.Join(res.Retired, ", "))
 		case !res.first:
-			q.Text = fmt.Sprintf("%d requirement(s) in this change are checked and agree with the approved spec", len(checked))
-			if len(checked) == 1 {
+			q.Text = fmt.Sprintf("%d requirement(s) in this change are checked and agree with the approved spec", solid)
+			if solid == 1 && len(checked) == 1 {
 				q.Text = "The 1 requirement in this change is checked and agrees with the approved spec"
 			}
 		default:
 			// The first change: there is nothing approved to agree with yet.
-			q.Text = fmt.Sprintf("%d requirement(s) in this change are checked and agree with each other; nothing is approved yet, so these are the first", len(checked))
-			if len(checked) == 1 {
+			q.Text = fmt.Sprintf("%d requirement(s) in this change are checked and agree with each other; nothing is approved yet, so these are the first", solid)
+			if solid == 1 && len(checked) == 1 {
 				q.Text = "The 1 requirement in this change is checked; nothing is approved yet, so it is the first"
 			}
 		}
 		if len(checked) > 0 && len(res.Retired) > 0 {
 			q.Text += fmt.Sprintf("; it retires %d approved rule(s) (%s)", len(res.Retired), strings.Join(res.Retired, ", "))
+		}
+		if flags > 0 {
+			more := " more"
+			if solid == 0 {
+				q.Text, more = "No requirement in this change is checked against another yet", ""
+			}
+			q.Text += fmt.Sprintf("; %d%s %s recorded as a single yes/no fact nothing else reads, so Stele would catch only a later requirement that says the opposite", flags, more, map[bool]string{true: "is", false: "are"}[flags == 1])
 		}
 		if partial > 0 {
 			q.Text += fmt.Sprintf("; %d checked in part: the report lists the %d clause(s) no rule checks", partial, clauses)
@@ -1012,7 +1039,11 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 			q.Text += fmt.Sprintf(". Your answers also teach Stele %d lesson(s) about this project, saved in the registry with the change: %s", n, strings.Join(res.NewLessons, "; "))
 		}
 		if res.Open > 0 {
-			q.Text += fmt.Sprintf(". The %d contradiction(s) you chose to decide later stay open: `stele check` lists them, and no new one may join them", res.Open)
+			if res.Open == 1 {
+				q.Text += ". The 1 contradiction you chose to decide later stays open: `stele check` lists it, and no new one may join it"
+			} else {
+				q.Text += fmt.Sprintf(". The %d contradictions you chose to decide later stay open: `stele check` lists them, and no new one may join them", res.Open)
+			}
 		}
 		q.Text += ". Approve this change?"
 		q.Detail = strings.Join(append(slices.Clone(g.Unapproved), res.Retired...), "\n")
@@ -1073,7 +1104,17 @@ func Words(symbol, meaning string) string {
 func split(s string) string { return checker.SplitName(s) }
 
 // plainSituation renders "Cluster.flushRecorded=false" as "cluster: flush recorded is false".
-func plainSituation(s []string) string { return checker.Plain(s) }
+func plainSituation(s []string) string {
+	// A step's history, in words: "ran(validate)" reached the owner as it
+	// stands (a trial, 2026-11-10).
+	out := notRan.ReplaceAllString(checker.Plain(s), "$1 has not run")
+	return ran.ReplaceAllString(out, "$1 has run")
+}
+
+var (
+	notRan = regexp.MustCompile(`not ran\(([^()]+)\)`)
+	ran    = regexp.MustCompile(`ran\(([^()]+)\)`)
+)
 
 // english is a short plain reading of a rule.
 func english(x *ir.Rule) string {
@@ -1387,11 +1428,13 @@ func groupPrecedence(g *Question, qs []Question, idx []int, x string, req func(s
 	if !agree {
 		return false
 	}
-	var whys []string
-	for _, i := range idx {
-		whys = append(whys, qs[i].Why)
+	// One reason for the whole question: each member's own named the
+	// same requirement against another, sentence after sentence.
+	why := fmt.Sprintf("%q is a check or an error case of the situations the others describe, so a reader takes it as coming first", req(x).Title)
+	if dir == "others" {
+		why = fmt.Sprintf("each of the others is a check or an error case of the situation %q describes, so a reader takes them as coming first", req(x).Title)
 	}
-	recommend(g, "prevails", strings.Join(slices.Compact(whys), "; "))
+	recommend(g, "prevails", why)
 	return true
 }
 
@@ -1616,5 +1659,70 @@ func freeSettings(res *Result, head *ir.Registry) []setting {
 			out = append(out, setting{sym, path})
 		}
 	}
+	return out
+}
+
+// flagOnly lists the change's requirements every rule of which is an
+// unconditional state invariant asserting one bool attribute, or its
+// negation, that no other requirement's rule reads and no step writes.
+func flagOnly(head *ir.Registry, res *Result) []string {
+	if head == nil {
+		return nil
+	}
+	readers := map[string]map[string]bool{} // attribute -> statements whose rules read it
+	reads := func(x *ir.Rule) []*ir.Attr {
+		subject, err := head.SubjectOf(x)
+		if err != nil {
+			return nil
+		}
+		var out []*ir.Attr
+		for _, e := range []ir.Expr{x.When, x.Assert} {
+			if e != nil {
+				out = append(out, head.Reads(e, subject)...)
+			}
+		}
+		return out
+	}
+	for _, x := range head.Rules {
+		if !x.Live() {
+			continue
+		}
+		for _, a := range reads(x) {
+			if readers[a.QName()] == nil {
+				readers[a.QName()] = map[string]bool{}
+			}
+			readers[a.QName()][x.StatementID] = true
+		}
+	}
+	written := map[string]bool{}
+	for _, op := range head.Operations {
+		for _, a := range op.Writes {
+			written[a.QName()] = true
+		}
+	}
+	var out []string
+	for _, id := range append(append([]string{}, res.Added...), res.Modified...) {
+		if len(res.Rules[id]) == 0 {
+			continue
+		}
+		only := true
+		for _, rid := range res.Rules[id] {
+			x := head.Rule(rid)
+			if x == nil || x.Kind != ir.Invariant || x.On != "" || x.When != nil || x.Assert == nil {
+				only = false
+				break
+			}
+			as := reads(x)
+			text := strings.TrimSpace(strings.TrimPrefix(strings.Trim(x.Assert.String(), "()"), "not "))
+			if len(as) != 1 || as[0].Kind != ir.Bool || strings.ContainsAny(text, " =<>") || len(readers[as[0].QName()]) > 1 || written[as[0].QName()] {
+				only = false
+				break
+			}
+		}
+		if only {
+			out = append(out, id)
+		}
+	}
+	sort.Strings(out)
 	return out
 }
