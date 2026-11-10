@@ -129,7 +129,8 @@ func cmdWatch(args []string, out io.Writer) int {
 			emit(nil, err)
 			return 2
 		}
-		if len(r.Pending) > 0 {
+		// A requirement that only moved in its file needs no check.
+		if len(r.Pending)+len(r.StaleRules)+len(r.OrphanRules)+len(r.Changes.Removed) > 0 {
 			// The check that takes the new statements, so a hook can say it.
 			dir := *source.project
 			if dir == "" {

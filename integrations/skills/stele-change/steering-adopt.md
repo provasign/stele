@@ -1,0 +1,1 @@
+To adopt a project's existing specs (the registry has no rules yet, or a Stele message says so), run `stele adopt --json` and follow it exactly as `stele change` above, with `adopt` as the change id; it asks the owner only what needs a person, then for the approval.

@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/provasign/stele/integrations"
+	"github.com/provasign/stele/internal/config"
 )
 
 // harness is a coding agent Stele's loop is installed into: its
@@ -116,7 +117,13 @@ func detectHarnesses(dir string) []string {
 // It returns the files it changed. Several agents can share one file
 // (AGENTS.md), and one file can be another's symlink (CLAUDE.md ->
 // AGENTS.md): each real file gets one section.
-func installSteering(dir string, selected []string, hook bool) ([]string, error) {
+func installSteering(dir string, selected []string, hook bool, specs *config.Specs) ([]string, error) {
+	// Only what the project's way of keeping specs needs.
+	format, root := "", ""
+	if specs != nil {
+		format, root = specs.Format, filepath.ToSlash(specs.Root)
+	}
+	text := integrations.SteeringFor(format, root)
 	want := map[string]bool{}     // real instruction file -> wanted
 	byReal := map[string]string{} // real path -> path as named
 	var order []string
@@ -133,7 +140,7 @@ func installSteering(dir string, selected []string, hook bool) ([]string, error)
 	}
 	var changed []string
 	for _, real := range order {
-		ok, err := setSection(byReal[real], want[real])
+		ok, err := setSection(byReal[real], want[real], text)
 		if err != nil {
 			return changed, err
 		}
@@ -209,13 +216,13 @@ func realPath(p string) string {
 
 // setSection puts Stele's marked section into path, or takes it out, and
 // leaves the rest of the file as it is. It reports whether the file changed.
-func setSection(path string, want bool) (bool, error) {
+func setSection(path string, want bool, steering string) (bool, error) {
 	src, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return false, err
 	}
 	text := string(src)
-	section := steeringBegin + "\n" + strings.TrimSpace(integrations.Steering) + "\n" + steeringEnd + "\n"
+	section := steeringBegin + "\n" + strings.TrimSpace(steering) + "\n" + steeringEnd + "\n"
 	var next string
 	i, j := strings.Index(text, steeringBegin), strings.Index(text, steeringEnd)
 	switch {

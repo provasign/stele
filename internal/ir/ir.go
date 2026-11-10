@@ -761,6 +761,14 @@ func (r *Registry) Reads(e Expr, subject *Entity) []*Attr {
 			if p, ok := e.Coll.(*Path); ok {
 				if ref, err := r.refIn(p, subject, bound); err == nil && ref.Many != nil {
 					inner[e.Var] = r.Entities[ref.Many.To]
+				} else if len(p.Segs) == 2 && p.Segs[1] == InstancesRelation {
+					// instances(E) names its entity itself. The relation
+					// behind it exists only once a loaded rule reads it, so
+					// a vocabulary loaded before its rules has none: the
+					// attributes a first requirement read through
+					// count(b in instances(Book): ...) were pruned as unused
+					// and its rules no longer compiled (a trial, 2026-11-09).
+					inner[e.Var] = r.rootEntity(p.Segs[0])
 				}
 			}
 			walk(e.Body, inner)

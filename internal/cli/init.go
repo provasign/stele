@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/provasign/stele/internal/importer"
+	"github.com/provasign/stele/internal/ir"
 	"github.com/provasign/stele/internal/translate"
 	"gopkg.in/yaml.v3"
 	"io"
@@ -58,8 +59,20 @@ func cmdInit(args []string, in io.Reader, out io.Writer, interactive bool) int {
 		}
 		// A spec format set up after Stele (`shale init` after `stele
 		// init`) is recorded, or Stele never reads its specs (2026-11-06).
+		// So is one set up while Stele's own requirements folder is unused.
+		if sp := cfg.Specs; sp != nil && sp.Format == "markdown" && sp.Root == requirementsDir {
+			if stmts, _ := importSpecs(dir, sp); len(stmts) == 0 && detectSpecs(dir) != nil {
+				cfg.Specs = nil
+			}
+		}
 		if cfg.Specs == nil {
-			if cfg.Specs = detectSpecs(dir); cfg.Specs != nil {
+			cfg.Specs = detectSpecs(dir)
+			// A project set up before Stele kept requirements of its own
+			// (no specs, no rule yet) gets the folder a new one gets.
+			if reg, err := ir.LoadDir(cfg.RegistryDir()); cfg.Specs == nil && err == nil && len(reg.Rules) == 0 {
+				cfg.Specs = ownRequirements()
+			}
+			if cfg.Specs != nil {
 				useSpecs(dir, cfg, out)
 				if cfg.Specs != nil {
 					if err := config.Write(dir, *cfg); err != nil {
@@ -78,7 +91,13 @@ func cmdInit(args []string, in io.Reader, out io.Writer, interactive bool) int {
 	// One draft: `stele adopt` and `stele change` translate once and check
 	// the reading themselves; drafts only set `stele translate`'s sampling.
 	c.Translate.Drafts = 1
-	c.Specs = detectSpecs(dir)
+	// No spec tool and no Shale: Stele keeps the project's requirements
+	// itself, in plain Markdown. A project with none was set up with
+	// nothing to check and no word of what was missing (a review,
+	// 2026-11-09).
+	if c.Specs = detectSpecs(dir); c.Specs == nil {
+		c.Specs = ownRequirements()
+	}
 	ask := interactive && *interactiveFlag && !*yes
 	r := bufio.NewReader(in)
 	prompt := func(question, def string) (string, error) {
@@ -191,16 +210,27 @@ func cmdInit(args []string, in io.Reader, out io.Writer, interactive bool) int {
 	fmt.Fprintf(out, "Wrote %s (model: %s) and the registry %s.\n",
 		config.FileName, llmLabel(c.Translate.LLM), c.Registry)
 	code := setUpAgents(dir, c, selected, *hook, *gitHook, false, out)
-	if code == 0 && found > 0 {
+	if code == 0 && found > 0 && len(selected) > 0 {
 		fmt.Fprintf(out, "To start, ask your agent: \"adopt our specs with Stele\". It reads the %d requirement(s) once and asks you only what needs a person.\n", found)
 	}
 	return code
 }
 
+// requirementsDir is where a project with no spec tool keeps its
+// requirements, one Markdown file per area.
+const requirementsDir = "requirements"
+
+// ownRequirements is the spec layout of a project that has no spec tool
+// and no Shale: plain Markdown under requirements/, written by the agent
+// when the owner asks for something the product must keep.
+func ownRequirements() *config.Specs {
+	return &config.Specs{Root: requirementsDir, Format: "markdown", Snapshot: ".stele/accepted-statements.yaml"}
+}
+
 // setUpAgents installs Stele's loop for the selected agents and records them
 // in stele.yaml. A refresh with the same selection changes nothing.
 func setUpAgents(dir string, c config.Config, selected []string, hook, gitHook, existing bool, out io.Writer) int {
-	changed, err := installSteering(dir, selected, hook)
+	changed, err := installSteering(dir, selected, hook, c.Specs)
 	if err != nil {
 		return fail(err)
 	}
@@ -228,23 +258,28 @@ func setUpAgents(dir string, c config.Config, selected []string, hook, gitHook, 
 		changed = append(changed, filepath.Join(dir, config.FileName))
 	}
 	if len(selected) == 0 {
-		fmt.Fprintf(out, "No coding agent found here; run `stele init --harness %s` to set one up.\n", strings.Join(harnessIDs(), ","))
+		fmt.Fprintln(out, "Claude Code was not found here, so nothing was set up for a coding agent. Stele works through Claude Code for now: install it, then run `stele init --harness claude` here.")
 	}
 	if hook && (slices.Contains(selected, "claude") || slices.Contains(selected, "codex")) {
 		if _, err := exec.LookPath("node"); err != nil {
 			fmt.Fprintln(out, "Stele's agent hooks run with Node.js, which is not on PATH here: install Node.js so they work.")
 		}
 	}
+	if len(selected) == 0 {
+		// No agent: nothing to open, and no one runs the checks but the
+		// commit hook and the commands themselves.
+		if len(changed) > 0 {
+			fmt.Fprintf(out, "Set up: %s\n", strings.Join(changed, ", "))
+		}
+		fmt.Fprintln(out, "Commit the files in the repository. Until an agent is set up, only the commit check runs.")
+		return 0
+	}
 	if len(changed) == 0 {
 		fmt.Fprintf(out, "Stele is already set up for %s.\n", harnessLabels(selected))
 		return 0
 	}
-	if len(selected) > 0 {
-		fmt.Fprintf(out, "Set up Stele for %s: %s\n", harnessLabels(selected), strings.Join(changed, ", "))
-	} else {
-		fmt.Fprintf(out, "Set up: %s\n", strings.Join(changed, ", "))
-	}
-	fmt.Fprintln(out, "Commit the files in the repository so everyone's agent works the same way. Now open your coding agent and work as usual: Stele gives it the approved requirements each request touches, and checks spec changes when you commit.")
+	fmt.Fprintf(out, "Set up Stele for %s: %s\n", harnessLabels(selected), strings.Join(changed, ", "))
+	fmt.Fprintln(out, "Commit the files in the repository so everyone's agent works the same way. Now open Claude Code and work as usual: Stele gives it the approved requirements each request touches, checks spec changes as they are written, and asks you to approve each one.")
 	if hook && slices.Contains(selected, "codex") && slices.Contains(changed, filepath.Join(dir, ".codex", "hooks.json")) {
 		// Codex runs a project's hooks only once the user has reviewed them;
 		// that trust is the user's to give, so init never records it.
@@ -359,6 +394,8 @@ func useSpecs(dir string, c *config.Config, out io.Writer) int {
 	case err != nil:
 		fmt.Fprintf(out, "Could not read the %s specs (%v); saved-spec sync stays off until stele.yaml names them.\n", c.Specs.Format, err)
 		c.Specs = nil
+	case empty && c.Specs.Format == "markdown" && c.Specs.Root == requirementsDir:
+		fmt.Fprintf(out, "No specs here yet. Stele keeps this project's requirements in %s/: when you ask your agent for something the product must keep, it writes the requirement there and Stele checks it against every one approved before.\n", requirementsDir)
 	case empty:
 		fmt.Fprintf(out, "Found a %s project with no specs yet; Stele checks each one as it is written.\n", formatLabel(c.Specs.Format))
 	default:

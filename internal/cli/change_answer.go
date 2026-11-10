@@ -31,6 +31,7 @@ func cmdChangeAnswer(args []string, out io.Writer) int {
 	quoted := fs.Bool("quoted", false, "the note is the owner's own words, as they said them: only such a note teaches Stele a lesson")
 	by := fs.String("by", "", "who answers (default: git user.name)")
 	undo := fs.Bool("undo", false, "remove the recorded answer to the question; the next check asks it again")
+	fs.Bool("asked", false, "with approve: the owner was asked in chat and said yes, for a session where Claude Code cannot ask them to allow the command")
 	usage := "usage: stele change answer <change-id> <question-id> (<choice> | --undo) [--note TEXT [--quoted]] [--by NAME] [--out DIR]\n"
 	if len(args) < 2 {
 		fmt.Fprint(os.Stderr, usage)

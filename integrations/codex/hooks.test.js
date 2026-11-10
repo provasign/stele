@@ -36,7 +36,7 @@ test('Codex hook commands find the script from a subdirectory and answer in Code
   fs.writeFileSync(f.file, f.original.replace('locked', 'unlocked'));
   const drift = run('PostToolUse', tool);
   assert.equal(drift.hookSpecificOutput.hookEventName, 'PostToolUse');
-  assert.match(drift.hookSpecificOutput.additionalContext, /1 stale rules/);
+  assert.match(drift.hookSpecificOutput.additionalContext, /1 approved for text that has since changed/);
 });
 
 test('Codex hook records Codex and the model of every event', t => {

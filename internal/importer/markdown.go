@@ -2,6 +2,7 @@ package importer
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -40,6 +41,11 @@ type MarkdownOptions struct {
 // `<file>#L<line>`.
 func Markdown(dir string, opt MarkdownOptions) ([]translate.Statement, error) {
 	var files []string
+	// A folder that is not there yet holds no requirement: a new project's
+	// first check read "lstat requirements: no such file or directory".
+	if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("no folder %s: %w", dir, ErrNoSpecs)
+	}
 	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err

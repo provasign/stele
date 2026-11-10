@@ -2,9 +2,9 @@
 
 *Specs written months apart should not be allowed to disagree.*
 
-Stele keeps a project's specs consistent with each other. It reads the requirements a project already writes (Spec Kit, OpenSpec, Kiro or plain Markdown), or, in a project without spec documents, the requests its coding agents declare with [Shale](https://github.com/provasign/shale). It turns each one into a checkable rule over one shared vocabulary, and finds requirements that contradict each other, however far apart they were written. Each contradiction comes back as a question for the project's owner, with a concrete example and what the code does today. From then on, every spec change is checked against every approved requirement before it merges, and what the owner decides is remembered in the repository.
+Stele keeps a project's specs consistent with each other. It reads the requirements a project already writes (Spec Kit, OpenSpec, Kiro or plain Markdown). A project with no spec documents gets a `requirements/` folder its coding agent keeps, or uses the requests its agents declare with [Shale](https://github.com/provasign/shale). It turns each one into a checkable rule over one shared vocabulary, and finds requirements that contradict each other, however far apart they were written. Each contradiction comes back as a question for the project's owner, with a concrete example and what the code does today. From then on, every spec change is checked against every approved requirement before it merges, and what the owner decides is remembered in the repository.
 
-It works inside the coding agent the project already uses. The agent runs Stele when it edits specs and asks the owner only what needs a person.
+It works inside the coding agent the project already uses. The agent runs Stele when it edits specs and asks the owner only what needs a person. The approval is the owner's: Claude Code asks them to allow the one command that records it.
 
 **Preview:** to try it on a project of your own, follow [Try Stele](docs/try-it.md): an hour, and what to send back.
 
@@ -40,16 +40,18 @@ cd your-repo && stele init
 That is all you run. Stele supports [Claude Code](https://claude.com/claude-code) for now. `init` finds your spec format and writes Stele's short instructions and hooks for Claude Code; commit what it writes. From then on, Stele works through the agent:
 
 - **When you ask for a change,** the agent gets the approved requirements it touches, so its plan keeps them or asks you before changing one.
+- **In a project with no specs,** `init` sets up a `requirements/` folder. When you ask for something the product must keep ("from now on", "never", a limit, a default), the agent writes it there as one line and checks it before it builds. A one-off job is only a job, and Stele says nothing about it.
 - **When specs change,** the agent runs Stele's check and asks you only what needs a person, in the specs' own words.
+- **When a change is ready,** you approve it in one act. The agent shows the spec with Stele's summary under it and runs the command that approves; Claude Code asks you to allow it, with the summary in the prompt. Allowing it is the approval, and denying it records nothing. The prompt holds back an agent that would approve for you by mistake. It is not a security boundary.
 - **When you commit,** a pre-commit hook blocks specs and approved requirements that disagree, and says what to run.
 - **On a project with specs already,** the first commit that touches them says how to adopt: the agent reads every requirement once and asks you about each contradiction it finds.
 - **After an edit,** the agent hears which approved requirements the code change touches, by matching the code's names to each rule's step and attributes. That says where to look; it does not check the code against the rules.
 - **After a merge or pull,** run `stele check` now and then. Each change was checked only against what its own branch held, so two changes approved on different branches can contradict each other once they meet. It checks every approved requirement against every other, with no model and in seconds, and names each contradiction in the requirements' words, with who approved each side.
 - **On the pull request,** Stele commits a small card (`.stele/cards/<change>.json`): what the change does to the requirements, your decisions, and the approved requirements the code touches. Shale shows it on the PR.
 
-**Without spec documents.** In a repository that uses Shale and has no spec folder, `stele init` takes requirements from the requests the agents declare with `shale intent`. A request is a task, what the agent is about to do, and Stele says nothing about it. When you ask for something the product must keep from now on, the agent keeps that request as a requirement (`stele keep`, listed in `.stele/kept-intents.yaml`). Before it edits, Stele checks the kept request against every one approved before and asks you about any contradiction: change the new request, retire the earlier one, or restate both as one rule with its exception. Requests retired or set aside are listed in `.stele/retired-intents.yaml`; Shale's own evidence is never edited.
+**Without spec documents.** `stele init` gives a repository with no spec tool a `requirements/` folder of plain Markdown: one list item for each requirement, with an ID (`REQ-001`) and a MUST, MUST NOT or SHOULD. The agent writes them, you approve them, and `stele change markdown .` checks whatever the folder holds that you have not approved, from the first requirement on. In a repository that uses Shale and has no spec folder, `stele init` instead takes requirements from the requests the agents declare with `shale intent`. A request is a task, what the agent is about to do, and Stele says nothing about it. When you ask for something the product must keep from now on, the agent keeps that request as a requirement (`stele keep`, listed in `.stele/kept-intents.yaml`). Before it edits, Stele checks the kept request against every one approved before and asks you about any contradiction: change the new request, retire the earlier one, or restate both as one rule with its exception. Requests retired or set aside are listed in `.stele/retired-intents.yaml`; Shale's own evidence is never edited.
 
-Stele needs the [Z3](https://github.com/Z3Prover/z3) solver on PATH; the installer tells you the command for your system. Its Claude Code hooks run with [Node.js](https://nodejs.org); `stele init` says so when `node` is missing. To build from source instead: `GOWORK=off go build -o bin/stele ./cmd/stele` (Go 1.26). `stele --help` lists every command, and the [docs](docs/README.md) explain each step.
+Stele needs the [Z3](https://github.com/Z3Prover/z3) solver on PATH; the installer tells you the command for your system. Its Claude Code hooks run with [Node.js](https://nodejs.org); `stele init` says so when `node` is missing. To build from source instead: `GOWORK=off go build -o bin/stele ./cmd/stele` (Go 1.26). `stele --help` lists the commands a project uses and `stele help all` every command; the [docs](docs/README.md) explain each step.
 
 ## With Shale
 
@@ -71,6 +73,19 @@ Measured on the case studies and held-out sets (single runs, small labelled sets
 **Cost.** The hooks never call a model. On two real registries, a request about specified behaviour added about 400 to 600 tokens of approved requirements to the agent's context (at most about 750), an unrelated request usually none, and each lookup took under 25 ms. Model spend comes only from translating specs: adopting a 177-statement project cost $2.28, and `stele adopt` and `stele change` take `--max-cost` to cap it.
 
 **What a check means.** A reported conflict is proved for the rules as approved: they cannot all hold, and Stele shows a situation where they do not. "No conflict" is a statement about those rules, not about the prose, and holds within stated limits: each operation is checked one step from any state the invariants allow, so a conflict can sit in a state no sequence of steps reaches; collections and other instances of an entity are checked over a bounded number (3 by default); a solver timeout is `unknown`, never a pass. Stele does not prove the code implements the spec. [What a verdict means](docs/06-checker.md#what-a-verdict-means) states the semantics.
+
+## How it compares
+
+Checked against each tool's public documentation on 2026-11-09. Where a column says no, that is what the documentation showed, not a proof of absence. [Prior art](docs/prior-art.md#spec-tools-for-coding-agents) has the details.
+
+| Tool | Finds contradicting requirements | Across how much | Checked by | Remembers what was decided |
+| --- | --- | --- | --- | --- |
+| Kiro Requirements Analysis | Yes, as two-option questions | One spec's requirements file | A model and a solver | The answer rewrites that file |
+| Spec Kit `analyze` and `clarify` | As one item of a consistency pass | One feature and the constitution | A model | In that feature's spec |
+| OpenSpec `validate` | No | Structure of one change | Rules of form | No |
+| Stele | Yes, as questions with an example and what the code does | Every approved requirement in the repository, whenever it was written | A model proposes, a solver confirms | A registry of approved readings, decisions and lessons, in git |
+
+Kiro does the closest thing, inside its own IDE and for one spec at a time, and it also derives property-based tests, which Stele does not. What Stele adds is the span and the memory. A requirement is checked against everything approved before it, in whichever of Spec Kit, OpenSpec, Kiro or Markdown the project writes. The approved readings live in the repository, so the check after next month's change starts from what the owner decided this month. It is open source, runs on your machine, and its gate and hooks need no model.
 
 ## Not yet
 

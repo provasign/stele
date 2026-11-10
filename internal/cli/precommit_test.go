@@ -82,7 +82,7 @@ func TestPrecommit(t *testing.T) {
 
 	os.WriteFile(filepath.Join(dir, "specs/door.md"), []byte("# Door\n\nREQ-1: The door MUST be locked at night.\n"), 0o644)
 	code, out := precommit(t, dir, "specs/door.md")
-	if code != 1 || !strings.Contains(out, "R1 was approved for text that has since changed") || !strings.Contains(out, "Next: run `stele watch --once --json`") || !strings.Contains(out, "--no-verify") {
+	if code != 1 || !strings.Contains(out, "R1 was approved for text that has since changed") || !strings.Contains(out, "Next: run `stele change markdown . --json`") || !strings.Contains(out, "--no-verify") {
 		t.Errorf("changed requirement: %d\n%s", code, out)
 	}
 	exec.Command("git", "-C", dir, "reset", "-q").Run()
@@ -128,7 +128,9 @@ func TestPrecommitNotAdopted(t *testing.T) {
 	dir := doorProject(t, false)
 	os.WriteFile(filepath.Join(dir, "specs/door.md"), []byte("# Door\n\nREQ-1: The door MUST be shut.\n"), 0o644)
 	code, out := precommit(t, dir, "specs/door.md")
-	if code != 0 || !strings.Contains(out, "not adopted yet") || !strings.Contains(out, "stele adopt --json") {
+	// Plain Markdown is measured against the registry, so its first check
+	// is its adoption: one command, the same before and after.
+	if code != 0 || !strings.Contains(out, "requirements are not checked or approved yet") || !strings.Contains(out, "stele change markdown . --json") {
 		t.Errorf("%d\n%s", code, out)
 	}
 }

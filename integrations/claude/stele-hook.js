@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 // Claude Code and Codex adapter (their hook events share one format).
 // UserPromptSubmit: the approved requirements the request touches, for the
-// plan to keep. PostToolUse: saved-spec drift, and the approved
-// requirements the code change touches.
+// plan to keep. PreToolUse (Bash): a command that records the owner's
+// approval asks the owner, in Claude Code's own permission prompt.
+// PostToolUse: saved-spec drift, and the approved requirements the code
+// change touches.
 // No shell interpolation, model invocation or rule writes.
 const fs = require('node:fs');
 const path = require('node:path');
@@ -32,6 +34,53 @@ function recordAgent(project, input) {
   } catch {} // a read-only checkout: Stele falls back to the CLI it finds
 }
 
+// A command that records an approval: `stele change answer <change>
+// <question> approve`, or `stele approve` (not its --list). The owner
+// approves, never the agent, and an instruction alone did not hold an eager
+// agent back. This catches the command as Stele's instructions give it; it
+// is a guard against a mistake, not a security boundary.
+function approvalCommand(command) {
+  // Where a command starts, so a commit message that names one is not one.
+  const start = String.raw`(?:^|[;&|(\n])\s*(?:\w+=\S*\s+)*(?:\S*/)?stele\s+`, end = String.raw`(?=$|[\s;&|)])`;
+  const answer = new RegExp(start + String.raw`change\s+answer\s+(\S+)\s+\S+\s+approve` + end).exec(command);
+  if (answer) return { change: answer[1].replace(/^["']|["']$/g, '') };
+  const direct = new RegExp(start + String.raw`approve` + end + String.raw`([^;&|]*)`).exec(command);
+  if (direct && !/(^|\s)--?list\b/.test(direct[1])) return { change: '' };
+  return null;
+}
+
+// PreToolUse: ask the owner before an approval is recorded. Where Claude
+// Code cannot ask (permissions bypassed or never asked, or a headless run
+// that holds every prompt), the agent asks in chat and says so with
+// --asked. A headless run held the command, the agent asked in chat, and
+// the same command with --asked was held again (a trial, 2026-11-09): the
+// flag passes in every mode. STELE_APPROVAL_PROMPT=off, set where Claude
+// Code starts, leaves approvals to unattended runs.
+function approval(project, input) {
+  if (input.tool_name !== 'Bash' || process.env.STELE_APPROVAL_PROMPT === 'off') return;
+  const command = String(input.tool_input?.command || '');
+  const found = approvalCommand(command);
+  if (!found) return;
+  const decide = (permissionDecision, permissionDecisionReason) => process.stdout.write(JSON.stringify({
+    hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision, permissionDecisionReason }
+  }) + '\n');
+  if (/(^|\s)--asked\b/.test(command)) return;
+  if (['bypassPermissions', 'dontAsk'].includes(input.permission_mode)) {
+    decide('deny', 'Stele: the owner approves a change, and Claude Code is not asking for permissions in this session, so the owner has not seen this approval. ' +
+      'Show the owner the spec and the check\'s summary and ask them the approval question in chat. When they say yes, run the same command again with --asked added. Never add it before they answer.');
+    return;
+  }
+  let what = '';
+  if (found.change) {
+    const summary = spawnSync(process.env.STELE_BIN || 'stele', ['change', 'summary', found.change],
+      { cwd: project, encoding: 'utf8', timeout: 4000, maxBuffer: 1024 * 1024 });
+    if (!summary.error && summary.status === 0) what = summary.stdout.trim();
+  }
+  decide('ask', `Stele: this records your approval${found.change ? ` of "${found.change}"` : ''} as the owner of this project's requirements.` +
+    (what ? ' ' + what : '') + ' Allow it to approve; deny it to hold the change back.' +
+    ' (Agent: if this was held with no one to answer, ask the owner the approval question in chat and add --asked only after their yes.)');
+}
+
 function main() {
   const input = JSON.parse(fs.readFileSync(0, 'utf8'));
   event = input.hook_event_name || event;
@@ -41,6 +90,7 @@ function main() {
     if (parent === project) return;
     project = parent;
   }
+  if (event === 'PreToolUse') return approval(project, input);
   recordAgent(project, input);
   if (event === 'SessionStart' || event === 'PostModelSwitch') return;
   if (input.hook_event_name === 'UserPromptSubmit') {
@@ -80,7 +130,7 @@ function main() {
     // no specs configured
   } else if (result.error || result.status !== 0) {
     const why = String(result.error?.message || result.stderr || result.stdout).trim();
-    if (changed('-error', why).now) notes.push(`Stele could not check saved specs: ${why}. Do not treat the specs as synchronized.`);
+    if (changed('-error', why).now) notes.push(`Stele could not compare the specs with what the owner approved: ${why}. Do not assume they match.`);
   } else {
     const status = JSON.parse(result.stdout);
     // A request declared with shale intent that the owner has not approved:
@@ -104,14 +154,32 @@ function main() {
     }
     const seen = changed('', result.stdout);
     if (seen.now && status.in_sync) {
-      if (seen.before) notes.push('Stele: saved-spec drift cleared; tracked rule provenance matches again.');
+      if (seen.before) notes.push('Stele: the specs match what the owner approved again.');
     } else if (seen.now) {
-      const diagnostics = status.diagnostics || [];
-      notes.push(`Stele found saved-spec changes requiring attention (${(status.pending || []).length} statements pending, ${(status.stale_rules || []).length} stale rules, ${(status.orphan_rules || []).length} orphaned rules).\n` +
-        diagnostics.slice(0, 8).map(d => `${d.file}:${d.line}: ${d.code}: ${d.message}`).join('\n') +
-        (diagnostics.length > 8 ? `\n${diagnostics.length - 8} more diagnostics; run stele watch --once --json for the complete plan.` : '') +
-        (status.next ? `\nNext: ${status.next}.` : '') +
-        '\nRefresh only affected requirements, preserve stable rule IDs, and review removals. This hook has not translated or approved changes.');
+      // In the project's words and paths: the note named absolute paths,
+      // diagnostic codes and "stable rule IDs" (a review, 2026-11-09).
+      const plain = {
+        'spec.added': 'a new requirement, not checked yet',
+        'spec.changed': 'edited since the owner approved it',
+        'spec.moved': 'moved; nothing to decide',
+        'spec.provenance': 'moved in its file: run `stele sync --apply` to record where it is now; nothing to decide',
+        'spec.removed': 'approved, and no longer in the specs',
+        'rule.stale': 'approved for text that has since changed',
+        'rule.orphaned': 'approved, and its requirement is gone',
+      };
+      const where = d => { const rel = path.relative(project, path.resolve(project, String(d.file || ''))); return rel.startsWith('..') ? path.basename(rel) : rel; };
+      const count = (n, what) => n > 0 ? [`${n} ${what}`] : [];
+      const counts = [...count((status.pending || []).length, 'new or edited'), ...count((status.stale_rules || []).length, 'approved for text that has since changed'),
+        ...count((status.orphan_rules || []).length, 'approved and no longer in the specs')];
+      // One line a requirement: its edit says what the rule's line would.
+      const edited = new Set((status.diagnostics || []).filter(d => d.code === 'spec.changed').map(d => d.statement));
+      const diagnostics = (status.diagnostics || []).filter(d => !(d.code === 'rule.stale' && edited.has(d.statement)));
+      const lines = [...new Set(diagnostics.map(d => `- ${d.statement || where(d)}: ${plain[d.code] || d.message}` +
+        (String(d.code).startsWith('spec.') && d.code !== 'spec.removed' ? ` (${where(d)}:${d.line})` : '')))];
+      notes.push(`Stele: the specs differ from what the owner approved${counts.length ? ' (requirements: ' + counts.join(', ') + ')' : ''}.\n` +
+        lines.slice(0, 8).join('\n') +
+        (lines.length > 8 ? `\n(and ${lines.length - 8} more)` : '') +
+        (status.next ? `\nNext: ${status.next}. Nothing is checked or approved until then.` : ''));
     }
   }
   // The approved requirements the code change touches, when that set changes.
@@ -130,7 +198,8 @@ function main() {
 }
 try { main(); } catch (error) {
   if (event === 'UserPromptSubmit') return; // prevention stays silent when it cannot answer
+  if (event === 'PreToolUse') return; // a failed guard never blocks a command
   process.stdout.write(JSON.stringify({ hookSpecificOutput: {
-    hookEventName: 'PostToolUse', additionalContext: `Stele sync hook failed: ${error.message}. Sync status is unknown.`
+    hookEventName: 'PostToolUse', additionalContext: `Stele's hook failed (${error.message}), so it is not known whether the specs match what the owner approved.`
   } }) + '\n');
 }

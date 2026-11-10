@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"github.com/provasign/stele/internal/change"
+	"github.com/provasign/stele/internal/config"
 	"github.com/provasign/stele/internal/gate"
 	"github.com/provasign/stele/internal/ir"
 	"io"
@@ -326,5 +327,235 @@ func TestRemovalOnlyChangeIsApproved(t *testing.T) {
 	}
 	if x := r.Rule("res/Delete guard"); x == nil || x.Live() {
 		t.Errorf("the removed requirement's rule is still live: %+v", x)
+	}
+}
+
+// A repository with no specs, no commit and no spec tool: init gives it a
+// requirements folder, and one command checks its first requirement, its
+// later ones, and nothing at all. The path stopped at "lstat requirements:
+// no such file or directory", and then at a base branch that did not exist
+// (a review, 2026-11-09).
+func TestFreshProjectMarkdownLoop(t *testing.T) {
+	for _, tool := range []string{"git", "z3"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skip(tool + " not on PATH")
+		}
+	}
+	dir := t.TempDir()
+	if r, err := filepath.EvalSymlinks(dir); err == nil {
+		dir = r
+	}
+	t.Chdir(dir)
+	t.Setenv("STELE_APPROVAL_PROMPT", "")
+	for _, args := range [][]string{{"init", "-q", "-b", "main"}, {"config", "user.email", "t@example.com"}, {"config", "user.name", "T"}} {
+		if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	write := func(rel, src string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(rel), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(rel, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var out bytes.Buffer
+	if code := cmdInit([]string{".", "--yes", "--harness", "claude", "--hook"}, strings.NewReader(""), &out, false); code != 0 {
+		t.Fatalf("init: %d\n%s", code, out.String())
+	}
+	cfg, err := config.Find(".")
+	if err != nil || cfg.Specs == nil || cfg.Specs.Format != "markdown" || cfg.Specs.Root != "requirements" {
+		t.Fatalf("stele.yaml = %+v, %v", cfg, err)
+	}
+	if !strings.Contains(out.String(), "requirements/") || strings.Contains(out.String(), "adopt our specs") {
+		t.Fatalf("init does not say where requirements go, or offers an adoption with nothing to adopt:\n%s", out.String())
+	}
+	if c := nextCommand(cfg, dir); c != "stele change markdown . --json" {
+		t.Fatalf("next command = %q", c)
+	}
+	covered := `{"statements":[{"statement_id":"s1","clauses":[{"text":"all","status":"covered","rules":["r1"]}],"broader":[]},{"statement_id":"s2","clauses":[{"text":"all","status":"covered","rules":["r1"]}],"broader":[]}]}`
+	rule := func(effect, when string) string {
+		return `{"entities":[],"extensions":[],"operations":[],"rules":[{"statement_id":"s1","kind":"permission","operation":"Resource.delete","effect":"` + effect + `","when":"` + when + `","overrides":[]}]}`
+	}
+	write("reply.sh", "in=$(cat)\ncase \"$in\" in\n"+
+		"*'list its clauses'*) echo '"+covered+"' ;;\n"+
+		"*'Erasure requests MUST'*) echo '"+rule("allow", "request.kind = erasure")+"' ;;\n"+
+		"*'MUST NOT delete a resource with holds'*) echo '"+rule("deny", "self.holds > 0")+"' ;;\n"+
+		"*) echo '{}' ;;\nesac\n")
+	check := func(want int) changeSummary {
+		t.Helper()
+		var out bytes.Buffer
+		if code := cmdChange([]string{"markdown", ".", "--json", "--llm-cmd", "sh " + filepath.Join(dir, "reply.sh")}, &out); code != want {
+			t.Fatalf("change: exit %d, want %d\n%s", code, want, out.String())
+		}
+		var s changeSummary
+		if err := json.Unmarshal(out.Bytes(), &s); err != nil {
+			t.Fatalf("%v\n%s", err, out.String())
+		}
+		return s
+	}
+	// Before the first requirement: nothing to check, and no error.
+	if s := check(0); s.Status != "clean" {
+		t.Fatalf("empty project: %+v", s)
+	}
+	write(filepath.Join(cfg.RegistryDir(), "context.yaml"), "context: res\nformatVersion: 1\n---\nextend: platform.Request\ncontext: res\nattributes:\n  kind: { type: enum, values: [normal, erasure] }\n---\nentity: Resource\ncontext: res\nattributes:\n  holds: { type: int, range: [0, 5] }\n---\noperation: Resource.delete\ncontext: res\ndefault: allow\nwrites: []\n")
+	write("requirements/resources.md", "# Resources\n\n- REQ-001: The system MUST NOT delete a resource with holds.\n")
+	s := check(0)
+	if s.Status != "ready" || len(s.Questions) != 1 || s.Questions[0].Kind != "approve" {
+		t.Fatalf("first requirement: %+v", s)
+	}
+	// One act: the command that approves, which Claude Code asks about.
+	run := "`stele change answer " + s.Change + " " + s.Questions[0].ID + " approve`"
+	if !strings.Contains(s.Next, run) || !strings.Contains(s.Next, "Claude Code asks the owner to allow it") || !strings.Contains(s.Next, "do not ask them in chat as well") {
+		t.Fatalf("next = %q", s.Next)
+	}
+	out.Reset()
+	if code := cmdChange([]string{"summary", s.Change}, &out); code != 0 || !strings.Contains(out.String(), "Stele read 1 requirement") {
+		t.Fatalf("summary: %d %q", code, out.String())
+	}
+	out.Reset()
+	if code := cmdChange([]string{"answer", s.Change, s.Questions[0].ID, "approve", "--asked", "--by", "owner"}, &out); code != 0 || !strings.Contains(out.String(), "approved 1 rule(s)") {
+		t.Fatalf("approve: %d\n%s", code, out.String())
+	}
+	// Nothing new: the same command says so.
+	if s := check(0); s.Status != "clean" && s.Status != "approved" {
+		t.Fatalf("after the approval: %+v", s)
+	}
+	// A later requirement that contradicts the approved one is a question.
+	write("requirements/resources.md", "# Resources\n\n- REQ-001: The system MUST NOT delete a resource with holds.\n- REQ-002: Erasure requests MUST always delete the resource.\n")
+	if s := check(1); s.Status != "questions" || s.Questions[0].Kind != "conflict" {
+		t.Fatalf("contradiction: %+v", s)
+	}
+
+	// With the prompt off, or no hook, the agent asks in chat.
+	if !approvalPrompt(dir) {
+		t.Fatal("init installed the hook, and the prompt is not seen")
+	}
+	t.Setenv("STELE_APPROVAL_PROMPT", "off")
+	if approvalPrompt(dir) || approvalPrompt(t.TempDir()) {
+		t.Fatal("a prompt is claimed where none is asked")
+	}
+}
+
+// A requirement Stele finds no rule for still reaches the owner: the check
+// reads it once more, then asks for the approval that records it unchecked,
+// and after it the requirement is no longer new. The summary names it by
+// its own line and does not also call it checked (a trial, 2026-11-09).
+func TestRequirementWithNoRuleReachesTheOwner(t *testing.T) {
+	for _, tool := range []string{"git", "z3"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skip(tool + " not on PATH")
+		}
+	}
+	dir := t.TempDir()
+	if r, err := filepath.EvalSymlinks(dir); err == nil {
+		dir = r
+	}
+	t.Chdir(dir)
+	t.Setenv("STELE_APPROVAL_PROMPT", "off")
+	for _, args := range [][]string{{"init", "-q", "-b", "main"}, {"config", "user.email", "t@example.com"}, {"config", "user.name", "T"}} {
+		if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	var out bytes.Buffer
+	if code := cmdInit([]string{".", "--yes", "--harness", "claude"}, strings.NewReader(""), &out, false); code != 0 {
+		t.Fatalf("init: %d\n%s", code, out.String())
+	}
+	for rel, src := range map[string]string{
+		"requirements/lobby.md": "# Lobby\n\n- REQ-001: The lobby SHOULD feel welcoming.\n",
+		"reply.sh": "in=$(cat)\ncase \"$in\" in\n" +
+			`*'list its clauses'*) echo '{"statements":[{"statement_id":"s1","clauses":[{"text":"feel welcoming","status":"uncovered","rules":[]}],"broader":[]}]}' ;;` + "\n" +
+			`*'lobby SHOULD'*) echo '{"entities":[],"extensions":[],"operations":[],"rules":[{"statement_id":"s1","kind":"informal","rationale":"a feeling, nothing the code can be checked for"}]}' ;;` + "\n" +
+			"*) echo '{}' ;;\nesac\n",
+	} {
+		os.MkdirAll(filepath.Dir(rel), 0o755)
+		if err := os.WriteFile(rel, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	check := func() (changeSummary, int) {
+		t.Helper()
+		var out bytes.Buffer
+		code := cmdChange([]string{"markdown", ".", "--json", "--llm-cmd", "sh " + filepath.Join(dir, "reply.sh")}, &out)
+		var s changeSummary
+		if err := json.Unmarshal(out.Bytes(), &s); err != nil {
+			t.Fatalf("%v\n%s", err, out.String())
+		}
+		return s, code
+	}
+	if s, _ := check(); s.Status != "failed" || !strings.Contains(s.Next, "run the same check again") {
+		t.Fatalf("first reading with no rule: %+v", s)
+	}
+	s, code := check()
+	if code != 0 || s.Status != "ready" || len(s.Questions) != 1 || s.Questions[0].Kind != "approve" {
+		t.Fatalf("read so again: exit %d, %+v", code, s)
+	}
+	for _, bad := range []string{"Section:", "checked in part", "Nothing contradicts", "agree"} {
+		if strings.Contains(s.Summary, bad) {
+			t.Errorf("summary says %q of a requirement with no rule: %s", bad, s.Summary)
+		}
+	}
+	if !strings.Contains(s.Summary, `Stele cannot check "REQ-001: The lobby SHOULD feel welcoming." and would record it unchecked`) {
+		t.Errorf("summary = %q", s.Summary)
+	}
+	if q := s.Questions[0].Text; strings.Contains(q, "retires 0") || strings.Contains(q, "Section:") || !strings.Contains(q, "records its requirements unchecked") {
+		t.Errorf("approval question = %q", q)
+	}
+	out.Reset()
+	if code := cmdChange([]string{"answer", s.Change, s.Questions[0].ID, "approve", "--by", "owner"}, &out); code != 0 {
+		t.Fatalf("approve: %d\n%s", code, out.String())
+	}
+	if s, code := check(); code != 0 || (s.Status != "clean" && s.Status != "approved") {
+		t.Fatalf("after the approval the requirement is still new: exit %d, %+v", code, s)
+	}
+}
+
+// A project with specs in a spec tool and nothing approved is adopted
+// first: every message names that one command, and a change check says so
+// rather than reading the whole project as one change.
+func TestChangeBeforeAdoptionNamesAdopt(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	for rel, src := range map[string]string{
+		"openspec/specs/res/spec.md":               "# Resources\n\n### Requirement: Delete guard\nThe system MUST NOT delete a resource with holds.\n",
+		"openspec/changes/erase/specs/res/spec.md": "## ADDED Requirements\n\n### Requirement: Erasure\nErasure requests MUST always delete the resource.\n",
+	} {
+		os.MkdirAll(filepath.Dir(rel), 0o755)
+		if err := os.WriteFile(rel, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var out bytes.Buffer
+	if code := cmdInit([]string{".", "--yes", "--harness", "claude"}, strings.NewReader(""), &out, false); code != 0 || !strings.Contains(out.String(), "adopt our specs with Stele") {
+		t.Fatalf("init: %d\n%s", code, out.String())
+	}
+	cfg, err := config.Find(".")
+	if err != nil || !unadopted(cfg, ".") || nextCommand(cfg, ".") != "stele adopt --json" {
+		t.Fatalf("not seen as waiting for adoption: %+v, %v", cfg, err)
+	}
+	out.Reset()
+	code := cmdChange([]string{"openspec", ".", "erase", "--json"}, &out)
+	var s struct{ Status, Error, Next string }
+	if err := json.Unmarshal(out.Bytes(), &s); err != nil || code != 1 || s.Status != "failed" || !strings.Contains(s.Next, "stele adopt --json") {
+		t.Fatalf("change before adoption: exit %d, %+v, %v\n%s", code, s, err, out.String())
+	}
+}
+
+// Without Claude Code, init says what is missing and what still runs, and
+// does not end by sending the owner to an agent it did not set up.
+func TestInitWithoutAnAgent(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("PATH", t.TempDir())
+	var out bytes.Buffer
+	if code := cmdInit([]string{dir, "--yes"}, strings.NewReader(""), &out, false); code != 0 {
+		t.Fatalf("init: %d\n%s", code, out.String())
+	}
+	got := out.String()
+	if !strings.Contains(got, "Claude Code was not found here") || !strings.Contains(got, "stele init --harness claude") || !strings.Contains(got, "only the commit check runs") ||
+		strings.Contains(got, "open Claude Code and work as usual") || strings.Contains(got, "adopt our specs") || strings.Contains(got, "already set up for") {
+		t.Fatalf("init without an agent:\n%s", got)
 	}
 }

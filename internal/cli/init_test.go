@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/provasign/stele/integrations"
 	"github.com/provasign/stele/internal/config"
 )
 
@@ -110,7 +111,7 @@ func TestInitSetsUpAgents(t *testing.T) {
 		return string(b)
 	}
 	agents := read("AGENTS.md")
-	if !strings.HasPrefix(agents, "# Project notes\n\nUse tabs.\n") || strings.Count(agents, steeringBegin) != 1 || !strings.Contains(agents, "stele change openspec") {
+	if !strings.HasPrefix(agents, "# Project notes\n\nUse tabs.\n") || strings.Count(agents, steeringBegin) != 1 || !strings.Contains(agents, "stele change markdown . --json") || strings.Contains(agents, "openspec/changes") || strings.Contains(agents, "shale intent") {
 		t.Fatalf("AGENTS.md (shared by codex, cursor, windsurf, opencode, and CLAUDE.md's target):\n%s", agents)
 	}
 	for _, p := range []string{"GEMINI.md", ".github/copilot-instructions.md"} {
@@ -148,7 +149,7 @@ func TestInitSetsUpAgents(t *testing.T) {
 	if code := cmdInit([]string{dir, "--yes", "--hook"}, strings.NewReader(""), &out, false); code != 0 || !strings.Contains(out.String(), "already set up") {
 		t.Fatalf("refresh: %d %s", code, out.String())
 	}
-	if strings.Count(read(".claude/settings.json"), "stele-hook.js") != 4 || !strings.Contains(read(".claude/settings.json"), "UserPromptSubmit") {
+	if strings.Count(read(".claude/settings.json"), "stele-hook.js") != 5 || !strings.Contains(read(".claude/settings.json"), "UserPromptSubmit") || !strings.Contains(read(".claude/settings.json"), "PreToolUse") {
 		t.Fatal("the hook was added twice, or not for each event")
 	}
 	if read(".codex/hooks.json") != codex || strings.Contains(out.String(), "/hooks") {
@@ -285,8 +286,12 @@ func TestInitAgainRecordsAFormatSetUpLater(t *testing.T) {
 	if code := cmdInit([]string{dir, "--yes", "--harness", "claude", "--hook=false", "--git-hook=false"}, strings.NewReader(""), &out, false); code != 0 {
 		t.Fatalf("exit %d: %s", code, out.String())
 	}
-	if c, _ := config.Find(dir); c.Specs != nil {
+	// With no spec tool, Stele keeps the requirements itself.
+	if c, _ := config.Find(dir); c.Specs == nil || c.Specs.Format != "markdown" || c.Specs.Root != "requirements" {
 		t.Fatalf("specs before Shale: %+v", c.Specs)
+	}
+	if !strings.Contains(out.String(), "Stele keeps this project's requirements in requirements/") {
+		t.Errorf("init did not say where requirements go:\n%s", out.String())
 	}
 	if err := os.MkdirAll(filepath.Join(dir, ".shale"), 0o755); err != nil {
 		t.Fatal(err)
@@ -297,5 +302,45 @@ func TestInitAgainRecordsAFormatSetUpLater(t *testing.T) {
 	}
 	if c, _ := config.Find(dir); c.Specs == nil || c.Specs.Format != "shale" {
 		t.Fatalf("Shale not recorded: %+v\n%s", c, out.String())
+	}
+}
+
+// The instructions an agent gets name the project's own way of keeping
+// specs and no other: its check command, and the part for its format.
+func TestSteeringNamesOnlyTheProjectsFormat(t *testing.T) {
+	parts := map[string]string{"openspec": "stele change openspec . <change-id> --json", "speckit": "stele change speckit . --base", "kiro": "stele change kiro . --base",
+		"shale": "stele change shale . --base", "markdown": "stele change markdown . --json"}
+	for format, command := range parts {
+		got := integrations.SteeringFor(format, "docs/reqs")
+		if !strings.Contains(got, command) || strings.Contains(got, "{{") {
+			t.Errorf("%s: no %q, or a placeholder left:\n%s", format, command, got)
+		}
+		for other, c := range parts {
+			if other != format && strings.Contains(got, c) {
+				t.Errorf("%s: names %s's check %q", format, other, c)
+			}
+		}
+		// The rules every project keeps, and the approval in one act.
+		for _, want := range []string{"never approve on the owner's behalf", "never bypass Stele with `--no-verify`", "--asked", "do what `next` says"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("%s: missing %q", format, want)
+			}
+		}
+		if adopt := strings.Contains(got, "stele adopt --json"); adopt != (format != "shale" && format != "markdown") {
+			t.Errorf("%s: adoption named = %v", format, adopt)
+		}
+		if keep := strings.Contains(got, "stele keep"); keep != (format == "shale") {
+			t.Errorf("%s: stele keep named = %v", format, keep)
+		}
+	}
+	if got := integrations.SteeringFor("markdown", "docs/reqs"); !strings.Contains(got, "`docs/reqs/<area>.md`") || !strings.Contains(got, "REQ-001") {
+		t.Errorf("markdown: the folder or the ID form is missing:\n%s", got)
+	}
+	// A project whose format Stele does not know gets every part.
+	if got := integrations.SteeringFor("", ""); !strings.Contains(got, "stele keep") || !strings.Contains(got, "stele adopt --json") || !strings.Contains(got, "stele change openspec") {
+		t.Errorf("unknown format:\n%s", got)
+	}
+	if n := len(strings.Fields(integrations.SteeringFor("openspec", ""))); n > 750 {
+		t.Errorf("an OpenSpec project's instructions are %d words; keep them short", n)
 	}
 }

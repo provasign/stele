@@ -21,11 +21,15 @@ test('Claude post-edit hook reports drift once and reports recovery, without a m
   fs.writeFileSync(f.file, f.original.replace('locked', 'unlocked'));
   const output = invoke();
   assert.equal(output.hookSpecificOutput.hookEventName, 'PostToolUse');
-  assert.match(output.hookSpecificOutput.additionalContext, /spec.changed/);
-  assert.match(output.hookSpecificOutput.additionalContext, /1 stale rules/);
+  // In the project's words: no absolute path, no diagnostic code.
+  const note = output.hookSpecificOutput.additionalContext;
+  assert.match(note, /the specs differ from what the owner approved \(requirements: 1 new or edited, 1 approved for text that has since changed\)/);
+  assert.match(note, /- door\.md#REQ-1: edited since the owner approved it \(specs\/door\.md:3\)/);
+  assert.match(note, /Next: run `stele change markdown \. --json`/);
+  assert.ok(!note.includes(f.project) && !/spec\.changed|rule\.stale|provenance|stable rule IDs/.test(note), note);
   assert.equal(invoke(), null, 'unchanged drift spammed the context');
   fs.writeFileSync(f.file, f.original);
-  assert.match(invoke().hookSpecificOutput.additionalContext, /drift cleared/);
+  assert.match(invoke().hookSpecificOutput.additionalContext, /match what the owner approved again/);
   assert.equal(invoke(), null);
 });
 
@@ -131,4 +135,47 @@ test('Claude hook records the agent and the model in use for Stele\'s own calls'
   assert.equal(record().model, 'claude-sonnet-5-5');
   invoke({ hook_event_name: 'SessionStart', source: 'startup', session_id: 's2' });
   assert.deepEqual(record(), { agent: 'claude', model: '', session: 's2' }, 'a new session kept the old model');
+});
+
+test('Claude pre-tool hook asks the owner before an approval is recorded, and only then', t => {
+  const f = fixture(); t.after(() => f.dispose());
+  const binary = process.env.STELE_TEST_BIN || path.resolve(__dirname, '../../bin/stele-sync');
+  const run = (command, extra = {}, env = {}) => {
+    const result = spawnSync(process.execPath, [path.join(__dirname, 'stele-hook.js')], {
+      input: JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command }, cwd: f.project, session_id: 's', permission_mode: 'default', ...extra }),
+      env: { ...process.env, STELE_BIN: binary, STELE_APPROVAL_PROMPT: '', ...env }, encoding: 'utf8', timeout: 5000
+    });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim() ? JSON.parse(result.stdout).hookSpecificOutput : null;
+  };
+  // The summary of the last check is what the owner reads in the prompt.
+  const work = path.join(f.project, '.stele', 'change', 'add-lock');
+  fs.mkdirSync(work, { recursive: true });
+  fs.writeFileSync(path.join(work, 'result.json'), JSON.stringify({ change: 'add-lock', added: ['x'], statements: { x: 'The door MUST be locked at night.' }, registry: f.registry }));
+  const asked = run('stele change answer add-lock approve-1a2b approve');
+  assert.equal(asked.hookEventName, 'PreToolUse');
+  assert.equal(asked.permissionDecision, 'ask');
+  assert.match(asked.permissionDecisionReason, /records your approval of "add-lock" as the owner/);
+  assert.match(asked.permissionDecisionReason, /Stele read 1 requirement\./);
+  // A change with no saved check still asks, without the summary.
+  assert.equal(run('cd . && ./bin/stele change answer other q1 approve --by Ana').permissionDecision, 'ask');
+  assert.equal(run('stele approve --registry registry --all --by Ana').permissionDecision, 'ask');
+  // Every other command passes without a word.
+  for (const command of ['stele change answer add-lock q1 show', 'stele change markdown . --json', 'stele approve --registry registry --list',
+    'git commit -m "stele approve flow"', 'echo stele change answer a b approve', 'ls']) {
+    assert.equal(run(command), null, command);
+  }
+  assert.equal(run('stele change answer add-lock q approve', { tool_name: 'Read' }), null);
+  // Where Claude Code cannot ask, the agent asks in chat and says so.
+  const denied = run('stele change answer add-lock q approve', { permission_mode: 'bypassPermissions' });
+  assert.equal(denied.permissionDecision, 'deny');
+  assert.match(denied.permissionDecisionReason, /ask them the approval question in chat.*--asked/s);
+  assert.equal(run('stele change answer add-lock q approve --asked', { permission_mode: 'bypassPermissions' }), null);
+  assert.equal(run('stele change answer add-lock q approve', { permission_mode: 'dontAsk' }).permissionDecision, 'deny');
+  // A headless run holds the prompt with no one to answer: the agent is
+  // told what to do, and the owner's yes in chat passes in any mode.
+  assert.match(asked.permissionDecisionReason, /held with no one to answer.*--asked only after their yes/);
+  assert.equal(run('stele change answer add-lock q approve --asked'), null);
+  // An unattended run turns the prompt off where Claude Code starts.
+  assert.equal(run('stele change answer add-lock q approve', {}, { STELE_APPROVAL_PROMPT: 'off' }), null);
 });

@@ -33,7 +33,9 @@ func TestSaveLoad(t *testing.T) {
 
 func TestTitle(t *testing.T) {
 	for prose, want := range map[string]string{
-		"Requirement: Delete guard\nThe system MUST NOT ...": "Delete guard",
+		"Requirement: Delete guard\nThe system MUST NOT ...":                   "Delete guard",
+		"Section: Lending\nREQ-001: A member MUST NOT hold more than 3 books.": "REQ-001: A member MUST NOT hold more than 3 books.",
+		"Section: Lending":       "Section: Lending",
 		"":                       "x/1",
 		strings.Repeat("a", 120): strings.Repeat("a", 87) + "...",
 	} {

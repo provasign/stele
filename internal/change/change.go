@@ -64,9 +64,11 @@ type Options struct {
 	// fingerprint.
 	Adopt    []translate.Statement
 	SpecsDir string
-	Clients  []llm.Client
-	Z3       *solver.Z3
-	Log      io.Writer
+	// AnyCase is the Markdown importer's: lower-case must and should count.
+	AnyCase bool
+	Clients []llm.Client
+	Z3      *solver.Z3
+	Log     io.Writer
 	// NoCode skips asking what the code does for each conflict (D-062);
 	// Graph also finds definitions in Grove's code graph (no gain measured
 	// on 2026-10-29, so off by default).
@@ -187,6 +189,12 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 		after = opt.Adopt
 		for _, s := range after {
 			res.Added = append(res.Added, s.ID)
+		}
+		res.Watched = []string{opt.SpecsDir}
+	case opt.Format == "markdown":
+		// Plain Markdown in the folder stele.yaml names (SpecsDir).
+		if truth, after, err = markdownChange(opt, res); err != nil {
+			return nil, err
 		}
 		res.Watched = []string{opt.SpecsDir}
 	case opt.Base == "":
@@ -429,6 +437,13 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 		linkCands = append(linkCands, c.Links...)
 		translate.Revalidate(files, linkCands)
 		checkFiles = files
+		var again bool
+		if all, again = c.settleInvalid(all, pending, res); again {
+			// A finished run is read back, not made again: start afresh.
+			if err := os.RemoveAll(filepath.Join(opt.Out, "runs")); err != nil {
+				return nil, err
+			}
+		}
 		if err := translate.WriteRegistry(dir, &translate.Report{Backend: "stele change", Statements: len(pending), Candidates: all, Inputs: pending}, pending, nil); err != nil {
 			return nil, err
 		}
@@ -987,6 +1002,11 @@ func Fingerprint(roots ...string) (string, error) {
 			}
 			continue
 		}
+		// A folder that is not there yet holds nothing: a new project's
+		// requirements folder before its first requirement.
+		if _, err := os.Stat(root); os.IsNotExist(err) {
+			continue
+		}
 		err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() {
 				return err
@@ -1325,6 +1345,48 @@ func unusable(res *Result, c translate.Candidate) {
 	if !slices.Contains(res.Findings[c.StatementID], f) {
 		res.Findings[c.StatementID] = append(res.Findings[c.StatementID], f)
 	}
+}
+
+// settleInvalid deals with the requirements none of whose readings
+// compile. Such a requirement had no rule and no record, so its change read
+// as clean with nothing to approve and the requirement stayed new for ever
+// (a trial, 2026-11-09). The first time it fails, and the next check reads
+// it again (again is true); read so twice from the same text, it goes to
+// the approval as a requirement Stele records and does not check.
+func (c *cache) settleInvalid(all []translate.Candidate, pending []translate.Statement, res *Result) (out []translate.Candidate, again bool) {
+	for _, s := range pending {
+		first, usable := "", false
+		for _, cd := range all {
+			if cd.StatementID != s.ID {
+				continue
+			}
+			if cd.Error == "" {
+				usable = true
+			} else if first == "" {
+				first = cd.Error
+			}
+		}
+		if usable || first == "" {
+			continue
+		}
+		if c.Invalid[s.ID] == key(s) {
+			all = append(all, translate.Candidate{StatementID: s.ID, RuleID: s.ID, Outcome: ir.Informal, Kind: "none",
+				Rationale: "Stele's reading of this requirement does not compile, so no rule checks it"})
+			continue
+		}
+		if c.Invalid == nil {
+			c.Invalid = map[string]string{}
+		}
+		c.Invalid[s.ID] = key(s)
+		delete(c.Entries, s.ID)
+		all = slices.DeleteFunc(all, func(cd translate.Candidate) bool { return cd.StatementID == s.ID })
+		if res.Failed == nil {
+			res.Failed = map[string]string{}
+		}
+		res.Failed[s.ID] = "Stele's reading did not compile: " + oneLine(first, 200)
+		again = true
+	}
+	return all, again
 }
 
 // englishCand is a short plain reading of a candidate rule.

@@ -8,7 +8,7 @@ This is the preview guide: an hour with Stele on a small project of your own, an
 - **[Claude Code](https://claude.com/claude-code),** signed in: the one coding agent Stele supports for now. Stele reads your specs through it, with the model it is using, so its spend lands on that account. Measured on a 60-requirement set with Claude Code: about 2 cents per requirement on Sonnet 5.5 and 8 cents on Opus 5.5, so a feature of 5 to 15 requirements costs about $0.10 to $1.20 of Stele's own calls, on top of what the agent itself spends; a feature that needs many rereads costs more. `translate.model` in `stele.yaml` pins a model for Stele's calls alone.
 - **[Z3](https://github.com/Z3Prover/z3)**, the solver: `brew install z3`, or your system's package (`apt install z3`).
 - **[Node.js](https://nodejs.org)**, which runs Stele's agent hooks.
-- **Optional:** [Spec Kit](https://github.com/github/spec-kit), [OpenSpec](https://github.com/Fission-AI/OpenSpec) or [Kiro](https://kiro.dev), if you already write specs with one. Without one, plain Markdown requirements work, and so do requests declared with [Shale](https://github.com/provasign/shale).
+- **Optional:** [Spec Kit](https://github.com/github/spec-kit), [OpenSpec](https://github.com/Fission-AI/OpenSpec) or [Kiro](https://kiro.dev), if you already write specs with one. Without one, `stele init` sets up a `requirements/` folder of plain Markdown that the agent keeps; requests declared with [Shale](https://github.com/provasign/shale) work too.
 
 ## Install
 
@@ -24,7 +24,7 @@ stele init
 git add -A && git commit -m "Set up Stele"
 ```
 
-`init` finds your spec format, writes Stele's short instructions and hooks for Claude Code, and says what is missing.
+`init` finds your spec format, or sets up `requirements/` when there is none, writes Stele's short instructions and hooks for Claude Code, and says what is missing. A new repository needs no first commit before the first check.
 
 ## The first hour
 
@@ -38,6 +38,8 @@ Build something small, one feature at a time, and ask your agent for each featur
 
 Choose your own domain; the point is several features that build on each other, so that later ones can contradict earlier ones.
 
+Say which rules last: "from now on", "never", "at most". In a project with no spec tool, the agent writes those into `requirements/` and builds the rest as an ordinary task.
+
 For each feature, the agent writes the spec, runs Stele's check, and comes back to you with:
 
 - **Questions only you can answer,** in the spec's own words. For example, at the waitlist feature:
@@ -45,8 +47,8 @@ For each feature, the agent writes the spec, runs Stele's check, and comes back 
   > The new waitlist rule clashes with an earlier one. Booking spec, FR-003: a member holds at most one plot. Waitlist spec, FR-006: a released plot goes to the first member waiting. If the first member waiting already holds a plot, they would hold two. Can a member on the waitlist hold a plot?
 
   You answer in plain words. The agent updates the spec, and Stele remembers what you said (the lessons in `.stele/registry/lessons/`).
-- **Findings:** clauses Stele's reading does not check, so that you know what only tests will guard.
-- **The approval question.** Approving pins Stele's reading of each requirement. From then on, every later change is checked against it.
+- **Findings,** when there are any: where Stele's reading says more than your text, or would block a step. Clauses its reading does not check are a count in the summary and a list in the report, so that you know what only tests will guard.
+- **The approval.** The agent runs the command that approves, and Claude Code asks you to allow it, with Stele's summary in the prompt. Allow it to approve; deny it and nothing is recorded. Approving pins Stele's reading of each requirement. From then on, every later change is checked against it. In a session that never asks for permissions, or a headless run with no one at the prompt, the agent asks you in chat instead.
 
 Then the agent writes the code and commits the specs, the registry and the code together.
 

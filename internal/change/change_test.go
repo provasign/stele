@@ -52,6 +52,9 @@ type fake struct {
 	calls    *[]string
 	// uncovered, when set, is a clause the coverage check finds no rule for.
 	uncovered string
+	// broader, when set, is what the coverage check finds a rule forbids
+	// that the text allows.
+	broader string
 	// nothingCheckable: the coverage check finds no clause a rule could
 	// check, as for a one-off task.
 	nothingCheckable bool
@@ -85,7 +88,11 @@ func (f fake) Complete(_ context.Context, req llm.Request) (*llm.Reply, error) {
 			if f.uncovered != "" {
 				clauses = append(clauses, map[string]any{"text": f.uncovered, "status": "uncovered", "rules": []string{}})
 			}
-			sts = append(sts, map[string]any{"statement_id": alias, "clauses": clauses, "broader": []any{}})
+			broader := []any{}
+			if f.broader != "" {
+				broader = append(broader, map[string]any{"rules": []string{"r1"}, "what": f.broader})
+			}
+			sts = append(sts, map[string]any{"statement_id": alias, "clauses": clauses, "broader": broader})
 		}
 		js, _ := json.Marshal(map[string]any{"statements": sts})
 		return &llm.Reply{JSON: string(js)}, nil
@@ -934,7 +941,10 @@ func TestRewrittenRequirementWithoutRenameRecordAsks(t *testing.T) {
 }
 
 // What the coverage check finds in a reading reaches the owner with the
-// approval: beside the requirement's reading, and as a reason to look first.
+// approval by what they can do about it. A clause no rule checks is
+// recorded and counted, and is no reason to stop: the approval stays the
+// recommended answer. A reading that says more than the text is a finding
+// to look at first.
 func TestApprovalShowsFindings(t *testing.T) {
 	repo, registry := setup(t, "## MODIFIED Requirements\n\n### Requirement: Delete guard\nThe system MUST NOT delete a resource with holds, unless the request is an erasure.\n")
 	f := one("unless", map[string]any{"kind": "permission", "operation": "Resource.delete", "effect": "deny", "when": "self.holds > 0"})
@@ -953,14 +963,37 @@ func TestApprovalShowsFindings(t *testing.T) {
 		t.Fatalf("no approval question: %+v", res.Questions)
 	}
 	r := q.Requirements[0]
-	if len(r.Reading) != 1 || !strings.Contains(r.Reading[0], "self.holds > 0") || len(r.Findings) != 1 || !strings.Contains(r.Findings[0], `no rule checks "unless the request is an erasure"`) {
+	if len(r.Reading) != 1 || !strings.Contains(r.Reading[0], "self.holds > 0") || len(r.Findings) != 0 || len(r.NotChecked) != 1 || !strings.Contains(r.NotChecked[0], `no rule checks "unless the request is an erasure"`) {
 		t.Fatalf("requirement = %+v", r)
 	}
-	if q.Recommended != "show" || !strings.Contains(q.Text, "may say less or more") {
+	if q.Recommended == "show" || !strings.Contains(q.Text, "1 checked in part: the report lists the 1 clause(s) no rule checks") || strings.Contains(q.Text, "see findings") {
 		t.Fatalf("question = %+v", q)
 	}
-	if !strings.Contains(q.Text, "agree with the approved spec") {
+	if !strings.Contains(q.Text, "agrees with the approved spec") {
 		t.Fatalf("question = %q; want it measured against the approved spec", q.Text)
+	}
+
+	// A reading broader than the text is the owner's to look at.
+	repo, registry = setup(t, "## MODIFIED Requirements\n\n### Requirement: Delete guard\nThe system MUST NOT delete a resource with recent holds.\n")
+	f = one("recent", map[string]any{"kind": "permission", "operation": "Resource.delete", "effect": "deny", "when": "self.holds > 0"})
+	f.broader = "deleting a resource whose holds are old"
+	if res, err = runKept(context.Background(), Options{Repo: repo, Change: "c1", Registry: registry, Out: t.TempDir(), Clients: []llm.Client{f}}); err != nil {
+		t.Fatal(err)
+	}
+	q = nil
+	for i := range res.Questions {
+		if res.Questions[i].Kind == "approve" {
+			q = &res.Questions[i]
+		}
+	}
+	if q == nil {
+		t.Fatalf("no approval question: %+v", res.Questions)
+	}
+	if r := q.Requirements[0]; len(r.Findings) != 1 || !strings.HasPrefix(r.Findings[0], "broader than the text: ") || !strings.Contains(r.Findings[0], "holds are old") || len(r.NotChecked) != 0 {
+		t.Fatalf("requirement = %+v", r)
+	}
+	if q.Recommended != "show" || !strings.Contains(q.Text, "says more than the text, or blocks a step (see findings)") {
+		t.Fatalf("question = %+v", q)
 	}
 }
 
@@ -1730,4 +1763,30 @@ func keepAll(repo string) error {
 		ks = append(ks, importer.KeptIntent{ID: r.ID})
 	}
 	return importer.KeepIntents(repo, ks, nil)
+}
+
+// TestSettleInvalid: a requirement none of whose readings compile fails
+// once, so the next check reads it again, and read so again it is recorded
+// unchecked for the approval. A reading with one usable rule is left alone.
+func TestSettleInvalid(t *testing.T) {
+	bad := translate.Candidate{StatementID: "a", Outcome: "rule", Error: "type errors:\n  Book has no attribute \"status\""}
+	good := translate.Candidate{StatementID: "b", Outcome: "rule"}
+	half := translate.Candidate{StatementID: "b", Outcome: "rule", Error: "x"}
+	pending := []translate.Statement{{ID: "a", Prose: "A member MUST NOT hold more than 3 books."}, {ID: "b", Prose: "Books MUST be returned."}}
+	c := &cache{Entries: map[string]entry{"a": {Key: key(pending[0]), Cands: []translate.Candidate{bad}}}}
+	res := &Result{}
+	all, again := c.settleInvalid([]translate.Candidate{bad, good, half}, pending, res)
+	if !again || len(all) != 2 || res.Failed["a"] != `Stele's reading did not compile: type errors: Book has no attribute "status"` || len(c.Entries) != 0 {
+		t.Fatalf("first time: again %v, %d readings, failed %q, cached %v", again, len(all), res.Failed, c.Entries)
+	}
+	res = &Result{}
+	all, again = c.settleInvalid([]translate.Candidate{bad, good, half}, pending, res)
+	if again || len(res.Failed) != 0 || len(all) != 4 || all[3].StatementID != "a" || all[3].Outcome != ir.Informal || all[3].Error != "" {
+		t.Fatalf("read so again: again %v, failed %v, readings %+v", again, res.Failed, all)
+	}
+	// Reworded, it is a new text: it fails once more before it is recorded.
+	pending[0].Prose = "A member MUST NOT hold more than 4 books."
+	if _, again = c.settleInvalid([]translate.Candidate{bad}, pending, &Result{}); !again {
+		t.Fatal("a reworded requirement was recorded unchecked without a second reading")
+	}
 }

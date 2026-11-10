@@ -62,11 +62,11 @@ The proved fragment is meant to grow until obligations are rare. Multiple instan
 
 | Tool | What it does | How Stele differs |
 | --- | --- | --- |
-| AWS Kiro Requirements Analysis | LLM-to-logic translation and SMT checking of one spec | Checks every spec against every active rule, over time, and against the code |
+| AWS Kiro Requirements Analysis | LLM-to-logic translation and SMT checking of one spec's requirements, with two-option questions; derives property-based tests | Checks every spec against every approved rule, over time, in any of four formats, and keeps the decisions in git. See [prior art](prior-art.md#spec-tools-for-coding-agents) |
 | AWS Cedar | Sound and complete SMT analysis of authorization policies, verified in Lean | Stele emits Cedar for the permission subset and adds invariants, state machines, prose ingestion and history ([D-012](design-decisions.md)) |
 | OPA, OpenFGA | Policy evaluation and relationship-based authorization | Targets for runtime guards, not competitors |
 | DMN | Decision tables for business decisions | Decision tables are an authoring form here, lowered into the same checked IR |
-| Spec Kit, OpenSpec, Tessl | Spec authoring formats for AI-assisted development | Authoring front ends; Stele is the shared back end that checks across them |
+| Spec Kit, OpenSpec, Tessl | Spec authoring formats for AI-assisted development; Spec Kit's `analyze` asks a model for inconsistencies within one feature | Authoring front ends; Stele is the shared back end that checks across them |
 | NASA FRET, GE ASSERT, SpeAR | Structured or controlled-English requirements compiled to logic; realizability and consistency checks | Exact translation because the author writes in the tool's language; Stele takes the specs teams already write |
 | AWS Automated Reasoning checks | LLM extracts variables and rules from a policy document; SMT checks chatbot answers against it | Checks answers against one document; Stele checks the documents against each other |
 | VeriMed, SAT-LLM (research) | LLM to SMT, conflict and vacuity checks on 55 to 144 curated requirements | Hand-written or small vocabularies and no precision on unmodified specs; Stele builds the vocabulary from real repositories. See [prior art](prior-art.md) |

@@ -34,6 +34,10 @@ type cache struct {
 	// read with no rules though a clause can be checked: read so again, it
 	// is unchecked rather than failed.
 	NoRules map[string]string `json:"no_rules,omitempty"`
+	// Invalid holds, per requirement, the key of the text whose readings
+	// all failed to compile: read so again, it is unchecked rather than
+	// failed.
+	Invalid map[string]string `json:"invalid,omitempty"`
 }
 
 type entry struct {

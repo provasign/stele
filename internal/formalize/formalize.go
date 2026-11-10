@@ -32,6 +32,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"sort"
@@ -547,6 +548,7 @@ func finish(dir string, m llm.Client, stmts []translate.Statement, st *state, op
 	p, res.Inferred = inferWrites(reg, p, rules)
 	p, res.Defaults = restrictedDefaults(p, rules)
 	p = unboundCounters(p, rules)
+	unpruned := p
 	if !opt.NoPrune {
 		var pruned vocab.Proposal
 		pruned, res.Pruned = prune(reg, p, rules, named(append(append([]translate.Candidate{}, st.Cands...), st.Links...)))
@@ -557,13 +559,15 @@ func finish(dir string, m llm.Client, stmts []translate.Statement, st *state, op
 			res.Errors = append(res.Errors, "pruning skipped: "+err.Error())
 		}
 	}
-	files, err = writeVocabulary(dir, p, opt)
-	if err != nil {
-		return nil, err
-	}
 	// The vocabulary grew after the first translation; check every rule
 	// against the final one.
-	translate.Revalidate(files, st.Cands)
+	var kept bool
+	if p, files, kept, err = settleVocabulary(dir, p, unpruned, st.Cands, opt); err != nil {
+		return nil, err
+	} else if kept {
+		res.Pruned = nil
+		res.Errors = append(res.Errors, "pruning skipped: a rule stopped compiling without a term it dropped")
+	}
 	holdOut(st.Cands, st.SelfConflicts)
 	translate.Revalidate(files, st.Links)
 	final := &translate.Report{Backend: m.Name(), Statements: len(stmts), Candidates: st.Cands, Inputs: stmts}
@@ -591,6 +595,42 @@ func finish(dir string, m llm.Client, stmts []translate.Statement, st *state, op
 		return nil, err
 	}
 	return res, nil
+}
+
+// settleVocabulary writes the final vocabulary and checks every rule
+// against it. Pruning must never cost a rule: when a rule that compiles
+// with the unpruned vocabulary does not compile with the pruned one, the
+// unpruned one is written and kept is true. Pruning that missed what a
+// rule read through instances(E) left a project's first requirement with
+// no rule, and nothing noticed (a trial, 2026-11-09).
+func settleVocabulary(dir string, p, unpruned vocab.Proposal, cands []translate.Candidate, opt Options) (out vocab.Proposal, files []string, kept bool, err error) {
+	if files, err = writeVocabulary(dir, p, opt); err != nil {
+		return p, nil, false, err
+	}
+	translate.Revalidate(files, cands)
+	invalid := func(cs []translate.Candidate) (n int) {
+		for _, c := range cs {
+			if c.Error != "" {
+				n++
+			}
+		}
+		return n
+	}
+	n := invalid(cands)
+	if n == 0 || reflect.DeepEqual(p, unpruned) {
+		return p, files, false, nil
+	}
+	if files, err = writeVocabulary(dir, unpruned, opt); err != nil {
+		return p, nil, false, err
+	}
+	full := slices.Clone(cands)
+	translate.Revalidate(files, full)
+	if invalid(full) < n {
+		copy(cands, full)
+		return unpruned, files, true, nil
+	}
+	files, err = writeVocabulary(dir, p, opt)
+	return p, files, false, err
 }
 
 func loadState(dir string) (*state, error) {

@@ -24,7 +24,40 @@ import (
 	"github.com/provasign/stele/internal/solver"
 )
 
+// usage is what a person who installed Stele needs: the commands the
+// owner, the agent and CI run in a project. The research and pipeline
+// commands are under `stele help all`; forty commands in one list hid the
+// six that matter (a review, 2026-11-09).
 const usage = `usage: stele <command> [flags]
+
+Stele checks every spec change against the requirements the owner approved.
+Most of it runs through your coding agent: run "stele init", then work as usual.
+
+set up
+  init [dir]             create stele.yaml and the registry, and set up Claude Code (the one agent supported for now)
+  version                print the release
+
+check a change (the agent runs these; the owner answers its questions)
+  adopt [repo]           check a project's existing specs once: every requirement against every other
+  change openspec <repo> <id>            check one OpenSpec change folder against the approved requirements
+  change speckit|kiro <repo> --base REF  check a feature branch's spec changes
+  change markdown <repo>                 check the requirements a project keeps in its own folder
+  change shale <repo> --base REF         check the requests kept as requirements
+  change answer <id> <q> <choice>        record an answer to a check's question; approve applies the change
+  keep [request]         keep a request declared with shale intent as a requirement; --list shows every request's state
+  lesson add|list|remove what the owner taught Stele about this project
+
+keep it consistent
+  check [registry-dir]   every approved requirement against every other (run after a merge or pull)
+  gate --base DIR --head DIR   decide whether a registry change may merge (CI)
+  sync                   compare the specs with the approved requirements; --apply records moved ones
+  rules [request]        the approved requirements a request touches
+  touches                the approved requirements the current code change touches
+
+"stele help all" lists every command; "stele <command> -h" its flags.
+`
+
+const usageAll = `usage: stele <command> [flags]
 
 commands:
   init [dir]             create stele.yaml and an empty registry, and set up Claude Code, the one coding agent supported for now
@@ -47,6 +80,7 @@ commands:
   adopt [repo]           check a project's existing specs once: every requirement against every other, questions for the owner
   change openspec <repo> <id>  check one OpenSpec change folder against the approved registry before applying it
   change speckit|kiro|shale <repo> --base REF  check a feature branch's spec changes, or its Shale requests, against the approved registry
+  change markdown <repo>  check the requirements a project keeps in its own folder against the approved registry
   change answer <id> <q> <choice>  record the owner's answer to a change check's question; approve applies the change
   approve                record the owner's approval of rules, pinned to their statements' text
   lesson add|list|remove what the owner taught Stele about this project (most come from change answers on their own)
@@ -159,6 +193,10 @@ func Run(args []string) int {
 	case "lsp":
 		return cmdLSP(args[1:], os.Stdin, os.Stdout)
 	case "help", "-h", "--help":
+		if len(args) > 1 && args[1] == "all" {
+			fmt.Fprint(os.Stdout, usageAll)
+			return 0
+		}
 		fmt.Fprint(os.Stdout, usage)
 		return 0
 	}

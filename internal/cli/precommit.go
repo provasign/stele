@@ -78,7 +78,11 @@ func cmdPrecommit(args []string, out io.Writer) int {
 		// project's requests are checked one by one as they are declared,
 		// never adopted: its first ones are new requirements as any later.
 		if touchesSpecs && hasRequirements(cfg, root) {
-			fmt.Fprintf(out, "Stele: this project's specs are not adopted yet, so this commit is not checked.\nNext: run `stele adopt --json`. It reads every requirement once and checks them against each other; then ask the owner its questions and record the answers, as for `stele change`.\n")
+			what := "specs are not adopted yet"
+			if cfg.Specs != nil && cfg.Specs.Format == "markdown" {
+				what = "requirements are not checked or approved yet" // nothing is adopted: the first check is a change like any other
+			}
+			fmt.Fprintf(out, "Stele: this project's %s, so this commit is not checked.\nNext: run `%s`. It reads every requirement once and checks them against each other; then ask the owner its questions and record the answers as it says.\n", what, next)
 		}
 		return 0
 	}
@@ -228,13 +232,41 @@ func nextCommand(cfg *config.Config, root string) string {
 			}
 		}
 	}
+	// Specs written before Stele are adopted first, whatever asks: the
+	// commit check said so while the edit hook named the change check, and
+	// a change checked against an empty registry leaves the older specs
+	// unread (a review, 2026-11-09).
+	if unadopted(cfg, root) {
+		return "stele adopt --json"
+	}
 	switch format {
 	case "openspec":
 		return "stele change openspec . <change-id> --json` (list the changes with `stele change openspec . --list"
 	case "speckit", "kiro", "shale":
 		return "stele change " + format + " . --base " + baseBranch() + " --json"
+	case "markdown":
+		return "stele change markdown . --json"
 	}
 	return "stele watch --once --json"
+}
+
+// unadopted reports whether the project has requirements in a spec tool's
+// format and no approved rule yet. Shale requests and plain Markdown
+// requirements are measured against the registry by `stele change` itself,
+// so their first check is their adoption.
+func unadopted(cfg *config.Config, root string) bool {
+	sp := cfg.Specs
+	if sp == nil {
+		sp = detectSpecs(root)
+	}
+	if sp == nil || sp.Format == "shale" || sp.Format == "markdown" {
+		return false
+	}
+	if reg, err := ir.LoadDir(cfg.RegistryDir()); err != nil || len(reg.Rules) > 0 {
+		return false
+	}
+	stmts, err := importSpecs(root, sp)
+	return err == nil && len(stmts) > 0
 }
 
 // onBase reports whether HEAD is the branch changes merge into. Only a

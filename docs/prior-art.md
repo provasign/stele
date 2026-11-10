@@ -74,6 +74,28 @@ The lesson for Stele is the intermediate form: these tools get exact translation
 - **Survey:** "A Short Survey on Formalising Software Requirements using LLMs", arXiv [2506.11874](https://arxiv.org/abs/2506.11874): LLMs are more reliable at focused assertions than at complete specifications; hybrid LLM and solver methods are the direction.
 - **Hand-written formal languages:** Alloy (bounded checking, the small-scope hypothesis Stele's bounded collections rely on), TLA+, Event-B, Z, Attempto Controlled English.
 
+## Spec tools for coding agents
+
+Checked 2026-11-09 against each tool's public documentation and release notes. A "no" below means the documentation showed none, not that none exists; check again before citing.
+
+| Tool | Contradiction detection | Scope of one check | Mechanism | Decisions kept | Licence |
+| --- | --- | --- | --- | --- | --- |
+| Kiro Requirements Analysis (IDE 0.12, May 2026) | Yes: conflicting requirements come back as two-option questions with scenarios | One spec's `requirements.md` | LLM to SMT-LIB, a solver | No record; the answer rewrites the file | Proprietary |
+| Spec Kit `/speckit.analyze`, `/speckit.clarify` | One item of an inconsistency pass | One feature directory and the constitution | An LLM prompt | Clarifications are written into that spec | MIT |
+| OpenSpec `validate` | No semantic check found | The structure of a change | Structural rules | None | MIT |
+| Tessl | None found | One feature | Scripts and an LLM | None | Mixed |
+| adrkit | Contradicting architecture decisions | Decision records in git | Deterministic lint, no solver | Yes, in git | Apache-2.0 |
+| Qodo Rules | Conflicts among coding rules | Their platform | Not stated | On their platform | Proprietary |
+
+Kiro also derives property-based tests from requirements, which Stele does not do.
+
+**What Stele shares with them.** LLM-to-SMT contradiction detection with two-option questions is Kiro's too. Model-free gates and decisions kept in git exist elsewhere (adrkit).
+
+**What was found nowhere else.**
+- Contradictions checked by a solver across every spec in a repository, and across time: a requirement written today against one approved months ago in another document.
+- A registry of approved readings in git that every later change is checked against, with the owner's decisions and what they taught.
+- One checker that reads Spec Kit, OpenSpec, Kiro and plain Markdown, so a project is not tied to the tool whose checker it uses.
+
 ## What to take into Stele
 
 | Idea | Source | Fit |

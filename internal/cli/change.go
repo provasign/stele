@@ -53,8 +53,12 @@ func cmdChange(args []string, out io.Writer) int {
 	if len(args) > 0 && args[0] == "reread" {
 		return cmdChangeReread(args[1:], out)
 	}
+	if len(args) > 0 && args[0] == "summary" {
+		return cmdChangeSummary(args[1:], out)
+	}
 	usage := "usage: stele change openspec <repo> [<change-id>] [--registry DIR] [--out DIR] [--json] [--apply] [--list] [--llm B --model M]\n" +
 		"       stele change speckit|kiro <repo> [<name>] --base REF [--registry DIR] [--json] ...   (a feature branch against REF)\n" +
+		"       stele change markdown <repo> [<name>] [--json] ...   (the Markdown requirements stele.yaml names, against what is approved)\n" +
 		"       stele change shale <repo> [<name>] --base REF [--json] ...   (the requests declared with `shale intent` on this branch)\n" +
 		"       stele change answer <change-id> <question-id> <choice> [--note TEXT] [--by NAME]\n" +
 		"       stele change reread <change-id> <requirement> --note TEXT   (the owner says Stele misread it)\n"
@@ -66,7 +70,7 @@ func cmdChange(args []string, out io.Writer) int {
 		fs.PrintDefaults()
 		return 0
 	}
-	if len(args) < 2 || !slices.Contains([]string{"openspec", "speckit", "kiro", "shale", adoptChange}, args[0]) {
+	if len(args) < 2 || !slices.Contains([]string{"openspec", "speckit", "kiro", "shale", "markdown", adoptChange}, args[0]) {
 		fmt.Fprint(os.Stderr, usage)
 		return 2
 	}
@@ -78,7 +82,18 @@ func cmdChange(args []string, out io.Writer) int {
 	}
 	_ = fs.Parse(rest)
 	var adoptStmts []translate.Statement
-	adoptDir := ""
+	adoptDir, anyCase := "", false
+	if format == "markdown" {
+		// The folder is the project's own: stele.yaml names it.
+		cfg, err := config.Find(repo)
+		if err != nil || cfg == nil || cfg.Specs == nil || cfg.Specs.Format != "markdown" {
+			if err == nil {
+				err = fmt.Errorf("%s names no Markdown requirements folder here (specs: root and format: markdown); run `stele init` to set one up", config.FileName)
+			}
+			return failf("change", err)
+		}
+		adoptDir, anyCase = cfg.SpecsDir(), cfg.Specs.AnyCase
+	}
 	if format == adoptChange {
 		// Adoption: the project's whole specs, in the layout stele.yaml
 		// records, are one change against the empty registry.
@@ -108,9 +123,21 @@ func cmdChange(args []string, out io.Writer) int {
 		if sp.Format != "markdown" {
 			adoptDir = filepath.Join(repo, specRootOf(sp.Format))
 		}
-	} else if format != "openspec" && *base == "" {
+	} else if format != "openspec" && format != "markdown" && *base == "" {
 		fmt.Fprint(os.Stderr, "stele change "+format+": name the branch to compare with, e.g. --base main\n")
 		return 2
+	}
+	if cfg, err := config.Find(repo); err == nil && cfg != nil && format != adoptChange && !*list && unadopted(cfg, repo) {
+		// The change alone, checked against an empty registry, would become
+		// the registry, and the specs written before it would never be read.
+		msg := "this project's specs are not adopted yet, and a change is checked against the approved requirements"
+		next := "run `stele adopt --json` first: it reads every requirement once, this change's with them, and asks the owner only what needs a person"
+		if *asJSON {
+			js, _ := json.MarshalIndent(changeSummary{Change: id, Status: "failed", Error: msg, Questions: []change.Question{}, Next: next}, "", "  ")
+			fmt.Fprintln(out, string(js))
+			return 1
+		}
+		return failf("change", fmt.Errorf("%s; %s", msg, next))
 	}
 	named := id != ""
 	if *list {
@@ -140,7 +167,7 @@ func cmdChange(args []string, out io.Writer) int {
 			_ = fs.Lookup("effort").Value.Set(cfg.Translate.Effort)
 		}
 	}
-	if *base != "" && !named {
+	if (*base != "" || format == "markdown") && !named {
 		id = branchChangeName(repo, *registry)
 	}
 	if id == "" || *registry == "" {
@@ -150,7 +177,7 @@ func cmdChange(args []string, out io.Writer) int {
 	if *outDir == "" {
 		*outDir = filepath.Join(".stele", "change", id)
 	}
-	opt := change.Options{Repo: repo, Change: id, Registry: *registry, Out: *outDir, Z3: &solver.Z3{}, Log: os.Stderr, Base: *base, Format: format, NoCode: *noCode, Graph: *graph, Adopt: adoptStmts, SpecsDir: adoptDir, MaxCost: *maxCost, RequestTimeout: *requestTimeout}
+	opt := change.Options{Repo: repo, Change: id, Registry: *registry, Out: *outDir, Z3: &solver.Z3{}, Log: os.Stderr, Base: *base, Format: format, NoCode: *noCode, Graph: *graph, Adopt: adoptStmts, SpecsDir: adoptDir, AnyCase: anyCase, MaxCost: *maxCost, RequestTimeout: *requestTimeout}
 	if *stmtsPath != "" {
 		stmts, err := translate.LoadStatements(*stmtsPath)
 		if err != nil {
@@ -277,7 +304,18 @@ func summarize(res *change.Result, outDir string) changeSummary {
 			s.Next = fmt.Sprintf("the model gave no rules for %d requirement(s) (see failed); run the same check again, without rewording them: it retries them once, and a requirement read so again is reported as unchecked", len(res.Failed))
 		}
 	case approve:
-		s.Status, s.Next = "ready", "ask the owner the approval question; answer with `stele change answer`"
+		// One act for the owner. With Stele's hook, Claude Code asks them
+		// to allow the command that approves, so a chat question first
+		// would ask twice; a clean approval took four of the owner's turns
+		// (a review, 2026-11-09).
+		run := fmt.Sprintf("`stele change answer %s %s approve`", res.Change, res.Questions[0].ID)
+		s.Status, s.Next = "ready", "show the owner the spec and `summary`, and each of the approval question's `findings` in the requirement's words; say nothing more when there are none. Then ask the approval question, and record a yes with "+run
+		if approvalPrompt(res.Repo) {
+			s.Next = "show the owner the spec and `summary`, and each of the approval question's `findings` in the requirement's words; say nothing more when there are none. Then run " + run + ": Claude Code asks the owner to allow it, and their yes is the approval, so do not ask them in chat as well. If they deny it, ask what they want changed"
+		}
+		if n := notJudged(res); n > 0 {
+			s.Next = fmt.Sprintf("Stele could not double-check its reading of %d requirement(s) in this run: run the same check once more first (it retries them); if it says this again, go on. Then: ", n) + s.Next
+		}
 	case len(res.Questions) > 0:
 		s.Status, s.Next = "questions", "answer the questions with ask_owner false yourself; ask the owner the others in their words; record each with `stele change answer`, act on its result, then run `stele change` again"
 		// Ten questions landed on an owner at once, with no word of how
@@ -323,6 +361,11 @@ const ruleLegend = "How to read the rules: `instances(E)` is every other instanc
 func ownerSummary(res *change.Result, status string) string {
 	title := func(id string) string { return `"` + card.Title(res.Statements[id], id) + `"` }
 	n := len(res.Added) + len(res.Modified)
+	// With no rule for any of them there is nothing that agrees or was
+	// checked: the summary said a requirement agreed with the approved
+	// ones and, in the next sentence, that Stele cannot check it (a
+	// trial, 2026-11-09).
+	noneChecked := n > 0 && len(res.Unchecked) == n
 	approved := 0
 	var b strings.Builder
 	switch {
@@ -339,7 +382,7 @@ func ownerSummary(res *change.Result, status string) string {
 		}
 		fmt.Fprintf(&b, "Stele read %s", what)
 		if reg, err := ir.LoadDir(res.Registry); err == nil {
-			if approved = approvedStatements(reg); approved > 0 {
+			if approved = approvedStatements(reg); approved > 0 && !noneChecked {
 				fmt.Fprintf(&b, " and checked %s against the %d approved before", pick(n == 1, "it", "them"), approved)
 			}
 		}
@@ -371,7 +414,7 @@ func ownerSummary(res *change.Result, status string) string {
 			decisions = append(decisions, q.Kind)
 		}
 	}
-	if len(clashes) == 0 && len(decisions) == 0 {
+	if len(clashes) == 0 && len(decisions) == 0 && !noneChecked {
 		// With none approved yet, the check is the change against itself
 		// (an adoption said "they agree with the approved requirements"
 		// when there were none: a live trial, 2026-11-08).
@@ -398,16 +441,76 @@ func ownerSummary(res *change.Result, status string) string {
 		}
 		fmt.Fprintf(&b, " Stele cannot check %s and would record %s unchecked.", strings.Join(names, ", "), pick(len(ids) == 1, "it", "them"))
 	}
-	flagged := 0
+	// What the owner decides on is said; what a reading leaves out is a
+	// count, with the clauses in the report.
+	flagged, partial := 0, 0
 	for _, id := range append(append([]string{}, res.Added...), res.Modified...) {
-		if len(res.Findings[id]) > 0 {
+		if _, unchecked := res.Unchecked[id]; unchecked {
+			continue // said above: nothing checks it, in part or whole
+		}
+		owner, notChecked, _ := change.SplitFindings(res.Findings[id])
+		if len(owner) > 0 {
 			flagged++
 		}
+		if len(notChecked) > 0 {
+			partial++
+		}
+	}
+	if partial > 0 {
+		fmt.Fprintf(&b, " %d %s checked in part; the report lists the clauses no rule checks.", partial, pick(partial == 1, "is", "are"))
 	}
 	if flagged > 0 {
-		fmt.Fprintf(&b, " Its reading of %d may say less or more than the text; the approval lists where.", flagged)
+		fmt.Fprintf(&b, " Its reading of %d says more than the text or blocks a step; the approval lists where.", flagged)
 	}
 	return b.String()
+}
+
+// notJudged counts the requirements whose reading Stele could not
+// double-check in this run.
+func notJudged(res *change.Result) int {
+	n := 0
+	for _, fs := range res.Findings {
+		if _, _, k := change.SplitFindings(fs); k > 0 {
+			n++
+		}
+	}
+	return n
+}
+
+// approvalPrompt reports whether Claude Code asks the owner before an
+// approval is recorded in this project: the PreToolUse entry `stele init`
+// adds for Stele's hook, unless the session turned the prompt off.
+func approvalPrompt(repo string) bool {
+	if os.Getenv("STELE_APPROVAL_PROMPT") == "off" {
+		return false
+	}
+	src, err := os.ReadFile(filepath.Join(repo, ".claude", "settings.json"))
+	if err != nil {
+		return false
+	}
+	var s struct {
+		Hooks map[string]json.RawMessage `json:"hooks"`
+	}
+	return json.Unmarshal(src, &s) == nil && strings.Contains(string(s.Hooks["PreToolUse"]), "stele-hook.js")
+}
+
+// cmdChangeSummary prints the last check of a change as the owner reads
+// it, in a line or two: what the permission prompt shows at the approval.
+func cmdChangeSummary(args []string, out io.Writer) int {
+	if len(args) < 1 {
+		fmt.Fprint(os.Stderr, "usage: stele change summary <change-id>\n")
+		return 2
+	}
+	src, err := os.ReadFile(filepath.Join(".stele", "change", args[0], "result.json"))
+	if err != nil {
+		return failf("change summary", fmt.Errorf("no check for %s", args[0]))
+	}
+	var res change.Result
+	if err := json.Unmarshal(src, &res); err != nil {
+		return failf("change summary", err)
+	}
+	fmt.Fprintln(out, ownerSummary(&res, "ready"))
+	return 0
 }
 
 func plural(n int) string {
@@ -803,6 +906,7 @@ func cmdApprove(args []string, out io.Writer) int {
 	all := fs.Bool("all", false, "with no --rules and no --base: approve every live rule not yet approved")
 	by := fs.String("by", "", "who approves (the owner)")
 	listOnly := fs.Bool("list", false, "list the rules that need approval, grouped by requirement with Stele's reading and what its checks found, and stop")
+	fs.Bool("asked", false, "the owner was asked in chat and said yes: for a session where Claude Code cannot ask them to allow the command")
 	asJSON := fs.Bool("json", false, "with --list: emit the review packet as JSON, for an agent to put to the owner")
 	_ = fs.Parse(args)
 	if *registry == "" || (*by == "" && !*listOnly) {
@@ -893,6 +997,12 @@ func branchChangeName(repo, registry string) string {
 func branchName(repo string) string {
 	if b, err := exec.Command("git", "-C", repo, "rev-parse", "--abbrev-ref", "HEAD").Output(); err == nil {
 		if name := strings.TrimSpace(string(b)); name != "" && name != "HEAD" {
+			return strings.NewReplacer("/", "-", " ", "-").Replace(name)
+		}
+	}
+	// A repository with no commit yet still names its branch.
+	if b, err := exec.Command("git", "-C", repo, "symbolic-ref", "--short", "HEAD").Output(); err == nil {
+		if name := strings.TrimSpace(string(b)); name != "" {
 			return strings.NewReplacer("/", "-", " ", "-").Replace(name)
 		}
 	}

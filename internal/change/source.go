@@ -162,6 +162,27 @@ func shaleChange(opt Options, res *Result) (truth, after []translate.Statement, 
 	if err != nil {
 		return nil, nil, err
 	}
+	return registryChange(opt, res, now)
+}
+
+// markdownChange measures the plain-Markdown requirements under
+// opt.SpecsDir against the approved registry, as shaleChange does and for
+// the same reason: a project that keeps its requirements in a folder often
+// commits straight to its main branch, and a requirement committed before
+// it was checked is still new. It needs no base ref, so it works in a
+// repository with no commit yet.
+func markdownChange(opt Options, res *Result) (truth, after []translate.Statement, err error) {
+	now, err := importer.Markdown(opt.SpecsDir, importer.MarkdownOptions{AnyCase: opt.AnyCase, Exclude: []string{opt.Registry}})
+	// No folder or no file yet: no requirement, as a new project has.
+	if err != nil && !errors.Is(err, importer.ErrNoSpecs) {
+		return nil, nil, err
+	}
+	return registryChange(opt, res, now)
+}
+
+// registryChange is the change from the approved registry to the
+// statements the project holds now.
+func registryChange(opt Options, res *Result, now []translate.Statement) (truth, after []translate.Statement, err error) {
 	reg, err := ir.LoadDir(opt.Registry)
 	if err != nil {
 		return nil, nil, fmt.Errorf("registry %s: %w", opt.Registry, err)

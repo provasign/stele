@@ -112,10 +112,10 @@ func TestExportOpenSpec(t *testing.T) {
 func TestOwnerSummary(t *testing.T) {
 	res := &change.Result{Added: []string{"intent/a", "intent/b"}, Modified: []string{"intent/c"}, Registry: t.TempDir(),
 		Statements: map[string]string{"intent/a": "Orders ship within 2 days", "intent/b": "Refunds within 14 days", "intent/c": "Members borrow 5 books"},
-		Unchecked:  map[string]string{"intent/b": "obligation"}, Findings: map[string][]string{"intent/a": {"no rule checks ..."}},
+		Unchecked:  map[string]string{"intent/b": "obligation"}, Findings: map[string][]string{"intent/a": {"no rule checks ..."}, "intent/c": {"broader than the text: a limit the text does not state", "no rule checks ..."}},
 		Questions: []change.Question{{Kind: "conflict", AskOwner: true, Requirements: []change.Requirement{{Title: "Orders ship within 2 days"}, {Title: "Members borrow 5 books"}}}, {Kind: "self_conflict", AskOwner: false}}}
 	got := ownerSummary(res, "questions")
-	for _, want := range []string{"Stele read 3 requirements (2 new, 1 edited).", `Two requirements cannot both hold: "Orders ship within 2 days" and "Members borrow 5 books".`, `Stele cannot check "Refunds within 14 days" and would record it unchecked.`, "Its reading of 1 may say less or more than the text"} {
+	for _, want := range []string{"Stele read 3 requirements (2 new, 1 edited).", `Two requirements cannot both hold: "Orders ship within 2 days" and "Members borrow 5 books".`, `Stele cannot check "Refunds within 14 days" and would record it unchecked.`, "2 are checked in part; the report lists the clauses no rule checks.", "Its reading of 1 says more than the text or blocks a step; the approval lists where."} {
 		if !strings.Contains(got, want) {
 			t.Errorf("summary %q\nmissing %q", got, want)
 		}

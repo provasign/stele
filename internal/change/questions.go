@@ -15,6 +15,7 @@ import (
 	"unicode"
 
 	"github.com/provasign/stele/internal/adopt"
+	"github.com/provasign/stele/internal/card"
 	"github.com/provasign/stele/internal/checker"
 	"github.com/provasign/stele/internal/ir"
 	"github.com/provasign/stele/internal/translate"
@@ -76,10 +77,44 @@ type Requirement struct {
 	Where      string `json:"where"` // ADDED in this change, MODIFIED in this change, current spec
 	Source     string `json:"source,omitempty"`
 	Text       string `json:"text,omitempty"`
-	// Reading is how Stele read the requirement, one line per rule, and
-	// Findings what its own checks found in that reading, for the approval.
-	Reading  []string `json:"reading,omitempty"`
-	Findings []string `json:"findings,omitempty"`
+	// Reading is how Stele read the requirement, one line per rule.
+	// Findings are what its own checks found in that reading that the
+	// owner decides on: a reading that says more than the text, or blocks
+	// a step. NotChecked are the clauses the reading leaves out: recorded
+	// and listed in the report, a count in the summary, and nothing the
+	// owner can change by answering.
+	Reading    []string `json:"reading,omitempty"`
+	Findings   []string `json:"findings,omitempty"`
+	NotChecked []string `json:"not_checked,omitempty"`
+}
+
+// OwnerFinding reports whether a finding of Stele's own checks is one the
+// owner decides on at the approval: a reading broader than the text, or
+// one that blocks a step, approves something the text does not say. A
+// clause no rule checks leaves the reading weaker and nothing to decide;
+// agents recited each one before every approval (a review, 2026-11-09).
+func OwnerFinding(f string) bool {
+	return strings.HasPrefix(f, "broader than the text: ") || strings.HasPrefix(f, "blocks a step: ")
+}
+
+// NotJudged reports whether a finding says Stele's check of its own
+// reading did not run: the agent's to retry, not the owner's.
+func NotJudged(f string) bool { return strings.HasPrefix(f, "not judged: ") }
+
+// SplitFindings separates what the owner decides on from what the reading
+// leaves unchecked, and counts the readings Stele could not double-check.
+func SplitFindings(fs []string) (owner, notChecked []string, notJudged int) {
+	for _, f := range fs {
+		switch {
+		case OwnerFinding(f):
+			owner = append(owner, f)
+		case NotJudged(f):
+			notJudged++
+		default:
+			notChecked = append(notChecked, f)
+		}
+	}
+	return owner, notChecked, notJudged
 }
 
 // answersFile holds the owner's answers for one change.
@@ -270,9 +305,10 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 		if !strings.ContainsRune(r.Title, ' ') && strings.ContainsAny(r.Title, "0123456789") && r.Text != "" {
 			// A bare code (FR-001, R1.2) repeats across features: name the
 			// requirement by its own first line.
-			line, rest, _ := strings.Cut(r.Text, "\n")
+			line := card.Headline(r.Text)
+			_, rest, _ := strings.Cut(r.Text, line)
 			r.Title = oneLine(line, 80)
-			if rest != "" && !strings.Contains(line, title(id)) && r.Capability != "intent" {
+			if strings.TrimSpace(rest) != "" && !strings.Contains(line, title(id)) && r.Capability != "intent" {
 				// A heading several criteria share (Kiro's "Requirement 2:
 				// ..."): add the criterion's label.
 				r.Title += " (" + title(id) + ")"
@@ -795,7 +831,7 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 		}
 		sort.Strings(checked)
 		q := Question{ID: qid("approve", append(slices.Clone(g.Unapproved), res.Retired...)...), Kind: "approve", AskOwner: true}
-		flagged := 0
+		flagged, partial, clauses := 0, 0, 0
 		for _, id := range checked {
 			r := req(id)
 			for _, rid := range res.Rules[id] {
@@ -803,26 +839,41 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 					r.Reading = append(r.Reading, english(x))
 				}
 			}
-			r.Findings = res.Findings[id]
+			r.Findings, r.NotChecked, _ = SplitFindings(res.Findings[id])
 			if len(r.Findings) > 0 {
 				flagged++
+			}
+			if len(r.NotChecked) > 0 {
+				partial++
+				clauses += len(r.NotChecked)
 			}
 			q.Requirements = append(q.Requirements, r)
 		}
 		switch {
+		case len(checked) == 0 && len(res.Retired) == 0:
+			q.Text = "Stele has no rule to check for this change, so approving it records its requirements unchecked"
 		case len(checked) == 0:
 			q.Text = fmt.Sprintf("This change retires %d approved rule(s) (%s) and adds none", len(res.Retired), strings.Join(res.Retired, ", "))
 		case !res.first:
 			q.Text = fmt.Sprintf("%d requirement(s) in this change are checked and agree with the approved spec", len(checked))
+			if len(checked) == 1 {
+				q.Text = "The 1 requirement in this change is checked and agrees with the approved spec"
+			}
 		default:
 			// The first change: there is nothing approved to agree with yet.
 			q.Text = fmt.Sprintf("%d requirement(s) in this change are checked and agree with each other; nothing is approved yet, so these are the first", len(checked))
+			if len(checked) == 1 {
+				q.Text = "The 1 requirement in this change is checked; nothing is approved yet, so it is the first"
+			}
 		}
 		if len(checked) > 0 && len(res.Retired) > 0 {
 			q.Text += fmt.Sprintf("; it retires %d approved rule(s) (%s)", len(res.Retired), strings.Join(res.Retired, ", "))
 		}
+		if partial > 0 {
+			q.Text += fmt.Sprintf("; %d checked in part: the report lists the %d clause(s) no rule checks", partial, clauses)
+		}
 		if flagged > 0 {
-			q.Text += fmt.Sprintf("; Stele's reading of %d may say less or more than the text (see findings)", flagged)
+			q.Text += fmt.Sprintf("; Stele's reading of %d says more than the text, or blocks a step (see findings)", flagged)
 			q.Recommended, q.Why = "show", "look at the flagged readings before approving them"
 		}
 		if g.OnlyUndecided() {

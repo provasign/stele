@@ -107,10 +107,22 @@ func Save(repo string, c *Card) error {
 	return os.WriteFile(p, append(js, '\n'), 0o644)
 }
 
-// Title is how a card names a statement: its first line, shortened.
+// Headline is the line that names a statement to its owner: its first, or
+// the one after it where the first is the section a plain-Markdown
+// requirement stands under ("Section: Lending"). A project's first
+// requirement was named by its section in the summary and would have been
+// in a question (a trial, 2026-11-09).
+func Headline(prose string) string {
+	line, rest, _ := strings.Cut(strings.TrimSpace(prose), "\n")
+	if strings.HasPrefix(line, "Section: ") && strings.TrimSpace(rest) != "" {
+		line, _, _ = strings.Cut(strings.TrimSpace(rest), "\n")
+	}
+	return strings.TrimSpace(line)
+}
+
+// Title is how a card names a statement: its headline, shortened.
 func Title(prose, id string) string {
-	line, _, _ := strings.Cut(strings.TrimSpace(prose), "\n")
-	line = strings.TrimSpace(strings.TrimPrefix(line, "Requirement:"))
+	line := strings.TrimSpace(strings.TrimPrefix(Headline(prose), "Requirement:"))
 	if line == "" {
 		return id
 	}
