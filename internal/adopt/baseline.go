@@ -225,6 +225,7 @@ type decisionDoc struct {
 // LeftOpen is a conflict the owner chose to leave open at adoption.
 type LeftOpen struct {
 	Rules     []string
+	Response  string // a step that can never run, rather than a conflict
 	Situation string
 	By        string
 }
@@ -233,7 +234,10 @@ type LeftOpen struct {
 // replacing the adoption's earlier ones: each pins its rules at their
 // versions, and the gate tolerates exactly those.
 func WriteOpen(dir string, reg *ir.Registry, open []LeftOpen, since string) error {
-	sort.Slice(open, func(i, j int) bool { return strings.Join(open[i].Rules, ",") < strings.Join(open[j].Rules, ",") })
+	sort.Slice(open, func(i, j int) bool {
+		a, b := strings.Join(open[i].Rules, ","), strings.Join(open[j].Rules, ",")
+		return a < b || a == b && open[i].Response < open[j].Response
+	})
 	var docs []any
 	for k, o := range open {
 		var pins []string
@@ -244,7 +248,7 @@ func WriteOpen(dir string, reg *ir.Registry, open []LeftOpen, since string) erro
 				pins = append(pins, id)
 			}
 		}
-		docs = append(docs, openDoc{ID: fmt.Sprintf("OC-%d", k+1), Rules: pins, Situation: o.Situation, AcknowledgedBy: []string{o.By}, Since: since, Status: "open"})
+		docs = append(docs, openDoc{ID: fmt.Sprintf("OC-%d", k+1), Rules: pins, Response: o.Response, Situation: o.Situation, AcknowledgedBy: []string{o.By}, Since: since, Status: "open"})
 	}
 	path := filepath.Join(dir, ConflictsFile)
 	if len(docs) == 0 {

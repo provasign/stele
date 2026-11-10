@@ -289,9 +289,19 @@ func checkCmd(args []string, out, errOut io.Writer) int {
 		}
 		return 0
 	}
+	// A rule that fixes a value makes the value's others impossible, which
+	// is what it says: the gate sets these aside, and so does the check,
+	// or a registry the gate adopted failed its first check (a first
+	// adoption, 2026-11-10).
+	pinned := gate.Pinned(res, reg)
 	var open []gate.OpenStatus
 	if !*ignoreDecisions {
 		open = gate.Ratchet(res, reg)
+	} else if res.Verdict == checker.Fail && len(res.Conflicts) == 0 && len(res.Dead) == 0 {
+		res.Verdict = checker.Pass
+		if len(res.Undecided) > 0 {
+			res.Verdict = checker.Unknown
+		}
 	}
 
 	if *jsonOut {
@@ -306,10 +316,14 @@ func checkCmd(args []string, out, errOut io.Writer) int {
 			Lint     []lint.Finding    `json:"lint,omitempty"`
 			// Suspect maps a conflict's index to why it is likely a
 			// translation error rather than a disagreement of the specs.
-			Suspect map[int]string `json:"suspect,omitempty"`
-		}{res, open, prog.Retired, prog.Skipped, prog.Warnings, findings, suspect})
+			Suspect map[int]string         `json:"suspect,omitempty"`
+			Pinned  []checker.DeadResponse `json:"pinned_values,omitempty"`
+		}{res, open, prog.Retired, prog.Skipped, prog.Warnings, findings, suspect, pinned})
 	} else {
 		printText(out, dir, reg, prog, res, open, *ignoreDecisions)
+		for _, d := range pinned {
+			fmt.Fprintf(out, "  fixed by %s: %s never happens, as the rule says\n", strings.Join(d.Rules, ", "), d.Response)
+		}
 	}
 	switch res.Verdict {
 	case checker.Fail:

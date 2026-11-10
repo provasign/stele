@@ -387,6 +387,7 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 		}
 		keepRuleIDs(all, rep.RulesOf, base)
 		textPrecedence(all, res.Statements)
+		answerPrecedence(all, answers, res.Statements)
 		p := prune(c.Proposal, all)
 		res.NewTerms = terms(p)
 		for _, mg := range c.Merges {
@@ -623,8 +624,16 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 	if res.Change == Adoption && res.Gate.Check != nil {
 		// Conflicts the owner chose to decide later are recorded as open,
 		// and the check is run again without them.
-		if open := leftOpen(res, head, answers); len(open) > 0 {
-			if err := adopt.WriteOpen(res.Head, head, open, time.Now().Format("2006-01-02")); err != nil {
+		var all []adopt.LeftOpen
+		for round := 0; round < 3; round++ {
+			// Known conflicts can bring out the same requirements' clash in
+			// another form: decided later too.
+			open := leftOpen(res, head, answers)
+			if len(open) == 0 {
+				break
+			}
+			all = append(all, open...)
+			if err := adopt.WriteOpen(res.Head, head, all, time.Now().Format("2006-01-02")); err != nil {
 				return nil, err
 			}
 			if res.Gate, err = gate.Dirs(ctx, z, opt.Registry, res.Head); err != nil {
@@ -633,6 +642,8 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 			if head, err = ir.LoadDir(res.Head); err != nil {
 				return nil, err
 			}
+		}
+		if len(all) > 0 {
 			for _, a := range answers {
 				if a.Kind == "conflict" && a.Choice == "later" {
 					res.Open++ // as the owner counts them: by question
@@ -1479,24 +1490,37 @@ const Adoption = "adopt"
 // only fall.
 func leftOpen(res *Result, head *ir.Registry, answers []Answer) []adopt.LeftOpen {
 	var out []adopt.LeftOpen
-	for _, cf := range res.Gate.Check.Conflicts {
+	later := func(rules []string) string {
 		var stmts []string
-		for _, r := range cf.Rules {
+		for _, r := range rules {
 			if x := head.Rule(r); x != nil && x.StatementID != "" && !slices.Contains(stmts, x.StatementID) {
 				stmts = append(stmts, x.StatementID)
 			}
 		}
 		if len(stmts) == 0 {
-			continue
+			return ""
 		}
 		for _, a := range answers {
 			if a.Kind != "conflict" || a.Choice != "later" {
 				continue
 			}
 			if !slices.ContainsFunc(stmts, func(id string) bool { return a.Statements[id] != translate.TextHash(res.Statements[id]) }) {
-				out = append(out, adopt.LeftOpen{Rules: cf.Rules, Situation: plainSituation(checker.Situation(head, cf.Counterexample)), By: a.By})
-				break
+				return a.By
 			}
+		}
+		return ""
+	}
+	for _, cf := range res.Gate.Check.Conflicts {
+		if by := later(cf.Rules); by != "" {
+			out = append(out, adopt.LeftOpen{Rules: cf.Rules, Situation: plainSituation(checker.Situation(head, cf.Counterexample)), By: by})
+		}
+	}
+	// The same requirements' clash as a step that can never run: it shows
+	// once their conflict is known, and was the one thing a first adoption
+	// had left to ask after every conflict was decided (2026-11-10).
+	for _, d := range res.Gate.Check.Dead {
+		if by := later(d.Rules); by != "" && !d.NeverAllowed {
+			out = append(out, adopt.LeftOpen{Rules: d.Rules, Response: d.Response, Situation: strings.Trim(Words(d.Unit, ""), `"`) + " can never run", By: by})
 		}
 	}
 	return out

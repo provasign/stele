@@ -24,7 +24,7 @@ stele adopt --json
 
 It reads every requirement once and checks them against each other. Its JSON is `stele change`'s, with the change id `adopt`. Follow the loop below from step 2, recording answers with `stele change answer adopt <question-id> <choice>` and checking again with `stele adopt --json`. The approval writes the registry and the accepted specs; tell the owner to commit them.
 
-At an adoption, a conflict question also offers `later`: the contradiction is recorded as open, listed at the approval and by `stele check`, and the adoption goes on. When more than a few conflicts wait, tell the owner once that they can decide any of them later, and ask the ones they want to settle now; never answer `later` for them.
+At an adoption, a conflict question also offers `later`: the contradiction is recorded as open, listed at the approval and by `stele check`, and the adoption goes on. When more than a few conflicts wait, tell the owner once that they can decide any of them later, and ask the ones they want to settle now; never answer `later` for them. When both requirements are being adopted (or both are in the change), the question also offers `prevails` and `prevails_other`: one requirement is an exception to the other, recorded with no edit to the spec and no new reading. Stele recommends it when one is an error case or a check before the step ("verify that the member exists before lending" beside "SHALL record the loan"); offer it in the labels' words, and never pick it for the owner.
 
 ## Loop
 
