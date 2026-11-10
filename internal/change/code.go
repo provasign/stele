@@ -62,6 +62,10 @@ func codeEvidence(ctx context.Context, opt Options, res *Result) {
 	if src, err := os.ReadFile(filepath.Join(opt.Out, codeFile)); err == nil {
 		_ = json.Unmarshal(src, &cache)
 	}
+	answers, _ := LoadAnswers(opt.Out)
+	rereading := map[string]bool{}
+	var wait []string
+	overBudget := false
 	for i := range res.Questions {
 		q := &res.Questions[i]
 		if q.Kind != "conflict" || !q.AskOwner || len(q.stmts) < 2 {
@@ -76,6 +80,17 @@ func codeEvidence(ctx context.Context, opt Options, res *Result) {
 		}
 		key := hex.EncodeToString(h.Sum(nil))[:16]
 		v, ok := cache[key]
+		if !ok && opt.MaxCost > 0 && res.Usage.CostUSD >= opt.MaxCost {
+			// The owner's limit covers the whole check, not only the
+			// translation: an adoption capped at $3 spent $3.66 with these
+			// calls on top (2026-11-10). The questions are asked without
+			// what the code does; the next check, with a budget, adds it.
+			if !overBudget && opt.Log != nil {
+				fmt.Fprintf(opt.Log, "code: the cost limit ($%.2f) is reached; the remaining conflicts are asked without what the code does\n", opt.MaxCost)
+			}
+			overBudget = true
+			continue
+		}
 		if !ok {
 			situation := q.Example
 			if situation == "" {
@@ -104,10 +119,49 @@ func codeEvidence(ctx context.Context, opt Options, res *Result) {
 			}
 		}
 		applyCode(q, v)
+		if rereadFirst(q, answers) {
+			// The agent has a requirement read again once: a second
+			// question that turns on the same requirement waits for that
+			// reading, and comes back if the clash is still there. Asked
+			// in the same round, its answer was refused (2026-11-10).
+			for _, id := range q.Statements {
+				if rereading[id] {
+					wait = append(wait, q.ID)
+				}
+			}
+			for _, id := range q.Statements {
+				rereading[id] = true
+			}
+		}
 	}
+	res.Questions = slices.DeleteFunc(res.Questions, func(q Question) bool { return slices.Contains(wait, q.ID) })
 	if src, err := json.MarshalIndent(cache, "", "  "); err == nil {
 		_ = os.WriteFile(filepath.Join(opt.Out, codeFile), src, 0o644)
 	}
+}
+
+// rereadFirst makes a conflict the agent's to answer when the code does what
+// both requirements say in the clash's situation: the requirements then
+// most likely agree and Stele read one of them too widely. Of the 12
+// conflicts a first adoption asked its owner (179 requirements,
+// 2026-11-10), the code showed 4 to be no conflict, each asked "Which is
+// right?" with nothing recommended. The agent has Stele read the
+// requirements again with what the code does as the note; it gets one such
+// reread of a requirement (AgentReread), so a clash that comes back is the
+// owner's, with what the code does beside it.
+func rereadFirst(q *Question, as []Answer) bool {
+	if q.Code == nil || q.Code.Outcome != "compatible" || len(q.Statements) == 0 ||
+		!slices.ContainsFunc(q.Options, func(o Option) bool { return o.Choice == "misread" }) {
+		return false
+	}
+	for _, r := range q.Requirements {
+		if slices.Contains(q.Statements, r.ID) && AgentReread(as, r.ID, translate.TextHash(r.Text)) {
+			return false
+		}
+	}
+	q.AskOwner = false
+	recommend(q, "misread", q.Code.Says+" So this is most likely Stele's reading, not a contradiction in the spec: answer `misread` with --by agent and what the code does as the note. Stele reads the requirements again, and asks the owner only if they still clash.")
+	return true
 }
 
 // applyCode puts a verdict on its question and recommends what the code

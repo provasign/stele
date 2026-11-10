@@ -486,9 +486,8 @@ func TestRequirementWithNoRuleReachesTheOwner(t *testing.T) {
 		}
 		return s, code
 	}
-	if s, _ := check(); s.Status != "failed" || !strings.Contains(s.Next, "run the same check again") {
-		t.Fatalf("first reading with no rule: %+v", s)
-	}
+	// The second reading happens within the check: the owner is not sent
+	// back to run it again.
 	s, code := check()
 	if code != 0 || s.Status != "ready" || len(s.Questions) != 1 || s.Questions[0].Kind != "approve" {
 		t.Fatalf("read so again: exit %d, %+v", code, s)

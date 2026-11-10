@@ -197,6 +197,23 @@ func cmdChange(args []string, out io.Writer) int {
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
 	res, err := change.Run(ctx, opt)
+	if err == nil && len(res.Failed) > 0 && !slices.ContainsFunc(slices.Collect(maps.Values(res.Failed)), func(why string) bool { return !strings.HasPrefix(why, change.NoRules) }) {
+		// The model answered with no rules for a few requirements. The next
+		// check reads them once more and reports what stays so as unchecked;
+		// run it here, so that a first adoption does not end, after every
+		// other requirement is read, with "nothing is checked yet" and a
+		// command to repeat (6 of 179 requirements, 2026-11-10). Everything
+		// else is reused.
+		fmt.Fprintf(os.Stderr, "reading %d requirement(s) the model gave no rules for once more ...\n", len(res.Failed))
+		spent := res.Usage
+		if opt.MaxCost > 0 {
+			opt.MaxCost = max(opt.MaxCost-spent.CostUSD, 0.01)
+		}
+		if again, err2 := change.Run(ctx, opt); err2 == nil {
+			again.Usage.Add(spent)
+			res = again
+		}
+	}
 	if err != nil {
 		if *asJSON {
 			// An agent reads the JSON: a run that stopped must still say so
@@ -440,7 +457,14 @@ func ownerSummary(res *change.Result, status string) string {
 		for _, id := range ids {
 			names = append(names, title(id))
 		}
-		fmt.Fprintf(&b, " Stele cannot check %s and would record %s unchecked.", strings.Join(names, ", "), pick(len(ids) == 1, "it", "them"))
+		if len(ids) > 3 {
+			// A first adoption named 59 of them, most by a heading several
+			// share ("Requirement 4" seventeen times, 2026-11-10): the
+			// count says it, and the report lists each with its text.
+			fmt.Fprintf(&b, " Stele cannot check %d of them (requirements about the code or the process, judgments, or behaviour its rules cannot state) and would record them unchecked; the report lists each.", len(ids))
+		} else {
+			fmt.Fprintf(&b, " Stele cannot check %s and would record %s unchecked.", strings.Join(names, ", "), pick(len(ids) == 1, "it", "them"))
+		}
 	}
 	// What the owner decides on is said; what a reading leaves out is a
 	// count, with the clauses in the report.
