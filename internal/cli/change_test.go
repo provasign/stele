@@ -542,6 +542,14 @@ func TestChangeBeforeAdoptionNamesAdopt(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &s); err != nil || code != 1 || s.Status != "failed" || !strings.Contains(s.Next, "stele adopt --json") {
 		t.Fatalf("change before adoption: exit %d, %+v, %v\n%s", code, s, err, out.String())
 	}
+	// The adoption itself is not sent to adopt first: v0.1.11 refused it
+	// for every project with specs in a spec tool. Here it gets as far as
+	// the model, which this test has none of.
+	out.Reset()
+	cmdChange([]string{adoptChange, ".", "--json", "--llm", "cmd", "--llm-cmd", "exit 1"}, &out)
+	if got := out.String(); strings.Contains(got, "not adopted yet") || !strings.Contains(got, `"change": "adopt"`) {
+		t.Fatalf("adoption refused as a change before adoption:\n%s", got)
+	}
 }
 
 // Without Claude Code, init says what is missing and what still runs, and
