@@ -108,6 +108,17 @@ func cmdChangeAnswer(args []string, out io.Writer) int {
 			a.Over = append(a.Over, r.ID)
 		}
 	}
+	if len(opt.Prevails) > 0 {
+		// Every requirement is the change's: those named prevail over the
+		// others where they meet, with no new reading.
+		a.Statements = map[string]string{}
+		a.Over = opt.Over
+		for _, r := range q.Requirements {
+			if slices.Contains(opt.Prevails, r.ID) {
+				a.Statements[r.ID] = translate.TextHash(r.Text)
+			}
+		}
+	}
 	if *by == "agent" && choice == "misread" {
 		as, err := change.LoadAnswers(*outDir)
 		if err != nil {

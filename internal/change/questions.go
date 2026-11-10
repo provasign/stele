@@ -67,6 +67,11 @@ type Option struct {
 	Then   string `json:"then"` // what happens, for the agent
 	// Note marks an option whose answer needs the owner's words.
 	Note bool `json:"needs_note,omitempty"`
+	// Prevails are the requirements a precedence option keeps where they
+	// meet those under Over, when every requirement of the conflict is in
+	// the change.
+	Prevails []string `json:"prevails,omitempty"`
+	Over     []string `json:"over,omitempty"`
 }
 
 // Requirement names a statement the way the spec tool does.
@@ -624,7 +629,7 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 				// may say what happens when the other cannot (ISSUES 56).
 				n, why = fallbackOf(req(stmts[0]).Text, req(stmts[1]).Text, stmts), "%q says what happens when %q cannot be followed, so it reads as an exception to it"
 			}
-			if n != "" && len(stmts) == 2 && len(links) == 0 {
+			if n != "" && len(stmts) == 2 && len(links) == 0 && res.Change != Adoption {
 				other := stmts[0]
 				if other == n {
 					other = stmts[1]
@@ -633,6 +638,42 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 				q.Why = fmt.Sprintf(why, req(n).Title, req(other).Title)
 				k := slices.IndexFunc(q.Options, func(o Option) bool { return o.Choice == "exception" })
 				q.Options = append([]Option{q.Options[k]}, slices.Delete(slices.Clone(q.Options), k, k+1)...)
+			}
+			if res.Change == Adoption && n != "" && n == res.narrow[strings.Join(stmts, "\x00")] {
+				// One applying in narrower situations is no sign of an
+				// exception the owner did not write: "set the status to
+				// RETURNED_LATE" against "set the status to RETURNED" can be
+				// two specs naming one status differently (a first adoption,
+				// 2026-11-10). Offered, not recommended.
+				n = ""
+			}
+			if n == "" && len(stmts) == 2 {
+				// A check or an error case beside a plain "SHALL": a reader
+				// takes the check as coming first. Five of fifteen owner
+				// questions of a first adoption were of this kind: "SHALL
+				// record the loan" against "verify that the member exists
+				// before lending", or "print a receipt" against "when the
+				// database is down, show an error page" (2026-11-10).
+				n, why = guardOf(req(stmts[0]).Text, req(stmts[1]).Text, stmts), "%q is a check or an error case of the situation %q describes, so a reader takes it as coming first"
+			}
+			if len(stmts) == 2 && len(links) == 0 && len(mine) == 2 {
+				// Both requirements are being written or adopted: one can
+				// take precedence over the other without rewording the
+				// spec, recorded as the rules' overrides (D-052). Adopting,
+				// the owner did not write these words and should not have
+				// to edit them to say what any reader assumes.
+				first, second := stmts[0], stmts[1]
+				if n == second {
+					first, second = second, first
+				}
+				prec := func(choice, win, lose string) Option {
+					return Option{Choice: choice, Prevails: []string{win}, Over: []string{lose}, Label: fmt.Sprintf("%q is an exception to %q: it takes precedence where both apply", req(win).Title, req(lose).Title), Then: "Stele records that its rules take precedence over the other's where both apply, with no edit to the spec and no new reading; run `stele change` again"}
+				}
+				q.Options = append(q.Options, prec("prevails", first, second), prec("prevails_other", second, first))
+				if n != "" && res.Change == Adoption {
+					q.Recommended = "prevails"
+					q.Why = fmt.Sprintf(why, req(n).Title, req(second).Title)
+				}
 			}
 			if res.Change == Adoption {
 				q.Options = append(q.Options, Option{Choice: "later", Label: "Decide later: adopt with this contradiction recorded as open", Then: "Stele records it as an open conflict the owner acknowledged: it is listed at the approval and by `stele check` until a change settles it, and no new one may join it; run `stele change` again"})
@@ -645,6 +686,23 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 	}
 
 	qs = groupConflicts(qs, head, req)
+	for i := range qs {
+		q := &qs[i]
+		if q.Kind != "conflict" || !slices.ContainsFunc(as, func(a Answer) bool { return a.Question == q.ID && strings.HasPrefix(a.Choice, "prevails") }) {
+			continue
+		}
+		// One requirement already prevails and they still clash: the
+		// precedence cannot settle it, and offering it again loops the
+		// owner. A reading turned the other way round ("when the book was
+		// found, show only the shelf number") is the usual cause
+		// (a first adoption, 2026-11-10).
+		q.Options = slices.DeleteFunc(q.Options, func(o Option) bool { return strings.HasPrefix(o.Choice, "prevails") })
+		q.Text = strings.TrimSuffix(q.Text, " Which is right?") + " They still clash with one taking precedence, so Stele has probably misread one of them. Which is right?"
+		q.Recommended, q.Why = "", ""
+		if slices.ContainsFunc(q.Options, func(o Option) bool { return o.Choice == "later" }) {
+			recommend(q, "later", "taking one as the exception did not settle the clash, which points to Stele's reading rather than the specs; deciding later keeps both requirements and records the clash as open")
+		}
+	}
 
 	// What an approved step is recorded as writing that its rules only
 	// report: asked before the clashes in that step, which the extra write
@@ -1244,9 +1302,13 @@ func groupConflicts(qs []Question, head *ir.Registry, req func(string) Requireme
 			for _, i := range idx[1:] {
 				all = all && slices.ContainsFunc(qs[i].Options, func(p Option) bool { return p.Choice == o.Choice })
 			}
-			if all && o.Choice != "wrong_fact" {
+			if all && o.Choice != "wrong_fact" && !strings.HasPrefix(o.Choice, "prevails") {
 				g.Options = append(g.Options, o)
 			}
+		}
+		if res := groupPrecedence(&g, qs, idx, x, req); res {
+			first[idx[0]] = g
+			continue
 		}
 		// The members' recommendations carry over when they agree.
 		if len(recs) > 0 && !slices.ContainsFunc(recs, func(r string) bool { return r != recs[0] }) &&
@@ -1269,6 +1331,98 @@ func groupConflicts(qs []Question, head *ir.Registry, req func(string) Requireme
 func title(id string) string { return id[strings.LastIndexByte(id, '/')+1:] }
 
 var fallback = regexp.MustCompile(`(?i)\bfall(s|ing)? back\b|\bfallback\b|\b(if|when|where)\b[^.;]{0,80}\b(cannot (be )?(run|started|opened|reached|executed|loaded|launched|found)|(is|are) (unavailable|not available|not found|missing|absent))\b`)
+
+// groupPrecedence offers, for a merged question whose clashes each offered
+// precedence, the anchor requirement x prevailing over the others or the
+// others over it, recommending the direction every member's recommendation
+// takes. It reports whether it set the recommendation.
+func groupPrecedence(g *Question, qs []Question, idx []int, x string, req func(string) Requirement) bool {
+	var others []string
+	dir := "" // "x" or "others": what every member recommends
+	agree := true
+	for _, i := range idx {
+		q := qs[i]
+		k := slices.IndexFunc(q.Options, func(o Option) bool { return o.Choice == "prevails" })
+		if k < 0 {
+			return false
+		}
+		for _, id := range q.stmts {
+			if id != x && !slices.Contains(others, id) {
+				others = append(others, id)
+			}
+		}
+		d := ""
+		if r := slices.IndexFunc(q.Options, func(o Option) bool { return o.Choice == q.Recommended }); r >= 0 && len(q.Options[r].Prevails) > 0 {
+			d = "others"
+			if q.Options[r].Prevails[0] == x {
+				d = "x"
+			}
+		}
+		if d == "" || dir != "" && d != dir {
+			agree = false
+		}
+		if dir == "" {
+			dir = d
+		}
+	}
+	names := func(ids []string) string {
+		var ts []string
+		for _, id := range ids {
+			ts = append(ts, fmt.Sprintf("%q", req(id).Title))
+		}
+		return strings.Join(ts, ", ")
+	}
+	then := "Stele records that their rules take precedence where they meet, with no edit to the spec and no new reading; run `stele change` again"
+	mine := Option{Choice: "prevails", Prevails: []string{x}, Over: others, Label: fmt.Sprintf("%q is an exception to the others: it takes precedence where they meet", req(x).Title), Then: then}
+	theirs := Option{Choice: "prevails_other", Prevails: others, Over: []string{x}, Label: fmt.Sprintf("%s are exceptions to %q: they take precedence where they meet", names(others), req(x).Title), Then: then}
+	if dir == "others" {
+		mine, theirs = theirs, mine
+		mine.Choice, theirs.Choice = "prevails", "prevails_other"
+	}
+	k := slices.IndexFunc(g.Options, func(o Option) bool { return o.Choice == "later" })
+	if k < 0 {
+		k = len(g.Options)
+	}
+	g.Options = slices.Insert(g.Options, k, mine, theirs)
+	if !agree {
+		return false
+	}
+	var whys []string
+	for _, i := range idx {
+		whys = append(whys, qs[i].Why)
+	}
+	recommend(g, "prevails", strings.Join(slices.Compact(whys), "; "))
+	return true
+}
+
+// guard finds a requirement that checks before acting or says what happens
+// on an error: "verify that the member exists", "check that the card is
+// valid", "when the database is down".
+var (
+	errorCase = regexp.MustCompile(`(?i)\b(invalid|errors?|fail(s|ed|ure|ures)?|expired|deleted|does not exist|do not exist|not found|unauthori[sz]ed|reject(s|ed)?)\b`)
+	checkStep = regexp.MustCompile(`(?i)\b(validat(e|es|ed|ing|ion)|verif(y|ies|ied|ication)|check(s|ed)? (that|whether)|ensure(s)? that)\b`)
+)
+
+// guardOf is the one of two statements that is an error case, if exactly
+// one is, else the one that is a check, if exactly one is. An error case
+// comes first: "verify the card and print a receipt" gives way to "a card
+// of a closed account shows a message", not the other way round.
+func guardOf(a, b string, ids []string) string {
+	a, _, _ = strings.Cut(a, "Glossary:")
+	b, _, _ = strings.Cut(b, "Glossary:")
+	for _, re := range []*regexp.Regexp{errorCase, checkStep} {
+		ga, gb := re.MatchString(a), re.MatchString(b)
+		switch {
+		case ga && !gb:
+			return ids[0]
+		case gb && !ga:
+			return ids[1]
+		case ga && gb:
+			return ""
+		}
+	}
+	return ""
+}
 
 // fallbackOf is the one of two statements whose text says what happens when
 // something is unavailable or cannot run (a bare "fails" is not enough: "exit

@@ -57,6 +57,7 @@ func checkProject(cfg *config.Config, jsonOut bool, z3Path string, timeout time.
 		fmt.Fprintf(errOut, "stele check: %v\n", err)
 		return 2
 	}
+	gate.Pinned(res, reg)  // a value a rule fixes: its others are impossible by design
 	gate.Ratchet(res, reg) // contradictions the owner accepted as open are not news
 
 	var approved, pending []string

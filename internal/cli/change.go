@@ -448,6 +448,8 @@ func ownerSummary(res *change.Result, status string) string {
 		// (an adoption said "they agree with the approved requirements"
 		// when there were none: a live trial, 2026-11-08).
 		switch {
+		case res.Open > 0:
+			fmt.Fprintf(&b, " Apart from the %d contradiction%s decided later, they agree with each other.", res.Open, plural(res.Open))
 		case approved > 0:
 			b.WriteString(pick(n == 1, " It agrees", " They agree") + " with the approved requirements.")
 		case n > 1:

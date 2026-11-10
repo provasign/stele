@@ -77,3 +77,34 @@ func textPrecedence(cands []translate.Candidate, prose map[string]string) {
 		sort.Strings(c.Overrides)
 	}
 }
+
+// answerPrecedence adds to each rule of a requirement the owner said
+// prevails over another (a "prevails" answer to a conflict between two
+// requirements of the change) that other requirement, while the winner's
+// text is the one answered about. No new reading: the rules stand as read,
+// and the checks drop the other's where both apply (D-052).
+func answerPrecedence(cands []translate.Candidate, as []Answer, prose map[string]string) {
+	over := map[string][]string{}
+	for _, a := range as {
+		if a.Kind != "conflict" || !strings.HasPrefix(a.Choice, "prevails") {
+			continue
+		}
+		for id, h := range a.Statements {
+			if p, ok := prose[id]; ok && translate.TextHash(p) == h {
+				over[id] = append(over[id], a.Over...)
+			}
+		}
+	}
+	for i := range cands {
+		c := &cands[i]
+		if c.Outcome != "rule" {
+			continue
+		}
+		for _, o := range over[c.StatementID] {
+			if !slices.Contains(c.Overrides, o) {
+				c.Overrides = append(c.Overrides, o)
+			}
+		}
+		sort.Strings(c.Overrides)
+	}
+}

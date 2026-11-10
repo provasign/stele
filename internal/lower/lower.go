@@ -686,7 +686,15 @@ func (lw *lowerer) override(f *Formula, x *ir.Rule) {
 		if w.When != nil {
 			cond = lw.boolTerm(w.When, subject, "rule "+w.ID)
 		}
-		f.Term = fmt.Sprintf("(=> (not %s) %s)", cond, f.Term)
+		if w.Kind == ir.Precondition {
+			// A check before the step prevails where it fails: its
+			// condition is what must hold, not where it applies. "Ship
+			// every order" gives way to "validate that the order is paid
+			// first" for an unpaid order, not for a paid one.
+			f.Term = fmt.Sprintf("(=> %s %s)", cond, f.Term)
+		} else {
+			f.Term = fmt.Sprintf("(=> (not %s) %s)", cond, f.Term)
+		}
 		f.Note = appendNote(f.Note, "overridden by "+w.ID+" as its text states")
 	}
 }
