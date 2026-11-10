@@ -71,3 +71,15 @@ func TestStateInvariantWritesAmongNewAttributes(t *testing.T) {
 		t.Fatalf("writes = %v; want Loan.lend alone to write Receipt.listsDueDate", got)
 	}
 }
+
+// Possible contradictions that share a requirement are one item.
+func TestMergePossible(t *testing.T) {
+	got := mergePossible([]Possible{
+		{Statements: []string{"r7", "r8"}, Situation: "deleting an account deletes its invoices", Why: "w"},
+		{Statements: []string{"r8", "r40"}, Situation: "the same, by another rule", Why: "w"},
+		{Statements: []string{"r14", "r15"}, Situation: "numbers chosen and assigned", Why: "w"},
+	})
+	if len(got) != 2 || strings.Join(got[0].Statements, ",") != "r40,r7,r8" || got[0].Situation != "deleting an account deletes its invoices" || strings.Join(got[1].Statements, ",") != "r14,r15" {
+		t.Fatalf("merged: %+v", got)
+	}
+}

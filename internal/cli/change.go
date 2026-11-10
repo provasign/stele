@@ -386,6 +386,9 @@ type changeSummary struct {
 	Reused    int               `json:"reused_translations"`
 	CostUSD   float64           `json:"cost_usd"`
 	Report    string            `json:"report"`
+	// Possible are contradictions a review of the texts found that the
+	// rules do not show: the owner hears each before the approval.
+	Possible []change.Possible `json:"possible_conflicts,omitempty"`
 }
 
 func summarize(res *change.Result, outDir string) changeSummary {
@@ -393,6 +396,21 @@ func summarize(res *change.Result, outDir string) changeSummary {
 		Unchecked: res.Unchecked, Failed: res.Failed, NewTerms: res.NewTerms, Reused: len(res.Reused), CostUSD: res.Usage.CostUSD, Report: filepath.Join(outDir, "report.md")}
 	if s.Questions == nil {
 		s.Questions = []change.Question{}
+	}
+	for _, p := range res.Possible {
+		p.Titles = nil
+		for _, id := range p.Statements {
+			// The spec too: two specs' "Requirement 5" read as one (2026-11-10).
+			t := card.Title(res.Statements[id], id)
+			if spec, label, ok := strings.Cut(id, "/"); ok {
+				t = spec + ": " + t
+				if label != "" && !strings.Contains(t, label) {
+					t += " (" + label + ")"
+				}
+			}
+			p.Titles = append(p.Titles, t)
+		}
+		s.Possible = append(s.Possible, p)
 	}
 	approve := len(res.Questions) == 1 && res.Questions[0].Kind == "approve"
 	switch {
@@ -594,6 +612,9 @@ func ownerSummary(res *change.Result, status string) string {
 	}
 	if partial > 0 {
 		fmt.Fprintf(&b, " %d %s checked in part; the report lists the clauses no rule checks.", partial, pick(partial == 1, "is", "are"))
+	}
+	if n := len(res.Possible); n > 0 {
+		fmt.Fprintf(&b, " Read by their texts alone, %d more pair%s or group%s of requirements may contradict each other, which Stele's rules do not show (`possible_conflicts`): the owner should hear each before approving.", n, plural(n), plural(n))
 	}
 	if n := len(res.UnreadSpecs); n > 0 {
 		fmt.Fprintf(&b, " %d other spec%s %s not read yet (%s): `stele adopt --spec <name>` reads one or more of them against what is approved.", n, plural(n), pick(n == 1, "is", "are"), strings.Join(res.UnreadSpecs, ", "))
