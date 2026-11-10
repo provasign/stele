@@ -195,6 +195,18 @@ func applyCode(q *Question, v adjudicate.Verdict) {
 		c.Outcome, c.Against = "exception", title(v.Overbroad)
 		c.Says = "The code already makes this exception: " + v.Reason + where()
 		recommend(q, "exception", c.Says)
+		// Where one requirement can take precedence with no edit to the
+		// spec, recommend that, the way the code has it: the requirement
+		// the code finds too broad gives way.
+		for _, o := range q.Options {
+			if len(o.Prevails) == 0 || len(v.Overbroad) == 0 {
+				continue
+			}
+			if !slices.ContainsFunc(v.Overbroad, func(id string) bool { return !slices.Contains(o.Over, id) || slices.Contains(o.Prevails, id) }) {
+				recommend(q, o.Choice, c.Says)
+				break
+			}
+		}
 	case v.Kind == "superseded" && len(cites) > 0:
 		c.Outcome, c.Against = "follows", title(v.Stale)
 		c.Says = "The code follows " + quoteAll(c.Follows) + ", not " + quoteAll(c.Against) + ": " + v.Reason + where()

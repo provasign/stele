@@ -121,6 +121,9 @@ type Options struct {
 	// Others are statements not translated in this run that a rule may
 	// still take precedence over by naming them (FR-003b).
 	Others []translate.Statement
+	// NoGapRetry skips the second reading of statements that stopped at
+	// vocabulary they lacked.
+	NoGapRetry bool
 	// NoCover skips the clause coverage check (cover.go). CoverRounds below
 	// zero checks but does not translate uncovered statements again.
 	NoCover     bool
@@ -211,19 +214,22 @@ type state struct {
 	Stage     string `json:"stage"` // one-pass, vocabulary, translated, round-N, done
 	InputHash string `json:"input_hash,omitempty"`
 	// OnePassNext is the first statement not yet accepted, independent of chunk size.
-	OnePassNext     int                   `json:"one_pass_next,omitempty"`
-	CompactErrors   map[string]string     `json:"compact_errors,omitempty"`
-	CompactDeferred map[string]string     `json:"compact_deferred,omitempty"`
-	Proposal        vocab.Proposal        `json:"proposal"`
-	Cands           []translate.Candidate `json:"candidates"`
-	Notes           map[string][]string   `json:"notes,omitempty"`
-	Rounds          []Round               `json:"rounds,omitempty"`
-	Usage           llm.Usage             `json:"usage"`
-	Flags           []vocab.Flag          `json:"possible_duplicates,omitempty"`
-	ValueMerges     []ValueMerge          `json:"value_merges,omitempty"`
-	Merges          []vocab.Merge         `json:"merges,omitempty"`
-	Errors          []string              `json:"errors,omitempty"`
-	Mappings        []vocab.Mapping       `json:"mappings,omitempty"`
+	OnePassNext     int               `json:"one_pass_next,omitempty"`
+	CompactErrors   map[string]string `json:"compact_errors,omitempty"`
+	CompactDeferred map[string]string `json:"compact_deferred,omitempty"`
+	// GapsRetried is set once the statements that needed vocabulary were
+	// read again to declare it.
+	GapsRetried bool                  `json:"gaps_retried,omitempty"`
+	Proposal    vocab.Proposal        `json:"proposal"`
+	Cands       []translate.Candidate `json:"candidates"`
+	Notes       map[string][]string   `json:"notes,omitempty"`
+	Rounds      []Round               `json:"rounds,omitempty"`
+	Usage       llm.Usage             `json:"usage"`
+	Flags       []vocab.Flag          `json:"possible_duplicates,omitempty"`
+	ValueMerges []ValueMerge          `json:"value_merges,omitempty"`
+	Merges      []vocab.Merge         `json:"merges,omitempty"`
+	Errors      []string              `json:"errors,omitempty"`
+	Mappings    []vocab.Mapping       `json:"mappings,omitempty"`
 	// Closed is set when gap closing has finished, so a rerun goes
 	// straight to the final steps.
 	Closed bool `json:"gaps_closed,omitempty"`
@@ -329,8 +335,27 @@ func Run(ctx context.Context, m llm.Client, stmts []translate.Statement, dir str
 		if err := compactPass(ctx, m, stmts, st, opt, dir); err != nil {
 			return nil, stopped(err, dir, m, stmts, st, opt, tracked)
 		}
-		// Compact replies already propose missing vocabulary. Remaining gaps
-		// denote unsupported concepts, not a request for a speculative ontology.
+		// Compact replies propose missing vocabulary, yet a reply often stops
+		// at a fact it could have declared: 28 of 179 requirements of a first
+		// adoption ended as needing vocabulary, most for an attribute or a
+		// step nothing kept them from adding ("the member has no
+		// late-return count"), and were recorded unchecked (2026-11-10). They
+		// are read once more, told to declare what is missing. What then
+		// still needs vocabulary is a concept the rule language lacks.
+		if gaps := gapsOf(stmts, st.Cands); len(gaps) > 0 && !st.GapsRetried && !opt.NoGapRetry {
+			st.GapsRetried = true
+			var ids []string
+			notes := map[string]string{}
+			for _, g := range gaps {
+				ids = append(ids, g.Statement.ID)
+				notes[g.Statement.ID] = gapNote(g)
+			}
+			fmt.Fprintf(opt.Log, "gaps: %d statement(s) stopped at vocabulary they lacked; reading them again to declare it ...\n", len(ids))
+			if err := retranslate(ctx, m, stmts, ids, notes, st, opt, dir, map[string]bool{}); err != nil {
+				return nil, stopped(err, dir, m, stmts, st, opt, tracked)
+			}
+			fmt.Fprintf(opt.Log, "gaps: %d statement(s) still need vocabulary\n", len(gapsOf(stmts, st.Cands)))
+		}
 		st.Closed = true
 		if err := save("translated"); err != nil {
 			return nil, err
@@ -689,6 +714,12 @@ func writeVocabulary(dir string, p vocab.Proposal, opt Options) ([]string, error
 		}
 	}
 	return append(out, f), nil
+}
+
+// gapNote tells the translator to declare the vocabulary an earlier reading
+// of the statement stopped at.
+func gapNote(g vocab.Gap) string {
+	return fmt.Sprintf("an earlier reading stopped at vocabulary it lacked (%s). The vocabulary is yours to extend: declare each missing attribute, relation, entity or operation, listing this statement under its statement_ids, and write the rules with it. A value shown, stored or counted is an attribute; something that happens is an operation, which may write attributes of an instance it reaches through a relation. Reuse an existing symbol wherever one means the same. A value that is no identifier (a colour code, a label with spaces, a path) is a string, compared with a quoted literal: self.color = \"#336699\". Answer needs_vocabulary again only for a part the rule language itself cannot express (geometry, arithmetic over a collection, comparing free text), and still write rules for every other part of the statement.", strings.Join(g.Missing, "; "))
 }
 
 // gapsOf lists the statements with parts the translator could not express

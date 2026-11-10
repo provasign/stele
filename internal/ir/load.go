@@ -866,8 +866,11 @@ func (l *loader) finish() {
 			switch {
 			case p.Version == 0:
 				i := strings.LastIndexByte(p.Rule, '.')
-				if r != nil || i < 0 || l.reg.Operations[p.Rule[:i]] == nil || (p.Rule[i+1:] != "from" && p.Rule[i+1:] != "effect") {
-					l.errf(o.File, "open conflict %s: %q: pin rules as ID@version; only an operation's from or effect has none", o.ID, p.Rule)
+				if r != nil || i < 0 || l.reg.Operations[p.Rule[:i]] == nil || (p.Rule[i+1:] != "from" && p.Rule[i+1:] != "effect" && p.Rule[i+1:] != "history") {
+					// An operation's run history is built in like its from
+					// and effect: a conflict decided later that rested on
+					// it failed the whole adoption (2026-11-10).
+					l.errf(o.File, "open conflict %s: %q: pin rules as ID@version; only an operation's from, effect or history has none", o.ID, p.Rule)
 				}
 			case r == nil:
 				l.errf(o.File, "open conflict %s: unknown rule %s", o.ID, p.Rule)

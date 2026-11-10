@@ -380,3 +380,15 @@ assert: self.number > 0
 		t.Errorf("renaming that now writes the holder needs approval: %+v", res.NeedsApproval)
 	}
 }
+
+// An open conflict may rest on an operation's run history, which is built
+// in like its from and effect and has no version: such a record loads.
+func TestOpenConflictPinsHistory(t *testing.T) {
+	oc := "---\nid: OC-1\nrules: [R12@3, Resource.delete.history]\nsituation: a delete counted twice\nsince: 2026-11-10\n"
+	res := gate(t, vocab+r12, vocab+r12+oc)
+	for _, e := range res.Errors {
+		if strings.Contains(e, "pin rules as ID@version") {
+			t.Fatalf("a pin on an operation's history was refused: %s", e)
+		}
+	}
+}

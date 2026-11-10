@@ -80,6 +80,8 @@ type Options struct {
 	// that stalls fails and is retried, instead of using up the whole run.
 	RequestTimeout time.Duration
 
+	// NoAudit skips the check of a conflict's rules against their texts.
+	NoAudit bool
 	rounds  int          // times the glossary's definitions added facts this run
 	lessons []*ir.Lesson // the registry's lessons, for the coverage judge
 }
@@ -130,8 +132,12 @@ type Result struct {
 	Head          string        `json:"head"`
 	Gate          *gate.Result  `json:"gate"`
 	// Open counts the conflicts the owner left open at this adoption.
-	Open  int       `json:"open,omitempty"`
-	Usage llm.Usage `json:"usage"`
+	Open int `json:"open,omitempty"`
+	// SetAside counts the rules of the change set aside because they
+	// clashed with another requirement and did not say what their own
+	// text says (audit.go).
+	SetAside int       `json:"set_aside,omitempty"`
+	Usage    llm.Usage `json:"usage"`
 	// Reused lists the statements whose earlier translation was kept: their
 	// text and notes are unchanged.
 	Reused []string `json:"reused,omitempty"`
@@ -386,6 +392,7 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 			}
 		}
 		keepRuleIDs(all, rep.RulesOf, base)
+		all = setAside(all, loadAudit(opt.Out), c, res)
 		textPrecedence(all, res.Statements)
 		answerPrecedence(all, answers, res.Statements)
 		p := prune(c.Proposal, all)
@@ -679,6 +686,19 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 			if opt.Log != nil {
 				fmt.Fprintf(opt.Log, "definitions: %d world fact(s) from the glossary; checking again\n", n)
 			}
+			opt.rounds++
+			again, err := Run(ctx, opt)
+			if err != nil {
+				return nil, err
+			}
+			again.Usage.Add(res.Usage)
+			return again, nil
+		}
+	}
+	// A rule in a conflict that does not say what its text says is set
+	// aside before the owner is asked, and the check runs again without it.
+	if opt.rounds < 3 {
+		if n := audit(ctx, opt, res, head, c, answers); n > 0 {
 			opt.rounds++
 			again, err := Run(ctx, opt)
 			if err != nil {

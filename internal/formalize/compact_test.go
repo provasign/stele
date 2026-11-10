@@ -99,20 +99,33 @@ func TestCompactRepairsOnlyUnresolvedStatementsAndResumes(t *testing.T) {
 	}
 }
 
+// A statement that stops at vocabulary it lacks is read once more, told to
+// declare it; what the rule language cannot express stays so, with no
+// further pass.
 func TestCompactKeepsUnsupportedPartsWithoutGapLoop(t *testing.T) {
 	dir, stmts, opt := compactFixture(t)
 	opt.Rounds = 3
 	calls := 0
 	m := completionFunc(func(req llm.Request) (*llm.Reply, error) {
 		calls++
-		if calls > 1 {
-			t.Fatal("unsupported language feature triggered another model pass")
+		if calls == 2 && !strings.Contains(req.System+req.Turns[len(req.Turns)-1].Text, "The vocabulary is yours to extend") {
+			t.Fatal("the second reading is not told to declare the missing vocabulary")
 		}
-		return compactFixtureReply(true, compactRule("s1", "order.paid = true")+`,{"statement_id":"s1","kind":"needs_vocabulary","rationale":"unbounded history is not expressible","missing_terms":["unbounded history"]},{"statement_id":"s2","kind":"informal","rationale":"no checkable content"}`), nil
+		if calls > 2 {
+			t.Fatal("unsupported language feature triggered more than one further model pass")
+		}
+		s1 := compactRule("s1", "order.paid = true") + `,{"statement_id":"s1","kind":"needs_vocabulary","rationale":"unbounded history is not expressible","missing_terms":["unbounded history"]}`
+		if calls == 2 {
+			return compactFixtureReply(false, s1), nil // the second reading holds s1 alone
+		}
+		return compactFixtureReply(true, s1+`,{"statement_id":"s2","kind":"informal","rationale":"no checkable content"}`), nil
 	})
 	res, err := Run(context.Background(), m, stmts, dir, opt)
 	if err != nil || res.Counts[NeedsVocabulary] != 1 || res.Counts[Informal] != 1 || len(res.Cands) != 3 {
 		t.Fatalf("unsupported part lost: %+v, %v", res, err)
+	}
+	if calls != 2 {
+		t.Fatalf("want one further reading of the statement that needed vocabulary, got %d call(s)", calls)
 	}
 }
 
