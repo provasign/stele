@@ -1,6 +1,17 @@
 # Changelog
 
-## Unreleased
+## v0.1.11 - 2026-11-09
+
+Found by live trials with Claude Code on an invented lending project, in headless runs and in a recorded terminal session.
+
+- **A project with no spec tool gets a `requirements/` folder.** `stele init` sets up plain Markdown, one list item for each requirement with an ID and a MUST, MUST NOT or SHOULD. The agent writes them, and `stele change markdown .` checks whatever the folder holds that the owner has not approved. A new repository needs no first commit.
+- **Approval is one act.** The agent runs the command that approves and Claude Code asks the owner to allow it, with the check's summary in the prompt, even where an allow rule covers Stele's commands. Where no one can be asked (permissions bypassed, or a headless run that holds the prompt), the agent asks in chat and adds `--asked` on a yes. `STELE_APPROVAL_PROMPT=off` is for unattended runs. The prompt names the change only where the project names its changes, and carries nothing meant for the agent.
+- **A request that cannot keep an approved requirement stops the agent first.** The note Stele hands the agent with a request now says to stop before any edit, quote the requirement and ask the owner what should hold. In one recorded session the agent had rewritten the requirement before asking.
+- **A project's first requirement keeps its rules.** Pruning dropped attributes a rule read only through the variable of `instances(E)`, so the check called the change clean with nothing to approve. Pruning can no longer cost a rule: when a rule compiles with the unpruned vocabulary and not the pruned one, the unpruned one is kept.
+- **A requirement none of whose readings compile** fails once, is read again on the next check, and read so twice goes to the approval as a requirement Stele records and does not check.
+- **Findings are split.** What the owner decides on (a reading broader than the text, or one that blocks a step) is listed; clauses no rule checks are a count, with the list in the report. A clean approval is one line. The summary no longer says a requirement with no rule agrees with the approved ones, and names a Markdown requirement by its own line.
+- **Quieter instructions.** `stele init` writes only the instructions the project's format needs, and every message names one next step. The agent leaves lessons out of its report when an approval adds none. `stele --help` lists the commands a project uses; `stele help all` the rest.
+- **README and docs.** The README opens with a recording of a real Claude Code session, and compares Stele with Kiro, Spec Kit and OpenSpec from their public documentation.
 
 - **Documentation brought up to date.** The docs describe Claude Code as the one supported agent, the flow without a spec tool (Shale requests, `stele keep`, `stele export openspec`) as workflow W6, the repository layout `stele init` writes, and the reachability check as built. The translation document now describes the pipeline as built and lists the original designs that are not (extractors, auto-accept, code anchors, synonym index, domain packs) in one section. Decision tables, `final` rules and checks of `measured` rules are marked not built, where some pages had described them as working. References to the private research repository and to a private design document were removed. The README links the known limits and where to report problems.
 
