@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **An adoption names each fact once.** When the requirements to translate span more than one model request (an adoption, a large change), Stele first proposes the facts over all of them, and every request reuses those names. Requests sent at once used to name one fact each their own way, and rules over different names never meet. On two held-out sets with independent labels, the check then found 16 of 20 and 8 of 13 known contradictions, against 4 and 4, and 25 of its 26 findings across requirements held a labelled one; the spend rose from $1.21 to $1.70 and from $0.56 to $0.66. A change of 20 requirements or fewer is translated as before, and a check already under way keeps the way it started.
+
 ## v0.1.11 - 2026-11-09
 
 Found by live trials with Claude Code on an invented lending project, in headless runs and in a recorded terminal session.
