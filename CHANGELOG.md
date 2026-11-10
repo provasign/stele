@@ -2,7 +2,7 @@
 
 ## v0.1.12 - 2026-11-10
 
-Found by adopting a held-out project of 179 requirements in eight specs, end to end, as a new user would.
+Found by adopting a held-out project of 179 requirements, and a 76-requirement part of it, end to end, as a new user would.
 
 - **An adoption names each fact once.** When the requirements to translate span more than one model request (an adoption, a large change), Stele first proposes the facts over all of them, and every request reuses those names. Requests sent at once used to name one fact each their own way, and rules over different names never meet. On two held-out sets with independent labels, the check then found 16 of 20 and 8 of 13 known contradictions, against 4 and 4, and 25 of its 26 findings across requirements held a labelled one; the spend rose from $1.21 to $1.70 and from $0.56 to $0.66. A change of 20 requirements or fewer is translated as before, and a check already under way keeps the way it started.
 - **`stele adopt` runs again on a project with OpenSpec, Spec Kit or Kiro specs.** v0.1.11 refused it with "this project's specs are not adopted yet" and sent the owner back to `stele adopt`: the check that sends a change before adoption to adopt took the adoption itself for such a change. Projects with a `requirements/` folder or Shale requests were not affected.
@@ -12,6 +12,11 @@ Found by adopting a held-out project of 179 requirements in eight specs, end to 
 - **The summary counts unchecked requirements when there are many** (it named 59, "Requirement 4" over and over); the report lists each.
 - **`--max-cost` covers the whole check.** The calls that read the code for each conflict came on top of it: an adoption capped at $3 spent $3.66. Past the limit, conflicts are asked without what the code does.
 - **A question is asked once.** Two pairs of new names for one fact gave the same question twice.
+- **At an adoption, a contradiction can be decided later.** Every conflict question of `stele adopt` now offers "Decide later": the contradiction is recorded in the registry as an open conflict the owner acknowledged, the approval says how many stay open, `stele check` lists them, and the gate lets no new one join them. The registry and the gate have held open conflicts all along; the questions never offered them, so a first adoption could not be approved until every contradiction in years of specs was settled. On the 179-requirement project the owner faced 12, then 8, then 13 conflicts over three rounds; with this, the adoption was approved with 15 left open.
+- **A reading that contradicts itself twice can be left unchecked.** The owner was asked what Stele had misread, or to reword the requirement. The first, recommended answer now keeps the requirement and records it without rules.
+- **"Does this step create it?" comes with an answer** when the step's name or its requirements' words say so (create, add, register, "a new ..."). Answered wrongly, three clashes no new instance can have went to the owner.
+- **A crash is fixed:** checking two contradicting requirements about the state that name no subject ("an order MUST be paid", "an order MUST NOT be paid") stopped `stele change` with a nil pointer.
+- **The approval question counts unchecked requirements when there are many,** as the summary does.
 
 ## v0.1.11 - 2026-11-09
 

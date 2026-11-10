@@ -222,6 +222,40 @@ type decisionDoc struct {
 	Rationale string   `yaml:"rationale"`
 }
 
+// LeftOpen is a conflict the owner chose to leave open at adoption.
+type LeftOpen struct {
+	Rules     []string
+	Situation string
+	By        string
+}
+
+// WriteOpen records the conflicts as open in the registry in dir (D-044),
+// replacing the adoption's earlier ones: each pins its rules at their
+// versions, and the gate tolerates exactly those.
+func WriteOpen(dir string, reg *ir.Registry, open []LeftOpen, since string) error {
+	sort.Slice(open, func(i, j int) bool { return strings.Join(open[i].Rules, ",") < strings.Join(open[j].Rules, ",") })
+	var docs []any
+	for k, o := range open {
+		var pins []string
+		for _, id := range o.Rules {
+			if x := reg.Rule(id); x != nil {
+				pins = append(pins, ir.Pin{Rule: x.ID, Version: x.Version}.String())
+			} else {
+				pins = append(pins, id)
+			}
+		}
+		docs = append(docs, openDoc{ID: fmt.Sprintf("OC-%d", k+1), Rules: pins, Situation: o.Situation, AcknowledgedBy: []string{o.By}, Since: since, Status: "open"})
+	}
+	path := filepath.Join(dir, ConflictsFile)
+	if len(docs) == 0 {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	return writeDocs(path, docs)
+}
+
 type openDoc struct {
 	ID             string   `yaml:"id"`
 	Rules          []string `yaml:"rules,omitempty"`
