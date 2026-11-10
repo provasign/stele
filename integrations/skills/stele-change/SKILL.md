@@ -115,7 +115,7 @@ It reads every requirement once and checks them against each other. Its JSON is 
 
 ## What Stele learns
 
-The owner's answers teach Stele about the project: "the same thing", and the owner's own words (`--quoted`) for "that situation cannot happen" and what Stele misread, are saved as lessons in the registry's `lessons/` (the result's `new_lessons`), and every later check is read with them. When the approval question names lessons, say in one line, in plain words and without its ID, what Stele will remember; describe only the lessons it lists, and when it lists none, say Stele learned nothing new. Remind the owner to commit `lessons/` with the registry. If the owner tells you something about the project no question asked ("on this project, a VM is a Node"), record it: `stele lesson add --kind term|fact|scope --says "<their words>"`. Answers you give yourself (`--by agent`) teach nothing, by design.
+The owner's answers teach Stele about the project: "the same thing", and the owner's own words (`--quoted`) for "that situation cannot happen" and what Stele misread, are saved as lessons in the registry's `lessons/` (the result's `new_lessons`), and every later check is read with them. When the approval question names lessons, say in one line, in plain words and without its ID, what Stele will remember; describe only the lessons it lists. When it names none, leave lessons out of what you tell the owner. Remind the owner to commit the registry, `lessons/` included. If the owner tells you something about the project no question asked ("on this project, a VM is a Node"), record it: `stele lesson add --kind term|fact|scope --says "<their words>"`. Answers you give yourself (`--by agent`) teach nothing, by design.
 
 ## Rules
 

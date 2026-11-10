@@ -54,7 +54,8 @@ function approvalCommand(command) {
 // that holds every prompt), the agent asks in chat and says so with
 // --asked. A headless run held the command, the agent asked in chat, and
 // the same command with --asked was held again (a trial, 2026-11-09): the
-// flag passes in every mode. STELE_APPROVAL_PROMPT=off, set where Claude
+// flag passes in every mode. Seen in a live session the same day: the
+// prompt appears even where an allow rule covers stele's commands. STELE_APPROVAL_PROMPT=off, set where Claude
 // Code starts, leaves approvals to unattended runs.
 function approval(project, input) {
   if (input.tool_name !== 'Bash' || process.env.STELE_APPROVAL_PROMPT === 'off') return;
@@ -76,9 +77,15 @@ function approval(project, input) {
       { cwd: project, encoding: 'utf8', timeout: 4000, maxBuffer: 1024 * 1024 });
     if (!summary.error && summary.status === 0) what = summary.stdout.trim();
   }
-  decide('ask', `Stele: this records your approval${found.change ? ` of "${found.change}"` : ''} as the owner of this project's requirements.` +
-    (what ? ' ' + what : '') + ' Allow it to approve; deny it to hold the change back.' +
-    ' (Agent: if this was held with no one to answer, ask the owner the approval question in chat and add --asked only after their yes.)');
+  // A change in a requirements/ folder or of kept requests is named after
+  // its branch, which tells the owner nothing: leave the name out there.
+  let config = '';
+  try { config = fs.readFileSync(path.join(project, 'stele.yaml'), 'utf8'); } catch {}
+  const named = found.change && !/["']?format["']?\s*:\s*["']?(markdown|shale)\b/.test(config);
+  // The owner reads this in the prompt. A headless run hands it to the
+  // agent instead, whose instructions say to ask in chat (--asked).
+  decide('ask', `Stele: this records your approval${named ? ` of "${found.change}"` : ''} as the owner of this project's requirements.` +
+    (what ? ' ' + what : '') + ' Allow it to approve; deny it to hold the change back.');
 }
 
 function main() {

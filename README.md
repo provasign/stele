@@ -1,14 +1,20 @@
 # Stele
 
-*Specs written months apart should not be allowed to disagree.*
+*What you decided stays decided, whatever you ask your coding agent next.*
 
-Stele keeps a project's specs consistent with each other. It reads the requirements a project already writes (Spec Kit, OpenSpec, Kiro or plain Markdown). A project with no spec documents gets a `requirements/` folder its coding agent keeps, or uses the requests its agents declare with [Shale](https://github.com/provasign/shale). It turns each one into a checkable rule over one shared vocabulary, and finds requirements that contradict each other, however far apart they were written. Each contradiction comes back as a question for the project's owner, with a concrete example and what the code does today. From then on, every spec change is checked against every approved requirement before it merges, and what the owner decides is remembered in the repository.
+![A Claude Code session: the owner states a rule and approves it in a permission prompt; a later request that breaks the rule makes the agent stop and ask](assets/stele-demo.gif)
 
-It works inside the coding agent the project already uses. The agent runs Stele when it edits specs and asks the owner only what needs a person. The approval is the owner's: Claude Code asks them to allow the one command that records it.
+*A real Claude Code session on a small example project, with the waiting cut.*
 
-**Preview:** to try it on a project of your own, follow [Try Stele](docs/try-it.md): an hour, and what to send back.
+1. **You say what the product must keep.** The agent writes it down as one requirement, and Stele checks it against every requirement approved before it.
+2. **You approve it.** Claude Code asks you to allow the one command that records the approval, with Stele's summary in the prompt. Nothing is approved for you.
+3. **A later request that cannot keep it is caught.** Stele hands the agent the approved requirements each request touches. The agent quotes the one in the way and asks you what should hold, before it edits anything.
 
-**Status:** experimental. The commands below work end to end on real repositories; measured accuracy is uneven, and is stated in [what to expect](#what-to-expect). Stele is part of the [Provasign](https://provasign.dev) tool family and stands alone: one `stele` binary, with Z3 for the solver.
+Specs written months apart should not be allowed to disagree. Stele reads the requirements a project already writes (Spec Kit, OpenSpec, Kiro or plain Markdown). A project with no spec documents gets a `requirements/` folder its coding agent keeps, or uses the requests its agents declare with [Shale](https://github.com/provasign/shale). Stele turns each requirement into a checkable rule over one shared vocabulary, and finds requirements that contradict each other, however far apart they were written. Each contradiction comes back as a question for the project's owner, with a concrete example and what the code does today. From then on, every spec change is checked against every approved requirement before it merges, and what the owner decides is remembered in the repository.
+
+**Preview.** Stele is open source and works with [Claude Code](https://claude.com/claude-code). The commands below work end to end on real repositories. Measured accuracy is uneven, and is stated in [what to expect](#what-to-expect). To try it on a project of your own, follow [Try Stele](docs/try-it.md): an hour, and what to send back.
+
+Stele is one of three [Provasign](https://provasign.dev) tools for work done with coding agents, and each stands alone. Stele says what must stay true. [Prism](https://github.com/provasign/prism) shows the agent every place a change reaches before it edits. [Shale](https://github.com/provasign/shale) puts what the agent did on the pull request.
 
 ## Why
 

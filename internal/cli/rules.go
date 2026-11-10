@@ -160,7 +160,7 @@ func cmdRules(args []string, in io.Reader, out io.Writer) int {
 	for _, m := range more {
 		fmt.Fprintln(out, m)
 	}
-	fmt.Fprintln(out, "A plan must keep these, or name the requirement it changes and ask the owner before changing it.")
+	fmt.Fprintln(out, "A plan must keep these. If the request cannot be done without changing one, stop before you edit anything, quote that requirement and ask the owner what should hold.")
 	return 0
 }
 

@@ -152,6 +152,9 @@ test('Claude pre-tool hook asks the owner before an approval is recorded, and on
   const work = path.join(f.project, '.stele', 'change', 'add-lock');
   fs.mkdirSync(work, { recursive: true });
   fs.writeFileSync(path.join(work, 'result.json'), JSON.stringify({ change: 'add-lock', added: ['x'], statements: { x: 'The door MUST be locked at night.' }, registry: f.registry }));
+  // A spec tool names its changes, and the prompt says which one.
+  const config = path.join(f.project, 'stele.yaml');
+  fs.writeFileSync(config, fs.readFileSync(config, 'utf8').replace('"markdown"', '"openspec"'));
   const asked = run('stele change answer add-lock approve-1a2b approve');
   assert.equal(asked.hookEventName, 'PreToolUse');
   assert.equal(asked.permissionDecision, 'ask');
@@ -172,10 +175,13 @@ test('Claude pre-tool hook asks the owner before an approval is recorded, and on
   assert.match(denied.permissionDecisionReason, /ask them the approval question in chat.*--asked/s);
   assert.equal(run('stele change answer add-lock q approve --asked', { permission_mode: 'bypassPermissions' }), null);
   assert.equal(run('stele change answer add-lock q approve', { permission_mode: 'dontAsk' }).permissionDecision, 'deny');
-  // A headless run holds the prompt with no one to answer: the agent is
-  // told what to do, and the owner's yes in chat passes in any mode.
-  assert.match(asked.permissionDecisionReason, /held with no one to answer.*--asked only after their yes/);
+  // A headless run holds the prompt with no one to answer: the owner's
+  // yes in chat passes in any mode. The prompt carries no note to the agent.
+  assert.doesNotMatch(asked.permissionDecisionReason, /Agent|--asked/);
   assert.equal(run('stele change answer add-lock q approve --asked'), null);
+  // A requirements/ folder's change is named after its branch: the prompt leaves the name out.
+  fs.writeFileSync(config, fs.readFileSync(config, 'utf8').replace('"openspec"', '"markdown"'));
+  assert.match(run('stele change answer add-lock approve-1a2b approve').permissionDecisionReason, /records your approval as the owner.*Stele read 1 requirement\./);
   // An unattended run turns the prompt off where Claude Code starts.
   assert.equal(run('stele change answer add-lock q approve', {}, { STELE_APPROVAL_PROMPT: 'off' }), null);
 });

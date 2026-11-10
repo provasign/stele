@@ -159,7 +159,7 @@ The hook has two halves:
   - It shows at most eight statements, plus a line for each named operation that has more rules than fit. That line tells the agent to run `stele rules --op <operation>`.
   - A request about nothing the specs say injects nothing.
   - The text calls them approved only when the owner approved every one shown; otherwise each one not yet approved is marked.
-  - The injected text tells the agent that a plan must keep these requirements, or name the one it changes and ask the owner first. Nothing blocks at this point; the commit gate and CI block.
+  - The injected text tells the agent that a plan must keep these requirements, and that where the request cannot be done without changing one it stops before any edit, quotes that requirement to the owner and asks what should hold. Nothing blocks at this point; the commit gate and CI block.
 - **After writes, edits and shell commands (`PostToolUse`)** (including shell deletes and renames), it checks saved specs for drift and injects changed diagnostics into the agent's context. It suppresses identical repeated status, and reports recovery too.
 
 Neither half starts a model, modifies approved rules, or prevents a file from being saved. The output uses Claude Code's documented [additional context](https://code.claude.com/docs/en/hooks). These are integration files, not changes to an already-running session. Other coding CLIs can call `stele rules` and the one-shot JSON command from their own hooks or task instructions; the CI check is the enforcement backstop.
