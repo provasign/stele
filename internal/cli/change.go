@@ -75,6 +75,7 @@ func cmdChange(args []string, out io.Writer) int {
 		return 2
 	}
 	format, repo := args[0], args[1]
+	adopting := format == adoptChange // format becomes the specs' own below
 	id := ""
 	rest := args[2:]
 	if len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
@@ -127,7 +128,7 @@ func cmdChange(args []string, out io.Writer) int {
 		fmt.Fprint(os.Stderr, "stele change "+format+": name the branch to compare with, e.g. --base main\n")
 		return 2
 	}
-	if cfg, err := config.Find(repo); err == nil && cfg != nil && format != adoptChange && !*list && unadopted(cfg, repo) {
+	if cfg, err := config.Find(repo); err == nil && cfg != nil && !adopting && !*list && unadopted(cfg, repo) {
 		// The change alone, checked against an empty registry, would become
 		// the registry, and the specs written before it would never be read.
 		msg := "this project's specs are not adopted yet, and a change is checked against the approved requirements"
