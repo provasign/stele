@@ -62,8 +62,11 @@ type Options struct {
 	// the project's whole specs, into an empty registry: every statement
 	// is new. SpecsDir is where they are written, for the approval's
 	// fingerprint.
-	Adopt    []translate.Statement
-	SpecsDir string
+	Adopt []translate.Statement
+	// AdoptName names the part of the specs Adopt holds, when the specs
+	// are adopted a part at a time: its registry files carry the name.
+	AdoptName string
+	SpecsDir  string
 	// AnyCase is the Markdown importer's: lower-case must and should count.
 	AnyCase bool
 	Clients []llm.Client
@@ -133,6 +136,11 @@ type Result struct {
 	Gate          *gate.Result  `json:"gate"`
 	// Open counts the conflicts the owner left open at this adoption.
 	Open int `json:"open,omitempty"`
+	// AdoptSpecs are the specs this adoption reads, when the project's
+	// specs are adopted a part at a time, and UnreadSpecs those no
+	// adoption has read yet.
+	AdoptSpecs  []string `json:"adopt_specs,omitempty"`
+	UnreadSpecs []string `json:"unread_specs,omitempty"`
 	// FlagOnly are the requirements whose only rules state one yes/no fact
 	// nothing else reads: recorded, and checked against nothing yet.
 	FlagOnly []string `json:"flag_only,omitempty"`
@@ -540,6 +548,9 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 	prefix := RegistryPrefix(opt.Change)
 	if opt.Adopt != nil {
 		prefix = "adopted"
+		if opt.AdoptName != "" {
+			prefix += "-" + opt.AdoptName // one part of the specs, adopted on its own
+		}
 	}
 	if len(docs) > 0 {
 		if err := writeDocs(filepath.Join(res.Head, prefix+".yaml"), docs); err != nil {
@@ -643,7 +654,7 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 				break
 			}
 			all = append(all, open...)
-			if err := adopt.WriteOpen(res.Head, head, all, time.Now().Format("2006-01-02")); err != nil {
+			if err := adopt.WriteOpen(res.Head, head, all, time.Now().Format("2006-01-02"), opt.AdoptName); err != nil {
 				return nil, err
 			}
 			if res.Gate, err = gate.Dirs(ctx, z, opt.Registry, res.Head); err != nil {

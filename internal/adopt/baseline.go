@@ -233,7 +233,7 @@ type LeftOpen struct {
 // WriteOpen records the conflicts as open in the registry in dir (D-044),
 // replacing the adoption's earlier ones: each pins its rules at their
 // versions, and the gate tolerates exactly those.
-func WriteOpen(dir string, reg *ir.Registry, open []LeftOpen, since string) error {
+func WriteOpen(dir string, reg *ir.Registry, open []LeftOpen, since, name string) error {
 	sort.Slice(open, func(i, j int) bool {
 		a, b := strings.Join(open[i].Rules, ","), strings.Join(open[j].Rules, ",")
 		return a < b || a == b && open[i].Response < open[j].Response
@@ -248,9 +248,18 @@ func WriteOpen(dir string, reg *ir.Registry, open []LeftOpen, since string) erro
 				pins = append(pins, id)
 			}
 		}
-		docs = append(docs, openDoc{ID: fmt.Sprintf("OC-%d", k+1), Rules: pins, Response: o.Response, Situation: o.Situation, AcknowledgedBy: []string{o.By}, Since: since, Status: "open"})
+		id := fmt.Sprintf("OC-%d", k+1)
+		if name != "" {
+			id = fmt.Sprintf("OC-%s-%d", name, k+1)
+		}
+		docs = append(docs, openDoc{ID: id, Rules: pins, Response: o.Response, Situation: o.Situation, AcknowledgedBy: []string{o.By}, Since: since, Status: "open"})
 	}
 	path := filepath.Join(dir, ConflictsFile)
+	if name != "" {
+		// A part of the specs adopted on its own keeps its open conflicts
+		// in its own file, beside those of the parts adopted before.
+		path = filepath.Join(dir, strings.TrimSuffix(ConflictsFile, ".yaml")+"-"+name+".yaml")
+	}
 	if len(docs) == 0 {
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			return err

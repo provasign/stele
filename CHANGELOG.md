@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.13 - 2026-11-10
+
+- **A project's specs can be adopted a few at a time.** `stele adopt --list` prints each spec with how many requirements it holds and whether it is read, without calling a model. `stele adopt --spec <name>[,<name>]` reads only the specs named; the summary names those not read yet, and a later `stele adopt --spec` reads more of them, checked against what is approved. Each part keeps its rules and its open conflicts in its own registry files, and the registry records which specs were read (`adopted-specs.txt`). A contradiction with a spec adopted earlier can be decided later, or settled by the spec being read taking precedence, like one within a part. On a held-out project, a spec of 46 requirements was approved with no question for its owner ($1.18), and a second of 30 was then read against it and approved.
+- **A step that sets a value keeps what a rule ties to it, also when both are new.** "Lending prints a receipt" against "a receipt lists the due date" came to the owner as a contradiction: the step was taken to set the receipt and leave what it lists untouched. Stele already let a step write a new value that a state rule ties to one it writes, but only when the value it writes was approved earlier, and at an adoption nothing is. On the second spec above, the owner was asked 10 questions over four rounds, the same ones returning after each answer; with this, 3 in one round, on the same readings.
+- **A question the owner answered stays the owner's.** When one requirement already prevailed and the two still clashed, the question went to the agent for a reread, the agent's answer replaced the owner's, and the owner was asked a third time.
+- **The preview guide says how to adopt existing specs:** what to expect in time, cost and questions, and how to start with one or two specs.
+
 ## v0.1.12 - 2026-11-10
 
 Found by adopting a held-out project of 179 requirements, and a 76-requirement part of it, end to end, as a new user would.

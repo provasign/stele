@@ -33,3 +33,15 @@ func TestCodeWithoutClashIsRereadFirst(t *testing.T) {
 		t.Fatalf("the code takes a side: %+v", q)
 	}
 }
+
+// A question the owner already answered stays the owner's when it still
+// clashes: the agent's reread would replace their answer.
+func TestRereadFirstLeavesTheOwnersQuestion(t *testing.T) {
+	q := &Question{ID: "conflict-1", Kind: "conflict", AskOwner: true, Statements: []string{"a", "b"},
+		Requirements: []Requirement{{ID: "a", Text: "A"}, {ID: "b", Text: "B"}},
+		Options:      []Option{{Choice: "misread", Note: true}, {Choice: "later"}},
+		Code:         &Code{Outcome: "compatible", Says: "the code does both"}}
+	if rereadFirst(q, []Answer{{Question: "conflict-1", Kind: "conflict", Choice: "prevails", By: "Ada"}}) || !q.AskOwner {
+		t.Fatalf("a question the owner answered went to the agent: %+v", q)
+	}
+}

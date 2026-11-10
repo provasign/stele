@@ -99,12 +99,24 @@ func stateInvariantWrites(reg *ir.Registry, p vocab.Proposal, cands []translate.
 				}
 			}
 		}
+		// What the invariant ties may itself be new: at an adoption every
+		// attribute is. "A receipt lists the due date" against a step that
+		// prints the receipt then clashed, the receipt's kind written and
+		// what it lists held fixed, and came to the owner three times (a first adoption, 2026-11-10). A step that
+		// writes one attribute the invariant reads writes the new ones it
+		// ties to it on the same entity.
 		for _, op := range reg.Operations {
-			if !slices.ContainsFunc(known, func(a *ir.Attr) bool { return a.Entity == op.Entity && op.WritesAttr(a) }) {
-				continue
+			var written []*ir.Attr
+			for _, a := range append(append([]*ir.Attr{}, known...), fresh...) {
+				if op.WritesAttr(a) {
+					written = append(written, a)
+				}
 			}
 			for _, a := range fresh {
-				if a.Entity == op.Entity && !op.WritesAttr(a) && !slices.Contains(out[op.Name], a.Path()) {
+				if op.WritesAttr(a) || slices.Contains(out[op.Name], a.Path()) {
+					continue
+				}
+				if slices.ContainsFunc(written, func(w *ir.Attr) bool { return w.Entity == a.Entity }) {
 					out[op.Name] = append(out[op.Name], a.Path())
 				}
 			}

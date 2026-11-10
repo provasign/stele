@@ -154,6 +154,13 @@ func rereadFirst(q *Question, as []Answer) bool {
 		!slices.ContainsFunc(q.Options, func(o Option) bool { return o.Choice == "misread" }) {
 		return false
 	}
+	if slices.ContainsFunc(as, func(a Answer) bool { return a.Question == q.ID && a.By != "agent" }) {
+		// The owner has answered this very question and it still clashes:
+		// it stays theirs. Handed to the agent, the agent's answer
+		// replaced the owner's precedence, and the question came back to
+		// the owner a third time (a first adoption, 2026-11-10).
+		return false
+	}
 	for _, r := range q.Requirements {
 		if slices.Contains(q.Statements, r.ID) && AgentReread(as, r.ID, translate.TextHash(r.Text)) {
 			if q.Recommended == "" {

@@ -684,6 +684,19 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 					q.Why = fmt.Sprintf(why, req(n).Title, req(second).Title)
 				}
 			}
+			if len(stmts) == 2 && len(links) == 0 && len(mine) == 1 && res.Change == Adoption {
+				// A spec adopted after another: the one being read can take
+				// precedence over the approved one with no edit to either.
+				other := stmts[0]
+				if other == mine[0] {
+					other = stmts[1]
+				}
+				q.Options = append(q.Options, Option{Choice: "prevails", Prevails: []string{mine[0]}, Over: []string{other}, Label: fmt.Sprintf("%q is an exception to %q: it takes precedence where both apply", req(mine[0]).Title, req(other).Title), Then: "Stele records that its rules take precedence over the other's where both apply, with no edit to the spec and no new reading; run `stele change` again"})
+				if n == mine[0] {
+					q.Recommended = "prevails"
+					q.Why = fmt.Sprintf(why, req(n).Title, req(other).Title)
+				}
+			}
 			if res.Change == Adoption {
 				q.Options = append(q.Options, Option{Choice: "later", Label: "Decide later: adopt with this contradiction recorded as open", Then: "Stele records it as an open conflict the owner acknowledged: it is listed at the approval and by `stele check` until a change settles it, and no new one may join it; run `stele change` again"})
 			}
