@@ -78,7 +78,7 @@ The prompts describe the method in general terms with an invented example domain
 
 ### Lazy modeling
 
-Only what a check needs is translated. A change translates the statements it adds or edits; adoption translates the statements a review names as candidate conflicts, those sharing their terms, and areas the owner selects. The rest stays unmodeled, blocks nothing, and is recorded as adoption debt ([08](08-workflows.md#w5-adopting-an-existing-spec-corpus)).
+Only what a check needs is translated. A change translates the statements it adds or edits; `stele adopt` translates every statement of the specs it is given, all of them or the ones named with `--spec`, and leaves the other specs unread until a later run; the review-first adoption translates the statements a review names as candidate conflicts, those sharing their terms, and areas the owner selects. The rest stays unmodeled, blocks nothing, and is recorded as adoption debt ([08](08-workflows.md#w5-adopting-an-existing-spec-corpus)).
 
 ## Grounding guardrails
 

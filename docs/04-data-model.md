@@ -242,7 +242,7 @@ status: open              # open | closed
 closedBy: null            # decision or spec PR that closed it
 ```
 
-Open conflicts are created only in an adoption baseline (`stele baseline` writes them to `conflicts/adoption.yaml`). Editing a pinned rule makes the record stale, which is derived from the pinned versions rather than written: the conflict blocks again if it remains, and the gate reports the record resolved if it is gone. An operation's own constraints in a conflict (`Workspace.stop.effect`, `Workspace.stop.from`) are pinned by name, without a version.
+Open conflicts are created only at an adoption: `stele baseline` writes them to `conflicts/adoption.yaml`, and so does `stele adopt` for each conflict its owner decides later (`conflicts/adoption-<name>.yaml` for specs adopted as a part, with IDs `OC-<name>-1` and on). Editing a pinned rule makes the record stale, which is derived from the pinned versions rather than written: the conflict blocks again if it remains, and the gate reports the record resolved if it is gone. An operation's own constraints in a conflict (`Workspace.stop.effect`, `Workspace.stop.from`) are pinned by name, without a version, and so is its run history (`Workspace.stop.history`).
 
 ## Lesson
 
