@@ -94,6 +94,22 @@ A project that already has specs (Spec Kit, OpenSpec, Kiro or plain Markdown) ar
 
 The spec files stay the source of truth. People keep editing them and agents keep reading them; Stele keeps its registry beside them, keyed to their statements ([D-043](design-decisions.md)).
 
+### `stele adopt`: the path a project takes
+
+From the coding agent, adoption is one command, run as a change against the empty registry and followed like any other change ([W1](#w1-a-spec-change-to-approved-rules)):
+
+1. **Read.** `stele adopt` imports the specs and translates every requirement: the facts are named once over all of them, each requirement is translated, one that stops at a fact it lacks is read once more to declare it, and each reading is checked against its text and against itself ([07](07-translation-and-grounding.md)).
+2. **A part at a time, if the owner wants.** `stele adopt --list` prints each spec with its number of requirements and whether it is read, with no model call. `stele adopt --spec <name>[,<name>]` reads only the specs named; a later run reads more of them, checked against what is approved. Each part's rules, vocabulary and open conflicts are files of their own in the registry (`adopted-<name>.yaml`, `conflicts/adoption-<name>.yaml`), and `adopted-specs.txt` lists the specs read. Until a spec is read Stele checks nothing in it, and a change that edits one of its requirements is still checked as a change.
+3. **Before the owner is asked.** The rules of each conflict are checked against their own requirements' texts, and one that does not say what its text says is set aside. A step that sets a value is taken to keep the values a state rule ties to it. Where the code does what both requirements say, the agent has Stele read them once more.
+4. **Questions.** What is left goes to the owner, each conflict with the answers that change nothing in the specs: one requirement is the exception to the other, recorded as precedence ([D-052](design-decisions.md)) and recommended when one is an error case or a check before the step; or "decide later", which records the conflict as open ([below](#open-conflicts-and-the-ratchet)).
+5. **Approval.** The owner approves the readings once. The registry is written, the specs as read become the snapshot that sync starts from, and `stele check` passes with the open conflicts tolerated.
+
+Measured on a held-out project (2026-11-10, one run each): the first check of 179 requirements took about ten minutes and $3.96 and asked its owner five conflicts, each with a recommendation; the adoption was approved after three rounds of answers for $5.41, with 135 requirements checked, 44 recorded unchecked and 11 conflicts left open. A spec of 46 requirements adopted on its own was approved with no question for its owner.
+
+The steps below are the review-first pipeline this grew from (`stele review`, `confirm`, `triage`, `baseline`). Its commands remain, for a corpus too large or too inconsistent to translate whole, and its records (decisions, open conflicts, the snapshot) are the ones `stele adopt` writes.
+
+### The review-first pipeline
+
 1. **Import.** A format importer segments the corpus into statements, deterministically. Each statement gets a stable anchor, a hash of its text, and the date its text first appeared in git.
 2. **Discover.** One LLM review of all statements lists candidate conflicts: sets of statements that cannot all hold, each with the situation named. A corpus too large for one prompt is reviewed by area in full text, plus once as a whole condensed to titles and normative sentences, so a contradiction between two areas shares a prompt with no retrieval step choosing what to pair (`stele review --budget-tokens`, [D-045](design-decisions.md)).
 3. **Model around the candidates.** Vocabulary is proposed and statements are translated only for the candidates' statements, statements sharing their terms, and areas the owner selects. The rest stays unmodeled and blocks nothing ([lazy modeling](07-translation-and-grounding.md#lazy-modeling)), but it is not forgotten: the baseline records it as unaccounted debt.

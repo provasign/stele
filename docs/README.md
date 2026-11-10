@@ -30,7 +30,7 @@ Stele was called Spec Registry until 2026-10-24 ([D-033](design-decisions.md)). 
 | Import | Spec Kit, OpenSpec (with change folders), Kiro, Markdown; requests declared with Shale and kept as requirements (`stele keep`) | |
 | Translation | compact translation on a whole-corpus fact vocabulary; clause coverage and scope check; self-contradiction and blocking-rule rereads | |
 | Finding conflicts | Z3 checks (response conflicts, dead responses, vacuity); LLM review with solver confirmation (`stele audit`) | |
-| Deciding | conflicts settled against the code; owner questions in the coding agent; decision records; adoption baseline | |
+| Deciding | conflicts settled against the code; owner questions in the coding agent; decision records; adoption of existing specs, whole or a few specs at a time, with conflicts settled by precedence or left open | |
 | Changes | `stele change` for OpenSpec, Spec Kit, Kiro and Shale requests; a summary in the owner's words; approval pinned to text and reading; ledger; renames kept; `stele export openspec` from kept requests; a card for the pull request | |
 | Learning | lessons from the owner's own words, in the registry's git | |
 | Agents | `stele init` sets up Claude Code, the one agent supported for now; the setups for Codex, Cursor, Windsurf, VS Code (Copilot), Gemini CLI and opencode stay for projects that recorded them | |
