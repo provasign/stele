@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -43,6 +44,7 @@ func cmdChange(args []string, out io.Writer) int {
 	timeout := fs.Duration("timeout", 30*time.Minute, "limit for the run")
 	requestTimeout := fs.Duration("request-timeout", 3*time.Minute, "limit per model call: a call that stalls fails and is retried, and a requirement whose calls keep failing is reported under failed")
 	base := fs.String("base", "", "compare the specs at this git ref with the working tree (a feature branch); required for speckit, kiro and shale")
+	specFlag := fs.String("spec", "", "stele adopt: read only these specs (names separated by commas) and leave the others for a later `stele adopt --spec`")
 	noCode := fs.Bool("no-code", false, "do not ask what the code does for each conflict (D-062)")
 	graph := fs.Bool("graph", false, "also find definitions in Grove's code graph (no gain measured on 2026-10-29)")
 	maxCost := fs.Float64("max-cost", 0, "spend at most this many dollars on the translation's model calls (as the backend reports); a run stopped by it keeps its work for the next run; 0 is unlimited")
@@ -83,6 +85,8 @@ func cmdChange(args []string, out io.Writer) int {
 	}
 	_ = fs.Parse(rest)
 	var adoptStmts []translate.Statement
+	var adoptSpecs, unreadSpecs []string
+	adoptName := ""
 	adoptDir, anyCase := "", false
 	if format == "markdown" {
 		// The folder is the project's own: stele.yaml names it.
@@ -111,14 +115,80 @@ func cmdChange(args []string, out io.Writer) int {
 				return failf("adopt", fmt.Errorf("no specs found (openspec/, .kiro/specs/, .specify/, specs/ or docs/); name them under specs: in %s", config.FileName))
 			}
 		}
-		if reg, err := ir.LoadDir(cfg.RegistryDir()); err == nil && len(reg.Rules) > 0 {
-			return failf("adopt", fmt.Errorf("the registry already has rules: check spec changes with `stele change` instead"))
-		}
 		if adoptStmts, err = importSpecs(repo, sp); err != nil {
 			return failf("adopt", err)
 		}
 		if len(adoptStmts) == 0 {
 			return failf("adopt", fmt.Errorf("no requirements found in the %s specs", formatLabel(sp.Format)))
+		}
+		// The specs may be adopted a few at a time (--spec): a first
+		// adoption of 179 requirements is ten minutes and several rounds
+		// of questions, one of 76 is none for the owner in its first
+		// round (2026-11-10). The registry records which specs were read.
+		read := readSpecs(cfg.RegistryDir())
+		var names []string
+		for _, s := range adoptStmts {
+			if n := specName(s.ID); n != "" && !slices.Contains(names, n) {
+				names = append(names, n)
+			}
+		}
+		sort.Strings(names)
+		for _, n := range names {
+			if !slices.Contains(read, n) {
+				unreadSpecs = append(unreadSpecs, n)
+			}
+		}
+		hasRules := false
+		if reg, err := ir.LoadDir(cfg.RegistryDir()); err == nil && len(reg.Rules) > 0 {
+			hasRules = true
+		}
+		if *list {
+			// The specs and how much each holds, with no model call: what
+			// the owner chooses from when adopting a part at a time.
+			for _, n := range names {
+				count := 0
+				for _, s := range adoptStmts {
+					if specName(s.ID) == n {
+						count++
+					}
+				}
+				state := "not read yet"
+				if slices.Contains(read, n) || hasRules && len(read) == 0 {
+					state = "read"
+				}
+				fmt.Fprintf(out, "%s\t%d requirement(s)\t%s\n", n, count, state)
+			}
+			return 0
+		}
+		switch {
+		case *specFlag == "" && hasRules && len(read) > 0 && len(unreadSpecs) > 0:
+			return failf("adopt", fmt.Errorf("%d spec(s) are not read yet: %s. Read one or more with `stele adopt --spec <name>[,<name>]`", len(unreadSpecs), strings.Join(unreadSpecs, ", ")))
+		case *specFlag == "" && hasRules:
+			return failf("adopt", fmt.Errorf("the registry already has rules: check spec changes with `stele change` instead"))
+		case *specFlag != "":
+			for _, n := range strings.Split(*specFlag, ",") {
+				n = strings.TrimSpace(n)
+				switch {
+				case n == "":
+				case !slices.Contains(names, n):
+					return failf("adopt", fmt.Errorf("no spec named %q; the specs are: %s", n, strings.Join(names, ", ")))
+				case slices.Contains(read, n):
+					return failf("adopt", fmt.Errorf("the spec %q is already read: check changes to it with `stele change`", n))
+				case hasRules && len(read) == 0:
+					return failf("adopt", fmt.Errorf("the registry already has rules for the whole project: check spec changes with `stele change` instead"))
+				case !slices.Contains(adoptSpecs, n):
+					adoptSpecs = append(adoptSpecs, n)
+				}
+			}
+			if len(adoptSpecs) == 0 {
+				return failf("adopt", fmt.Errorf("--spec names no spec; the specs are: %s", strings.Join(names, ", ")))
+			}
+			sort.Strings(adoptSpecs)
+			adoptStmts = slices.DeleteFunc(adoptStmts, func(s translate.Statement) bool { return !slices.Contains(adoptSpecs, specName(s.ID)) })
+			unreadSpecs = slices.DeleteFunc(unreadSpecs, func(n string) bool { return slices.Contains(adoptSpecs, n) })
+			adoptName = partName(adoptSpecs)
+		default:
+			unreadSpecs = nil // the whole project, at once
 		}
 		format, id, adoptDir = sp.Format, adoptChange, filepath.Join(repo, sp.Root)
 		if sp.Format != "markdown" {
@@ -178,7 +248,20 @@ func cmdChange(args []string, out io.Writer) int {
 	if *outDir == "" {
 		*outDir = filepath.Join(".stele", "change", id)
 	}
-	opt := change.Options{Repo: repo, Change: id, Registry: *registry, Out: *outDir, Z3: &solver.Z3{}, Log: os.Stderr, Base: *base, Format: format, NoCode: *noCode, Graph: *graph, Adopt: adoptStmts, SpecsDir: adoptDir, AnyCase: anyCase, MaxCost: *maxCost, RequestTimeout: *requestTimeout}
+	if adopting {
+		// Another part's answers and readings are not this part's.
+		mark := filepath.Join(*outDir, "part")
+		if was, err := os.ReadFile(mark); (err == nil && string(was) != adoptName) || (err != nil && adoptName != "" && dirExists(*outDir)) {
+			if err := os.RemoveAll(*outDir); err != nil {
+				return failf("adopt", err)
+			}
+		}
+		if adoptName != "" {
+			_ = os.MkdirAll(*outDir, 0o755)
+			_ = os.WriteFile(mark, []byte(adoptName), 0o644)
+		}
+	}
+	opt := change.Options{Repo: repo, Change: id, Registry: *registry, Out: *outDir, Z3: &solver.Z3{}, Log: os.Stderr, Base: *base, Format: format, NoCode: *noCode, Graph: *graph, Adopt: adoptStmts, AdoptName: adoptName, SpecsDir: adoptDir, AnyCase: anyCase, MaxCost: *maxCost, RequestTimeout: *requestTimeout}
 	if *stmtsPath != "" {
 		stmts, err := translate.LoadStatements(*stmtsPath)
 		if err != nil {
@@ -242,6 +325,7 @@ func cmdChange(args []string, out io.Writer) int {
 	if err := os.WriteFile(filepath.Join(*outDir, "report.md"), []byte(report), 0o644); err != nil {
 		return failf("change", err)
 	}
+	res.AdoptSpecs, res.UnreadSpecs = adoptSpecs, unreadSpecs
 	js, _ := json.MarshalIndent(res, "", "  ")
 	_ = os.WriteFile(filepath.Join(*outDir, "result.json"), append(js, '\n'), 0o644)
 	if err := writeCard(res, head, summarize(res, *outDir).Status, *base); err != nil {
@@ -510,6 +594,9 @@ func ownerSummary(res *change.Result, status string) string {
 	}
 	if partial > 0 {
 		fmt.Fprintf(&b, " %d %s checked in part; the report lists the clauses no rule checks.", partial, pick(partial == 1, "is", "are"))
+	}
+	if n := len(res.UnreadSpecs); n > 0 {
+		fmt.Fprintf(&b, " %d other spec%s %s not read yet (%s): `stele adopt --spec <name>` reads one or more of them against what is approved.", n, plural(n), pick(n == 1, "is", "are"), strings.Join(res.UnreadSpecs, ", "))
 	}
 	if n := len(res.FlagOnly); n > 0 {
 		fmt.Fprintf(&b, " %d %s recorded as a single yes/no fact nothing else reads (usually a requirement about how the code is built): Stele would catch only a later requirement that says the opposite.", n, pick(n == 1, "is", "are"))
@@ -1090,4 +1177,45 @@ func specRootOf(format string) string {
 		return ".shale"
 	}
 	return "specs"
+}
+
+// specName is the spec a requirement belongs to: the part of its ID before
+// the first slash, or "" when the project's requirements are one folder.
+func specName(id string) string {
+	name, _, ok := strings.Cut(id, "/")
+	if !ok {
+		return ""
+	}
+	return name
+}
+
+// partName names the registry files of specs adopted together.
+func partName(specs []string) string {
+	name := strings.Join(specs, "+")
+	if len(name) > 60 {
+		h := sha256.Sum256([]byte(name))
+		name = fmt.Sprintf("%s+%d-more-%x", specs[0], len(specs)-1, h[:3])
+	}
+	return strings.Map(func(r rune) rune {
+		if r == '+' || r == '-' || r == '_' || r == '.' || r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' {
+			return r
+		}
+		return '-'
+	}, name)
+}
+
+// readSpecsFile lists, in the registry, the specs adopted a part at a time.
+const readSpecsFile = "adopted-specs.txt"
+
+func readSpecs(registry string) []string {
+	src, err := os.ReadFile(filepath.Join(registry, readSpecsFile))
+	if err != nil {
+		return nil
+	}
+	return strings.Fields(string(src))
+}
+
+func dirExists(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && st.IsDir()
 }

@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -106,7 +107,9 @@ func cmdChangeAnswer(args []string, out io.Writer) int {
 		}
 	}
 	for _, r := range q.Requirements {
-		if slices.Contains(q.Statements, r.ID) {
+		if slices.Contains(q.Statements, r.ID) || choice == "later" {
+			// Decided later, the contradiction is the whole set's: one
+			// with a spec adopted earlier is recorded as open too.
 			a.Statements[r.ID] = translate.TextHash(r.Text)
 		} else if choice == "precedence" {
 			a.Over = append(a.Over, r.ID)
@@ -206,8 +209,21 @@ func approveChange(res *change.Result, by string, out io.Writer) error {
 	if now != res.Fingerprint {
 		return fmt.Errorf("the change or the registry changed since the check; run `stele change` again")
 	}
+	read := readSpecs(res.Registry)
 	if err := copyDir(res.Head, res.Registry); err != nil {
 		return err
+	}
+	if len(res.AdoptSpecs) > 0 {
+		// The specs read so far: `stele adopt` reads the others later.
+		for _, n := range res.AdoptSpecs {
+			if !slices.Contains(read, n) {
+				read = append(read, n)
+			}
+		}
+		sort.Strings(read)
+		if err := os.WriteFile(filepath.Join(res.Registry, readSpecsFile), []byte(strings.Join(read, "\n")+"\n"), 0o644); err != nil {
+			return err
+		}
 	}
 	reg, err := ir.LoadDir(res.Registry)
 	if err != nil {

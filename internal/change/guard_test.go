@@ -1,10 +1,14 @@
 package change
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/provasign/stele/internal/ir"
 	"github.com/provasign/stele/internal/translate"
+	"github.com/provasign/stele/internal/vocab"
 )
 
 // An error case comes first, then a check; neither when both or neither
@@ -44,5 +48,26 @@ func TestAgentNoteIsNotTheOwners(t *testing.T) {
 func TestPlainSituationHistory(t *testing.T) {
 	if got := ran.ReplaceAllString(notRan.ReplaceAllString("card: not ran(verify), ran(scan)", "$1 has not run"), "$1 has run"); got != "card: verify has not run, scan has run" {
 		t.Fatalf("history in words: %q", got)
+	}
+}
+
+// A step that writes one new attribute writes the other new attributes a
+// state invariant ties to it on the same entity, also when that entity is
+// not the step's own: at an adoption every attribute is new.
+func TestStateInvariantWritesAmongNewAttributes(t *testing.T) {
+	dir := t.TempDir()
+	src := "context: c\nformatVersion: 1\n---\nentity: Receipt\ncontext: c\nattributes:\n  kind: { type: enum, values: [loan, refusal] }\n  listsDueDate: { type: bool }\n  paper: { type: enum, values: [a4, roll] }\n---\nentity: Loan\ncontext: c\nattributes:\n  open: { type: bool }\n---\noperation: Loan.lend\ncontext: c\ndefault: allow\nwrites: [Loan.open, Receipt.kind]\n---\noperation: Loan.close\ncontext: c\ndefault: allow\nwrites: [Loan.open]\n"
+	if err := os.WriteFile(filepath.Join(dir, "v.yaml"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reg, err := ir.LoadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := vocab.Proposal{Entities: []vocab.Entity{{Name: "Receipt", Attributes: []vocab.Attribute{{Name: "kind"}, {Name: "listsDueDate"}, {Name: "paper"}}}}}
+	cands := []translate.Candidate{{Outcome: "rule", Kind: ir.Invariant, Subject: "Receipt", RuleID: "r1", When: "self.kind = loan", Assert: "self.listsDueDate"}}
+	got := inferWrites(reg, p, cands)
+	if strings.Join(got["Loan.lend"], ",") != "Receipt.listsDueDate" || len(got["Loan.close"]) != 0 {
+		t.Fatalf("writes = %v; want Loan.lend alone to write Receipt.listsDueDate", got)
 	}
 }
