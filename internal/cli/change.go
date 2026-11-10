@@ -497,6 +497,9 @@ func ownerSummary(res *change.Result, status string) string {
 	if partial > 0 {
 		fmt.Fprintf(&b, " %d %s checked in part; the report lists the clauses no rule checks.", partial, pick(partial == 1, "is", "are"))
 	}
+	if res.SetAside > 0 {
+		fmt.Fprintf(&b, " Stele set aside %d of its own rules that clashed with another requirement and did not say what their requirement says; the report lists them.", res.SetAside)
+	}
 	if flagged > 0 {
 		fmt.Fprintf(&b, " Its reading of %d says more than the text or blocks a step; the approval lists where.", flagged)
 	}

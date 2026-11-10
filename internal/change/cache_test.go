@@ -46,6 +46,14 @@ func TestCodeVerdictRecommends(t *testing.T) {
 	if x.Recommended != "exception" || x.Options[0].Choice != "exception" || x.Code == nil || !strings.Contains(x.Code.Says, "src/main.rs:40") {
 		t.Fatalf("overbroad: %+v %+v", x, x.Code)
 	}
+	// Where one requirement can prevail with no edit to the spec, that is
+	// recommended, the too-broad one giving way.
+	x = q()
+	x.Options = append(x.Options, Option{Choice: "prevails", Prevails: []string{"a"}, Over: []string{"b"}}, Option{Choice: "prevails_other", Prevails: []string{"b"}, Over: []string{"a"}})
+	applyCode(x, adjudicate.Verdict{Kind: "overbroad", Follows: []string{"b"}, Overbroad: []string{"a"}, Reason: "a missing pager falls back", Cites: cite})
+	if x.Recommended != "prevails_other" || x.Options[0].Choice != "prevails_other" {
+		t.Fatalf("overbroad with precedence offered: %+v", x)
+	}
 	x = q()
 	applyCode(x, adjudicate.Verdict{Kind: "superseded", Follows: []string{"a"}, Stale: []string{"b"}, Reason: "it always launches", Cites: cite})
 	if x.Recommended != "update_old" || x.Code.Against[0] != "Fall back without a pager" {
