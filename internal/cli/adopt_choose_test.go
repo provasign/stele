@@ -75,3 +75,27 @@ func TestAdoptionOfALargeProjectOffersItsSpecs(t *testing.T) {
 		t.Fatal("--all read nothing")
 	}
 }
+
+// A new project reads its specs with Sonnet, named in stele.yaml; a project
+// that already has a stele.yaml keeps what it says.
+func TestInitPinsTheReadingModel(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	var out bytes.Buffer
+	if code := cmdInit([]string{".", "--yes", "--harness", "claude", "--llm", "agent"}, strings.NewReader(""), &out, false); code != 0 {
+		t.Fatalf("init: %d\n%s", code, out.String())
+	}
+	src, err := os.ReadFile("stele.yaml")
+	if err != nil || !strings.Contains(string(src), "model: "+DefaultReadingModel) || !strings.Contains(out.String(), "reading specs with "+DefaultReadingModel) {
+		t.Fatalf("the reading model is not pinned: %v\n%s\n%s", err, src, out.String())
+	}
+	edited := strings.Replace(string(src), "    model: "+DefaultReadingModel+"\n", "", 1)
+	if err := os.WriteFile("stele.yaml", []byte(edited), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	cmdInit([]string{".", "--yes", "--harness", "claude"}, strings.NewReader(""), &out, false)
+	if again, _ := os.ReadFile("stele.yaml"); strings.Contains(string(again), "model: "+DefaultReadingModel) {
+		t.Fatalf("an existing stele.yaml had its model set:\n%s", again)
+	}
+}

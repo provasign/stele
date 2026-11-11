@@ -141,10 +141,11 @@ func Write(dir string, c Config) error {
 		"# translate.drafts: drafts per requirement. 1 is cheapest. Above 1, readings are\n" +
 		"# compared by the solver and disagreements become questions for the spec author.\n" +
 		"# translate.llm: agent runs Stele's calls on Claude Code, the coding agent you run it\n" +
-		"# from, and the model it is using; claude (the CLI) and anthropic (an API key) name one.\n" +
-		"# translate.model: pins a model (unset: the agent's, or the CLI's own default). On a\n" +
-		"# 60-requirement set, claude-sonnet-5-5 read for a quarter of Opus's cost in a third\n" +
-		"# of the time, with more clauses left unchecked.\n" +
+		"# from; claude (the CLI) and anthropic (an API key) name one.\n" +
+		"# translate.model: the model that reads the specs. stele init sets claude-sonnet-5-5:\n" +
+		"# Stele's times, costs and accuracy were measured on it, and a larger model reads\n" +
+		"# several times slower for more money. Remove the line to use the model the agent\n" +
+		"# is using, or name another.\n" +
 		"# translate.effort: the model's reasoning effort (unset: the CLI's default).\n"
 	return os.WriteFile(filepath.Join(dir, FileName), append([]byte(header), src...), 0o644)
 }
