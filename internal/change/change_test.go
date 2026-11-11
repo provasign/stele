@@ -1790,3 +1790,25 @@ func TestSettleInvalid(t *testing.T) {
 		t.Fatal("a reworded requirement was recorded unchecked without a second reading")
 	}
 }
+
+// TestApprovalShowsClauses: the approval names each clause of a
+// requirement with the rule that checks it in words, and the clause no
+// rule checks, with why.
+func TestApprovalShowsClauses(t *testing.T) {
+	repo, registry := setup(t, "## MODIFIED Requirements\n\n### Requirement: Delete guard\nThe system MUST NOT delete a resource with holds, unless the request is an erasure.\n")
+	f := one("unless", map[string]any{"kind": "permission", "operation": "Resource.delete", "effect": "deny", "when": "self.holds > 0"})
+	f.uncovered = "unless the request is an erasure"
+	res, err := runKept(context.Background(), Options{Repo: repo, Change: "c1", Registry: registry, Out: t.TempDir(), Clients: []llm.Client{f}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	k := slices.IndexFunc(res.Questions, func(q Question) bool { return q.Kind == "approve" })
+	if k < 0 {
+		t.Fatalf("no approval question: %+v", res.Questions)
+	}
+	cls := res.Questions[k].Requirements[0].Clauses
+	if len(cls) != 2 || !cls[0].Checked || len(cls[0].By) != 1 || !strings.Contains(cls[0].By[0], "Refuse “delete” on a resource when the resource's holds is more than 0") ||
+		cls[1].Checked || cls[1].Text != "unless the request is an erasure" || cls[1].Why == "" {
+		t.Fatalf("clauses = %+v", cls)
+	}
+}

@@ -35,6 +35,7 @@ func TestAdoptionSetsAsideAMisreadRule(t *testing.T) {
 		"reply.sh": "in=$(cat)\ncase \"$in\" in\n" +
 			`*'check each rule against the text'*) id=$(printf '%s\n' "$in" | sed -n 's/^## Conflict //p' | head -1); echo "{\"conflicts\":[{\"id\":\"$id\",\"rules\":[{\"rule\":\"orders/Paid\",\"verdict\":\"says\",\"reason\":\"as written\"},{\"rule\":\"orders/Free\",\"verdict\":\"misread\",\"reason\":\"the text speaks of sample orders only.\"}]}]}" ;;` + "\n" +
 			`*'list its clauses'*) echo '{"statements":[{"statement_id":"s1","clauses":[{"text":"all","status":"covered","rules":["r1"]}],"broader":[]},{"statement_id":"s2","clauses":[{"text":"all","status":"covered","rules":["r1"]}],"broader":[]}]}' ;;` + "\n" +
+			`*"Stele's first reading of this requirement clashed"*) echo '{"entities":[],"extensions":[],"operations":[],"rules":[{"statement_id":"s1","kind":"invariant","subject":"","on":"","when":"","assert":"not order.paid","overrides":[]}]}' ;;` + "\n" +
 			`*'statement_id: s1'*) echo '{"entities":[{"name":"Order","statement_ids":["s1","s2"],"attributes":[{"name":"paid","type":"bool","values":[],"min":0,"max":0,"set_by":"system"}],"relations":[]}],"extensions":[],"operations":[],"rules":[{"statement_id":"s1","kind":"invariant","subject":"","on":"","when":"","assert":"order.paid","overrides":[]},{"statement_id":"s2","kind":"invariant","subject":"","on":"","when":"","assert":"not order.paid","overrides":[]}]}' ;;` + "\n" +
 			"*) echo '{}' ;;\nesac\n",
 	} {

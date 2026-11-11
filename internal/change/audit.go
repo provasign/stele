@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -43,6 +44,26 @@ type auditState struct {
 	// found misread, so a conflict is audited once.
 	Checked map[string][]string `json:"checked,omitempty"`
 	Aside   []asideRule         `json:"set_aside,omitempty"`
+	// Reread holds, by statement, the note it is read again with once
+	// before any of its rules is set aside: the audit's reasons. Set aside
+	// at once, a steward's "MUST be allowed to hold up to 5 tools" lost
+	// both its readings, one on the audit's own guess about who acts, and
+	// the contradiction it was in never reached the owner (ISSUES 140).
+	Reread map[string]auditNote `json:"reread,omitempty"`
+}
+
+// auditNote is a note for a statement while its text hashes to Hash.
+type auditNote struct {
+	Hash string `json:"hash"`
+	Note string `json:"note"`
+}
+
+// auditNotes is the audit's note for s, while its text is the one audited.
+func auditNotes(dir string, s translate.Statement) []string {
+	if n, ok := loadAudit(dir).Reread[s.ID]; ok && n.Hash == translate.TextHash(s.Prose) {
+		return []string{n.Note}
+	}
+	return nil
 }
 
 func loadAudit(dir string) auditState {
@@ -200,6 +221,8 @@ func audit(ctx context.Context, opt Options, res *Result, head *ir.Registry, c *
 		return 0
 	}
 	added := 0
+	reread := map[string][]string{} // statement -> reasons, read again once
+	forget := map[string]bool{}     // conflicts to judge again after the reread
 	for _, it := range items {
 		st.Checked[it.key] = []string{}
 		k := slices.IndexFunc(out.Conflicts, func(x struct {
@@ -218,10 +241,21 @@ func audit(ctx context.Context, opt Options, res *Result, head *ir.Registry, c *
 		}
 		for _, v := range out.Conflicts[k].Rules {
 			x := it.rules[v.Rule]
+			if x != nil && v.Verdict == "unsure" && opt.Log != nil {
+				fmt.Fprintf(opt.Log, "audit: unsure of %s: %s\n", v.Rule, strings.TrimSpace(v.Reason))
+			}
 			if x == nil || v.Verdict != "misread" || strings.TrimSpace(v.Reason) == "" {
 				continue
 			}
 			st.Checked[it.key] = append(st.Checked[it.key], v.Rule)
+			if n, ok := st.Reread[x.StatementID]; !ok || n.Hash != translate.TextHash(res.Statements[x.StatementID]) {
+				reason := strings.TrimSuffix(strings.TrimSpace(v.Reason), ".")
+				reread[x.StatementID] = append(reread[x.StatementID], fmt.Sprintf("%q: %s", x.Words(), reason))
+				// Judged again after the reread, also when it reads the
+				// same: misread again, it is then set aside.
+				forget[it.key] = true
+				continue
+			}
 			a := asideRule{Rule: x.ID, Statement: x.StatementID, Key: c.Entries[x.StatementID].Key, Reading: english(x), Reason: strings.TrimSuffix(strings.TrimSpace(v.Reason), ".")}
 			if a.Key == "" || slices.ContainsFunc(st.Aside, func(o asideRule) bool { return o.Rule == a.Rule && o.Statement == a.Statement && o.Key == a.Key }) {
 				continue
@@ -233,6 +267,20 @@ func audit(ctx context.Context, opt Options, res *Result, head *ir.Registry, c *
 			}
 		}
 	}
+	for key := range forget {
+		delete(st.Checked, key)
+	}
+	if len(reread) > 0 && st.Reread == nil {
+		st.Reread = map[string]auditNote{}
+	}
+	for _, id := range slices.Sorted(maps.Keys(reread)) {
+		st.Reread[id] = auditNote{Hash: translate.TextHash(res.Statements[id]), Note: "Stele's first reading of this requirement clashed with another requirement, and a check against the text found it does not say what the text says: " +
+			strings.Join(reread[id], "; ") + ". Read it again saying what the text says, no more and no less: keep each condition the text gives, add none, and where it names who a condition is about (the one who performs the step, the one it is done for, the item it acts on), read that one."}
+		added++
+		if opt.Log != nil {
+			fmt.Fprintf(opt.Log, "audit: reading %s again: %s\n", id, strings.Join(reread[id], "; "))
+		}
+	}
 	if err := st.save(opt.Out); err != nil {
 		res.Warnings = append(res.Warnings, "audit of the conflicts' rules: "+err.Error())
 		return 0
@@ -242,12 +290,14 @@ func audit(ctx context.Context, opt Options, res *Result, head *ir.Registry, c *
 
 const auditPrompt = `Software requirements were translated, one by one, into rules a solver checks. The solver found rules that cannot all hold in some situation. Before the project's owner is asked which requirement is right, check each rule against the text of its own requirement, and only that.
 
-A rule is read like this: "invariant when C then A" holds A in every state where C holds; "invariant on Step when C then A" says that when Step runs from a state where C holds, A holds after it; "permission allow Step when C" says Step must run whenever C holds; "permission deny Step when C" says it must not; "precondition Step when C" says Step must not run unless C holds.
+A rule is read like this: "invariant when C then A" holds A in every state where C holds; "invariant on Step when C then A" says that when Step runs from a state where C holds, A holds after it; "permission allow Step when C" says Step must run whenever C holds; "permission deny Step when C" says it must not; "permission possible Step when C" says Step must be able to run in some situation where C holds; "precondition Step when C" says Step must not run unless C holds.
+
+Who a rule is about: "self" is the item the step acts on (the tool lent, the order shipped); "actor" is whoever invokes the step (for a borrowing, the member who borrows, unless the text says someone else hands it out); "request" is what the step was asked with, often naming the party it is for (request.email). When the text does not say who performs the step, a condition on the actor and one on the party the request names are both fair readings of "a steward may hold", "a member may borrow": that is not a misreading. Give "unsure" when the verdict hangs only on who performs the step and the text does not say. Judge every other point apart: a rule that requires a step to run where the text grants a permission, or adds a condition the text does not give, is "misread" whoever performs the step.
 
 For each rule give a verdict:
 - "says": the rule states what the text states. Two faithful rules that clash are a real disagreement or a gap in the specs, which is the owner's to settle: both are "says". A requirement stated without a condition is faithfully read without one.
 - "misread": the rule does not state what the text states: its condition is turned round or is one the text does not give, it requires a different thing or of a different fact, it applies in situations the text does not speak of, or it requires a step to run where the text only says what the step does.
-- "unsure": you cannot tell from the text.
+- "unsure": you cannot tell from the text, or it hangs only on who performs the step and the text does not say.
 
 Judge only the rule against its own text. Never mark a rule "misread" because it clashes with another, and never say which requirement should win. Reply for every conflict, by its id, with every rule listed under it.`
 

@@ -966,6 +966,16 @@ func changeReport(res *change.Result, head *ir.Registry) string {
 			for _, f := range res.Findings[s] {
 				fmt.Fprintf(&b, "- ⚠ %s\n", oneLine(f, 300))
 			}
+			if cls := change.ClauseChecks(res.Clauses[s], head); len(cls) > 0 {
+				b.WriteString("\nClause by clause:\n\n")
+				for _, cl := range cls {
+					if cl.Checked {
+						fmt.Fprintf(&b, "- checked: %q, by: %s\n", cl.Text, strings.Join(cl.By, "; "))
+					} else {
+						fmt.Fprintf(&b, "- not checked: %q (%s)\n", cl.Text, cl.Why)
+					}
+				}
+			}
 			b.WriteString("\n")
 		}
 		if len(informal) > 0 {

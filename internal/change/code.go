@@ -42,12 +42,7 @@ func codeEvidence(ctx context.Context, opt Options, res *Result) {
 	for _, s := range res.Sources {
 		sources = append(sources, s)
 	}
-	exclude := adjudicate.SpecDirs(sources)
-	for _, d := range []string{opt.Registry, opt.Out} {
-		if rel, err := relTo(opt.Repo, d); err == nil {
-			exclude = append(exclude, rel)
-		}
-	}
+	exclude := codeExcludes(opt, sources)
 	state := codeState(opt.Repo, exclude)
 	// Range requests are the measured default (2026-10-27); definitions only
 	// come from the code graph, as whole bodies.
@@ -330,4 +325,24 @@ func relTo(repo, dir string) (string, error) {
 		return "", fmt.Errorf("%s is not inside %s", dir, repo)
 	}
 	return filepath.ToSlash(rel), nil
+}
+
+// codeExcludes names what the code search leaves out: the spec folders,
+// and Stele's own files.
+func codeExcludes(opt Options, sources []string) []string {
+	exclude := adjudicate.SpecDirs(sources)
+	// Markdown sources are relative to the spec folder, so the folder is
+	// named too; and Stele's own files are no code: a recommendation cited
+	// the spec it was about (specs/lending.md:12) and a PR card as what
+	// "the code follows" in a project with no code (a trial, 2026-11-11).
+	dirs := []string{opt.Registry, opt.Out, opt.SpecsDir, filepath.Join(opt.Repo, ".stele"), filepath.Join(opt.Repo, "stele.yaml")}
+	for _, d := range dirs {
+		if d == "" {
+			continue
+		}
+		if rel, err := relTo(opt.Repo, d); err == nil && rel != "." && !slices.Contains(exclude, rel) {
+			exclude = append(exclude, rel)
+		}
+	}
+	return exclude
 }
