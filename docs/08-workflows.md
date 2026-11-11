@@ -25,7 +25,7 @@ This is built for OpenSpec change folders and for Spec Kit and Kiro feature bran
 ```sh
 stele change speckit . --base main --json                       # or kiro; the change is named after the branch (<branch>-2 once one is approved)
 stele change openspec . --list                                  # active change folders
-stele change openspec . <change-id> --registry specs/registry   # steps 2 and 4; report.md in .stele/change/<id>
+stele change openspec . <change-id> --registry specs/registry   # steps 2 and 4; report.md in .stele/change/<id>, removed once the change is approved
 stele change openspec . <change-id> --registry specs/registry --apply   # write the change's rules once it is clean
 stele approve --registry specs/registry --base <main's registry> --by <owner>   # step 3
 stele gate --base <main's registry> --head specs/registry      # step 6; blocks unapproved rules

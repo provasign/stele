@@ -24,6 +24,7 @@ func (f contextCompletion) Complete(ctx context.Context, req llm.Request) (*llm.
 }
 
 func TestJournalCountsFailuresAndInterruptedCallsAcrossResume(t *testing.T) {
+	t.Setenv("STELE_KEEP_CALLS", "1") // the record of calls is what this tests
 	dir := t.TempDir()
 	// Simulate a process killed after recording an attempt but before its reply.
 	e, _ := json.Marshal(callEvent{ID: 1, Event: "started", At: time.Now()})
@@ -77,6 +78,7 @@ func TestJournalConcurrentBudget(t *testing.T) {
 }
 
 func TestJournalPreservesRawReplyForOfflineReplay(t *testing.T) {
+	t.Setenv("STELE_KEEP_CALLS", "1") // the record of calls is what this tests
 	dir := t.TempDir()
 	want := &llm.Reply{JSON: "{malformed", Model: "fixture", Usage: llm.Usage{InputTokens: 7}}
 	m := completionFunc(func(llm.Request) (*llm.Reply, error) { return want, nil })
@@ -234,5 +236,26 @@ func TestHedgedCallHasItsOwnLimit(t *testing.T) {
 	defer j.close()
 	if r, err := j.Complete(context.Background(), llm.Request{System: "abc", Schema: "{}"}); err != nil || r == nil || calls.Load() != 2 {
 		t.Fatalf("hedged call: %v %v after %d calls", r, err, calls.Load())
+	}
+}
+
+// TestJournalKeepsNothingByDefault: with no STELE_KEEP_CALLS and no call
+// budget, a run writes neither the requests and replies nor the ledger.
+func TestJournalKeepsNothingByDefault(t *testing.T) {
+	t.Setenv("STELE_KEEP_CALLS", "")
+	dir := t.TempDir()
+	j, err := newCallJournal(completionFunc(func(llm.Request) (*llm.Reply, error) { return &llm.Reply{JSON: "{}"}, nil }), dir, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := j.Complete(context.Background(), llm.Request{System: "the specs", Turns: []llm.Turn{{Role: "user", Text: "x"}}}); err != nil {
+		t.Fatal(err)
+	}
+	j.close()
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Fatalf("kept %v", entries)
+	}
+	if s := j.stats(); s.Started != 1 || s.Completed != 1 {
+		t.Fatalf("counts %+v", s)
 	}
 }

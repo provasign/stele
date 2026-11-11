@@ -17,6 +17,7 @@ import (
 
 	"github.com/provasign/stele/internal/adopt"
 	"github.com/provasign/stele/internal/change"
+	"github.com/provasign/stele/internal/formalize"
 	"github.com/provasign/stele/internal/gate"
 	"github.com/provasign/stele/internal/importer"
 	"github.com/provasign/stele/internal/ir"
@@ -186,6 +187,14 @@ func cmdChangeAnswer(args []string, out io.Writer) int {
 		}
 	}
 	if q.Kind == "approve" && choice == "approve" {
+		// Applied: what lasts is in the registry and the PR card. The
+		// check's working folder is kept only for a developer
+		// (formalize.KeepCalls).
+		if !formalize.KeepCalls() {
+			if err := os.RemoveAll(*outDir); err != nil {
+				fmt.Fprintf(os.Stderr, "stele change answer: could not remove %s: %v\n", *outDir, err)
+			}
+		}
 		return 0 // approveChange already said what it wrote
 	}
 	then := opt.Then

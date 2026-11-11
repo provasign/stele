@@ -173,7 +173,11 @@ func cmdFormalize(args []string, out io.Writer) int {
 		fmt.Fprintln(out, s)
 	}
 	h := res.Health
-	fmt.Fprintf(out, "%d recorded model calls: %d returned, %d failed, %d interrupted; see requests.jsonl\n", res.Calls.Started, res.Calls.Completed, res.Calls.Failed, res.Calls.Interrupted)
+	where := "set STELE_KEEP_CALLS=1 to keep each request and reply"
+	if formalize.KeepCalls() {
+		where = "see requests.jsonl and requests/"
+	}
+	fmt.Fprintf(out, "%d model calls: %d returned, %d failed, %d interrupted; %s\n", res.Calls.Started, res.Calls.Completed, res.Calls.Failed, res.Calls.Interrupted, where)
 	if len(res.Deferred) > 0 {
 		fmt.Fprintf(out, "%d statement(s) deferred for review and excluded from rules; see coverage.md and formalize.json\n", len(res.Deferred))
 	}
