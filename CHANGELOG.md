@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.1.19 - 2026-11-11
 
 Found rechecking, on this release, that the conflicts the case studies report are still found.
 
