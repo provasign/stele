@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.1.15 - 2026-11-10
+## v0.1.15 - 2026-11-11
 
 Found by a real Claude Code session adopting a held-out project of 179 requirements from one sentence of its owner's. That session read everything at once, had its first command killed at Claude Code's ten-minute limit, answered 19 questions of Stele's itself over three more rounds, and after 42 minutes and $3.45 brought its owner 22 contradictions, 17 of them with nothing recommended. A review of the specs' texts backed one of the 22.
 
