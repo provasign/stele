@@ -4,7 +4,7 @@
 
 1. Serve any software project in any domain from one domain-free core.
 2. Detect any logical conflict between an incoming rule and every active or deprecated rule, regardless of when either was written.
-3. Detect gaps: reachable states and operation × role pairs that are declared as needing a rule but have none.
+3. Detect gaps: reachable states and operation × role pairs that are declared as needing a rule but have none (planned; see the [checker](06-checker.md)).
 4. Keep the process light: one owner approves, one gate decides ([D-056](design-decisions.md)).
 5. Record every conflict resolution as a versioned decision, never as silent shadowing.
 6. Bind code and tests to a registry snapshot, and fail CI on drift (Phase 2).
@@ -16,7 +16,7 @@
 - Proving functional correctness of implementation code.
 - Proving UX, performance or other non-functional qualities. They are verified (`measured`) or, for judgment only, reviewed (`informal`).
 - Shipping domain knowledge in the core.
-- Replacing tests. The registry generates and governs tests.
+- Replacing tests. The registry is meant to generate and govern tests; it does not yet.
 - Undecidable logic. The IR grows to express what specs state, but every construct keeps a decision procedure, bounded where necessary, and bounded results say so.
 - Replacing Cedar or OPA as runtime policy engines.
 
@@ -34,5 +34,9 @@
 | Conflicts are data | Precedence lives in decision records and named policies, each approved by the owner with a rationale | Decision schema, precedence policies |
 | Spec as code | Changes arrive as pull requests, are reviewed, versioned and gated in CI | `stele gate` |
 | Counterexamples, not verdicts | Every failure comes with a concrete state a person can read | Checker output contract |
+| An approval covers what was checked | An approval is pinned to the statement's text, the rule's reading and the vocabulary changes it accepted; a check refuses its own result when its input changed while it ran | Gate, approval, [workflows](08-workflows.md#commit-hook) |
+| The owner sees what they approve | Every reading is shown clause by clause in plain words, with what checks it or that nothing does | Approval question, report |
+| What cannot be checked does not pass | The commit hook and the gate block a registry or configuration that does not load, and a step the solver cannot decide | `stele precommit`, `stele gate` |
+| Project text is material, never instructions | Requirement texts, vocabulary meanings and code are fenced in every prompt; no prompt or reply is stored beyond a failed reading's | Model layer |
 | LLM-free core | Parsing, type checking and solver checks run with no API key | Packaging |
 | No production data to the LLM | The translator sees prose, symbols, code locations and solver-generated examples, never real records | Translator inputs |

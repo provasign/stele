@@ -1,6 +1,6 @@
 # Examples
 
-Worked examples from deliberately unlike kinds of software. They exercise the same domain-free core: no example uses a feature the others couldn't. They are illustrations, not domain packs, and nothing in them is built into the registry.
+Worked examples from deliberately unlike kinds of software. They exercise the same domain-free core: no example uses a feature the others couldn't. They are illustrations of the design, not domain packs, and nothing in them is built into the registry. Some features they use are planned and not built: `final` rules, the bit-vector tier, decision tables and the checking of `measured` thresholds. [What is built](../README.md#status) says which.
 
 Each example follows the same shape: the project, its contexts, a few rules, a contradiction introduced months later from another part of the project, what the checker reports, how it is resolved, and which assurance level each rule gets.
 
