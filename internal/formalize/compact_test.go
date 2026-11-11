@@ -51,6 +51,7 @@ func sharedVocabulary(req llm.Request) string {
 }
 
 func TestCompactRepairsOnlyUnresolvedStatementsAndResumes(t *testing.T) {
+	t.Setenv("STELE_KEEP_CALLS", "1") // the record of calls is what this tests
 	dir, stmts, opt := compactFixture(t)
 	stmts[0].ID = "long-document.md#requirements/orders/first"
 	stmts[1].ID = "long-document.md#requirements/orders/second"

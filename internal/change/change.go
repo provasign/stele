@@ -1038,6 +1038,13 @@ func (c *cache) translate(ctx context.Context, opt Options, todo []translate.Sta
 		}
 	}
 	c.Merges = append(c.Merges, fr.Merges...)
+	// The run's results are in the cache now; its working folder is kept
+	// only for a developer (formalize.KeepCalls).
+	if !formalize.KeepCalls() {
+		if err := os.RemoveAll(dir); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

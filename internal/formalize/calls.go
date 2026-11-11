@@ -58,17 +58,38 @@ type callJournal struct {
 	done        *sync.Cond
 }
 
+// KeepCalls reports whether a developer asked, with STELE_KEEP_CALLS=1,
+// to keep the record of model calls: every request and reply in full
+// (requests/), one line per call (requests.jsonl), and the working folders
+// of finished checks. Off by default: a project keeps no copy of its
+// requirements' prompts, the model's replies or the code names in them,
+// only what its checks need (the owner, 2026-11-11).
+func KeepCalls() bool {
+	v := os.Getenv("STELE_KEEP_CALLS")
+	return v != "" && v != "0" && v != "false"
+}
+
 func newCallJournal(m llm.Client, dir string, opt Options) (*callJournal, error) {
 	if opt.Log == nil {
 		opt.Log = io.Discard
+	}
+	// The ledger (requests.jsonl) holds counts and usage, no prompt text;
+	// a call budget across resumed runs (MaxCalls, the research commands)
+	// needs it. The full requests and replies need KeepCalls.
+	if !KeepCalls() && opt.MaxCalls == 0 {
+		j := &callJournal{Client: m, opt: opt, dir: dir}
+		j.done = sync.NewCond(&j.mu)
+		return j, nil
 	}
 	f, err := os.OpenFile(filepath.Join(dir, "requests.jsonl"), os.O_CREATE|os.O_RDWR|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(filepath.Join(dir, "requests"), 0o700); err != nil {
-		f.Close()
-		return nil, err
+	if KeepCalls() {
+		if err := os.MkdirAll(filepath.Join(dir, "requests"), 0o700); err != nil {
+			f.Close()
+			return nil, err
+		}
 	}
 	j := &callJournal{Client: m, file: f, opt: opt, dir: dir}
 	j.done = sync.NewCond(&j.mu)
@@ -93,7 +114,11 @@ func newCallJournal(m llm.Client, dir string, opt Options) (*callJournal, error)
 	return j, nil
 }
 
-func (j *callJournal) close() { j.file.Close() }
+func (j *callJournal) close() {
+	if j.file != nil {
+		j.file.Close()
+	}
+}
 
 // CachesPrompts is the journaled backend's (llm.Warm).
 func (j *callJournal) CachesPrompts() bool { return llm.CachesPrompts(j.Client) }
@@ -115,6 +140,9 @@ func (j *callJournal) stopErr() error {
 // record is called with mu held. A request never starts before its journal
 // entry reaches disk, even for backends that cannot report token usage.
 func (j *callJournal) record(e callEvent) error {
+	if j.file == nil {
+		return nil // nothing kept (KeepCalls)
+	}
 	if err := json.NewEncoder(j.file).Encode(e); err != nil {
 		return err
 	}
@@ -249,14 +277,18 @@ func (j *callJournal) Complete(ctx context.Context, req llm.Request) (*llm.Reply
 	}
 	// Preserve the exact input and raw reply before callers validate it. This
 	// makes failed translations reproducible without another backend call.
-	e.Artifact = filepath.Join("requests", fmt.Sprintf("%06d.json", e.ID))
-	artifact, archiveErr := json.MarshalIndent(struct {
-		Request llm.Request `json:"request"`
-		Reply   *llm.Reply  `json:"reply"`
-		Error   string      `json:"error,omitempty"`
-	}{req, reply, e.Error}, "", "  ")
-	if archiveErr == nil {
-		archiveErr = os.WriteFile(filepath.Join(j.dir, e.Artifact), append(artifact, '\n'), 0o600)
+	var archiveErr error
+	if j.file != nil && KeepCalls() {
+		e.Artifact = filepath.Join("requests", fmt.Sprintf("%06d.json", e.ID))
+		var artifact []byte
+		artifact, archiveErr = json.MarshalIndent(struct {
+			Request llm.Request `json:"request"`
+			Reply   *llm.Reply  `json:"reply"`
+			Error   string      `json:"error,omitempty"`
+		}{req, reply, e.Error}, "", "  ")
+		if archiveErr == nil {
+			archiveErr = os.WriteFile(filepath.Join(j.dir, e.Artifact), append(artifact, '\n'), 0o600)
+		}
 	}
 	if archiveErr != nil {
 		j.stop = fmt.Errorf("save request artifact: %w", archiveErr)
