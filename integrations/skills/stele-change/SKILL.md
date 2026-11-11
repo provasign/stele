@@ -132,5 +132,6 @@ The owner's answers teach Stele about the project: "the same thing", and the own
 
 - Never answer a question with `ask_owner: true` yourself, and never run the approval command for a change the owner has not seen: the permission prompt is their approval, not a formality to get past. Never pass the owner's name with `--by` for an answer you gave. When the owner gives an answer or an approval, record it without `--by`: Stele takes their identity from git, never from your own context.
 - Never use `stele approve` or `--apply` directly in this loop; `stele change answer … approve` does both after checking the check is current.
+- Outside this loop, when the commit hook blocks a registry edited by hand (a vocabulary change under approved rules), do what its `Next:` says: show the owner the change with `stele approve --registry <dir> --since HEAD --list`, and if they want it, record their approval with `stele approve --registry <dir> --since HEAD --by <owner>`; otherwise undo the edit.
 - If CI's `stele gate` fails with unapproved rules or conflicts, run this loop for the change in that branch.
 - Requirements listed under `unchecked` were not checked. Mention how many when asking for approval (the question already says so); do not try to fix them.
