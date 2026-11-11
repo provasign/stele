@@ -2,8 +2,6 @@
 
 Stele keeps a project's specs consistent: it codifies every spec statement into a checkable rule over one vocabulary, finds statements that contradict each other, settles them with the owner against the code, gates every later spec change, and learns from the owner's answers. Every statement ends checked or reported ([D-049](design-decisions.md)).
 
-Stele was called Spec Registry until 2026-10-24 ([D-033](design-decisions.md)). Planning documents that used to live here (deployment, development process, benchmarking, test plan, open-source plan, roadmap) moved to the private research repository on 2026-10-31.
-
 ## Reading order
 
 | # | Document | What it answers |
@@ -23,7 +21,7 @@ Stele was called Spec Registry until 2026-10-24 ([D-033](design-decisions.md)). 
 | — | [Design decisions](design-decisions.md) | The decision log, D-001 to D-064 |
 | — | [Glossary](glossary.md) | Terms used across these documents |
 
-## Status, 2026-11-09
+## Status
 
 | | Built | Planned |
 | --- | --- | --- |
@@ -31,9 +29,9 @@ Stele was called Spec Registry until 2026-10-24 ([D-033](design-decisions.md)). 
 | Translation | compact translation on a whole-corpus fact vocabulary; clause coverage and scope check; self-contradiction and blocking-rule rereads | |
 | Finding conflicts | Z3 checks (response conflicts, dead responses, vacuity); LLM review with solver confirmation (`stele audit`) | |
 | Deciding | conflicts settled against the code; owner questions in the coding agent; decision records; adoption of existing specs, whole or a few specs at a time, with conflicts settled by precedence or left open | |
-| Changes | `stele change` for OpenSpec, Spec Kit, Kiro and Shale requests; a summary in the owner's words; approval pinned to text and reading; ledger; renames kept; `stele export openspec` from kept requests; a card for the pull request | |
+| Changes | `stele change` for OpenSpec, Spec Kit, Kiro and Shale requests; a summary in the owner's words; approval pinned to text, reading and vocabulary; readings shown clause by clause in plain words; ledger; renames kept; `stele export openspec` from kept requests; a card for the pull request | |
 | Learning | lessons from the owner's own words, in the registry's git | |
-| Agents | `stele init` sets up Claude Code, the one agent supported for now; the setups for Codex, Cursor, Windsurf, VS Code (Copilot), Gemini CLI and opencode stay for projects that recorded them | |
+| Agents | `stele init` sets up Claude Code, the one agent supported for now | |
 | CI | `stele gate` | a GitHub integration that runs it on every PR |
 | Code | code evidence for conflict questions | checking each code change against the rules it touches; generated tests ([09](09-enforcement.md)) |
 | No specs | requests declared with Shale, kept as requirements when the owner says they last | proposing requirements from code |
