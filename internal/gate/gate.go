@@ -137,11 +137,45 @@ func (r *Result) Passes(requireApproval bool) bool {
 	return r != nil && r.Accepted && !(requireApproval && len(r.Unapproved) > 0)
 }
 
+// Words says the change in plain English, for the owner who approves it.
+func (c Change) Words() string {
+	sym := "“" + strings.ReplaceAll(checker.Words(c.Symbol), ": ", "'s ") + "”"
+	step := ir.StepWords(c.Symbol)
+	switch c.Kind {
+	case "enum-values-added":
+		return sym + " can now also be " + c.Detail
+	case "enum-values-removed":
+		return sym + " can no longer be " + c.Detail
+	case "range-changed":
+		from, to, _ := strings.Cut(c.Detail, " -> ")
+		return "the range of " + sym + " changes from " + from + " to " + to
+	case "type-changed":
+		return "the type of " + sym + " changes"
+	case "controller-changed":
+		return "who sets " + sym + " changes"
+	case "default-changed":
+		return "whether " + step + " runs when no rule decides changes (" + c.Detail + ")"
+	case "writes-changed":
+		return "what " + step + " changes, changes (" + c.Detail + ")"
+	case "effect-changed":
+		return "what " + step + " does changes (" + c.Detail + ")"
+	case "open-conflict-added":
+		return "open conflict " + c.Symbol + " is recorded (" + c.Detail + ")"
+	case "open-conflict-repinned":
+		return "open conflict " + c.Symbol + " now covers other rules (" + c.Detail + ")"
+	}
+	return c.Kind + " " + c.Symbol + " " + c.Detail
+}
+
 // Key identifies a vocabulary change in the approval that accepts it.
 func (c Change) Key() string {
 	h := sha256.Sum256([]byte(c.Kind + "\x00" + c.Symbol + "\x00" + c.Detail))
 	return fmt.Sprintf("%x", h[:8])
 }
+
+// VocabChanges lists the vocabulary changes from base to head, each with
+// the rules whose meaning it alters.
+func VocabChanges(base, head *ir.Registry) []Change { return vocabChanges(base, head) }
 
 // MeaningChanges lists, for each live rule of head, the vocabulary changes
 // from base that alter what it means (Change.Key). Open-conflict changes
@@ -153,6 +187,11 @@ func MeaningChanges(base, head *ir.Registry) map[string][]string {
 	}
 	for _, c := range vocabChanges(base, head) {
 		for _, id := range c.Affected {
+			// Only a rule base already had changes meaning: one the change
+			// adds is read, and approved, with the new vocabulary.
+			if b := base.Rule(id); b == nil || !b.Live() {
+				continue
+			}
 			if x := head.Rule(id); x != nil && x.Live() && !slices.Contains(out[id], c.Key()) {
 				out[id] = append(out[id], c.Key())
 			}

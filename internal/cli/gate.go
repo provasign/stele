@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/provasign/stele/internal/gate"
@@ -44,7 +45,11 @@ func cmdGate(args []string, out io.Writer) int {
 			fmt.Fprintf(out, "  %-14s %s %s\n", c.Kind, c.Symbol, c.Detail)
 		}
 		for _, c := range res.NeedsApproval {
-			fmt.Fprintf(out, "[APPROVAL] %s (%s %s) changes the meaning of: %s\n", c.Symbol, c.Kind, c.Detail, strings.Join(c.Affected, ", "))
+			tag := "[APPROVED]"
+			if slices.ContainsFunc(c.Affected, func(id string) bool { return slices.Contains(res.Unapproved, id) }) {
+				tag = "[APPROVAL]"
+			}
+			fmt.Fprintf(out, "%s %s (%s %s) changes the meaning of: %s\n", tag, c.Symbol, c.Kind, c.Detail, strings.Join(c.Affected, ", "))
 		}
 		for _, e := range res.Errors {
 			fmt.Fprintf(out, "[ERROR] %s\n", e)

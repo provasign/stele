@@ -104,7 +104,11 @@ func cmdPrecommit(args []string, out io.Writer) int {
 		return 0
 	}
 
-	var blocks, notes []string
+	// fixes are the next steps that fit what blocked the commit, said in
+	// place of the generic one: `stele change` has nothing to decide about
+	// a registry edited by hand or a saved-spec file deleted, and an agent
+	// sent there twice was left with --no-verify (a trial, 2026-11-11).
+	var blocks, notes, fixes []string
 	if touchesSpecs && cfg.Specs != nil {
 		// What the commit carries is the index, not the working tree: a
 		// change staged and then undone in the working tree would pass a
@@ -117,7 +121,13 @@ func cmdPrecommit(args []string, out io.Writer) int {
 		defer cleanup()
 		r, err := evaluateStaged(cfg, staged, rel)
 		if err != nil {
-			blocks = append(blocks, fmt.Sprintf("the staged specs could not be compared with the approved requirements (%v): the commit must carry the registry and %s as they were approved", err, rel(cfg.SnapshotFile())))
+			snap := rel(cfg.SnapshotFile())
+			why := strings.ReplaceAll(err.Error(), staged+string(filepath.Separator), "")
+			if _, lerr := git("ls-files", "--error-unmatch", "--", snap); lerr != nil && inHead(snap) {
+				why = snap + " is deleted"
+				fixes = append(fixes, fmt.Sprintf("restore the saved specs with `git checkout HEAD -- %s`", snap))
+			}
+			blocks = append(blocks, fmt.Sprintf("the staged specs could not be compared with the approved requirements (%s): the commit must carry the registry and %s as they were approved", why, snap))
 		} else {
 			for _, id := range r.StaleRules {
 				blocks = append(blocks, fmt.Sprintf("approved rule %s was approved for text that has since changed", id))
@@ -175,8 +185,36 @@ func cmdPrecommit(args []string, out io.Writer) int {
 			for _, e := range res.Errors {
 				blocks = append(blocks, "registry error: "+e)
 			}
+			// A vocabulary change is named once, with the rules it changes:
+			// nine rule IDs alone did not say a tool status had been added.
+			byChange := map[string]bool{}
+			vocab := false
+			for _, c := range res.NeedsApproval {
+				var ids []string
+				for _, id := range c.Affected {
+					if slices.Contains(res.Unapproved, id) {
+						ids = append(ids, id)
+						byChange[id] = true
+					}
+				}
+				if len(ids) > 0 {
+					vocab = true
+					blocks = append(blocks, fmt.Sprintf("the commit changes the vocabulary: %s, which changes what %d approved rule(s) mean, and the owner has not approved that: %s", c.Words(), len(ids), strings.Join(ids, ", ")))
+				}
+			}
 			for _, id := range res.Unapproved {
-				blocks = append(blocks, fmt.Sprintf("rule %s is not approved by the owner for its current text and vocabulary", id))
+				if !byChange[id] {
+					blocks = append(blocks, fmt.Sprintf("rule %s is not approved by the owner for its current text", id))
+				}
+			}
+			if len(res.Unapproved) > 0 && !touchesSpecs {
+				// The registry edited without a spec change: there is no
+				// check to run, only the owner's approval of the edit.
+				what := "the edit"
+				if vocab {
+					what = "the vocabulary change"
+				}
+				fixes = append(fixes, fmt.Sprintf("if the owner wants %s, ask them, then run `stele approve --registry %s --since HEAD --list` to show them what it changes and `stele approve --registry %s --since HEAD --by \"<the owner's name>\"` to record their approval (Claude Code asks them to allow it); if not, undo it with `git checkout HEAD -- %s`", what, regRel, regRel, regRel))
 			}
 			if res.Check != nil {
 				for _, c := range res.Check.Conflicts {
@@ -219,6 +257,10 @@ func cmdPrecommit(args []string, out io.Writer) int {
 	fmt.Fprintln(out, "Stele blocked this commit: the specs and the approved requirements disagree.")
 	for _, b := range append(blocks, notes...) {
 		fmt.Fprintf(out, "- %s\n", b)
+	}
+	if len(fixes) > 0 {
+		fmt.Fprintf(out, "Next: %s; then commit again. Do not bypass this check with --no-verify.\n", strings.Join(fixes, "; "))
+		return 1
 	}
 	fmt.Fprintf(out, "Next: run `%s`, ask the owner the questions it marks for them, record their answers as it says, then commit again. Do not bypass this check with --no-verify.\n", next)
 	return 1

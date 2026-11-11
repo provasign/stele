@@ -22,7 +22,7 @@ flowchart LR
 
 ### 1. Import (`internal/importer`)
 
-Extracts each normative statement (MUST, SHALL, SHOULD, EARS criteria, OpenSpec requirements with their scenarios) with a stable ID and source anchor. An OpenSpec change folder is read as its added, modified, removed and renamed requirements. In a project without spec documents, the requests coding agents declare with Shale are tasks; only those kept as requirements (`stele keep`, listed in `.stele/kept-intents.yaml`) are read as specs.
+Extracts each normative statement (MUST, SHALL, SHOULD, MAY, EARS criteria, OpenSpec requirements with their scenarios) with a stable ID and source anchor. An OpenSpec change folder is read as its added, modified, removed and renamed requirements. In a project without spec documents, the requests coding agents declare with Shale are tasks; only those kept as requirements (`stele keep`, listed in `.stele/kept-intents.yaml`) are read as specs.
 
 ### 2. Translate (`internal/vocab`, `internal/translate`, `internal/formalize`) — model
 

@@ -14,7 +14,7 @@ func TestDecisionLeavesOutTheExample(t *testing.T) {
 	if err := card.Save(repo, &card.Card{Change: "orders"}); err != nil {
 		t.Fatal(err)
 	}
-	ex := `order: ship runs and order: carrier is "a"`
+	ex := `“ship” on an order runs and order: carrier is "a"`
 	q := change.Question{Kind: "conflict", Example: ex,
 		Text: `"Orders ship within 2 days" (current spec) and "Orders ship within 3 days" (added in this change) cannot both hold, for example when ` + ex + `. Which is right?`}
 	if err := recordDecision(repo, "orders", q, "The earlier request is out of date: retire it", "owner"); err != nil {
