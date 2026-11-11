@@ -104,6 +104,11 @@ type Options struct {
 	// still compiled against the whole vocabulary.
 	Retrieve int
 	MaxCalls int // total journaled calls allowed in this output directory; 0 is unlimited
+	// FailedCalls is where, with no STELE_KEEP_CALLS, the run writes the
+	// calls that failed or read a statement whose reading failed, so the
+	// failure can be replayed; nothing is kept when nothing failed.
+	FailedCalls string
+	onJournal   func(*callJournal)
 	// MaxCost is the most this run's model calls may cost, as reported: a
 	// call starts only when its expected cost (from the cost per prompt byte
 	// of the calls so far) fits with the calls in flight, so only the first
@@ -269,6 +274,18 @@ type state struct {
 // Run formalizes stmts into dir. It resumes from dir's saved state when
 // there is one.
 func Run(ctx context.Context, m llm.Client, stmts []translate.Statement, dir string, opt Options) (*Result, error) {
+	var j *callJournal
+	opt.onJournal = func(x *callJournal) { j = x }
+	res, err := run(ctx, m, stmts, dir, opt)
+	if j != nil {
+		if kerr := j.keepFailed(stmts, res); kerr != nil {
+			fmt.Fprintf(opt.Log, "could not keep the failed calls: %v\n", kerr)
+		}
+	}
+	return res, err
+}
+
+func run(ctx context.Context, m llm.Client, stmts []translate.Statement, dir string, opt Options) (*Result, error) {
 	if opt.Compact && opt.OnePass {
 		return nil, fmt.Errorf("choose compact or one-pass mode, not both")
 	}
@@ -306,6 +323,9 @@ func Run(ctx context.Context, m llm.Client, stmts []translate.Statement, dir str
 		return nil, err
 	}
 	defer tracked.close()
+	if opt.onJournal != nil {
+		opt.onJournal(tracked)
+	}
 	m = tracked
 	vopt := vocab.Options{VocabFiles: opt.VocabFiles, Context: opt.Context, BatchSize: opt.VocabBatch, MaxRepairs: opt.MaxRepairs, Facts: true, FactBatch: opt.FactBatch, Reconsolidate: opt.Reconsolidate, Log: opt.Log}
 	save := func(stage string) error {

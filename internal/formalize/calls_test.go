@@ -14,6 +14,7 @@ import (
 
 	"github.com/provasign/stele/internal/ir"
 	"github.com/provasign/stele/internal/llm"
+	"github.com/provasign/stele/internal/translate"
 )
 
 type contextCompletion func(context.Context, llm.Request) (*llm.Reply, error)
@@ -257,5 +258,53 @@ func TestJournalKeepsNothingByDefault(t *testing.T) {
 	}
 	if s := j.stats(); s.Started != 1 || s.Completed != 1 {
 		t.Fatalf("counts %+v", s)
+	}
+}
+
+// TestJournalKeepsOnlyFailedCalls: with no STELE_KEEP_CALLS, a call that
+// fails, and a call that read a statement whose reading failed, are kept
+// where the run says; a run with nothing failed keeps nothing.
+func TestJournalKeepsOnlyFailedCalls(t *testing.T) {
+	t.Setenv("STELE_KEEP_CALLS", "")
+	dir, keep := t.TempDir(), filepath.Join(t.TempDir(), "failed")
+	n := 0
+	j, err := newCallJournal(completionFunc(func(r llm.Request) (*llm.Reply, error) {
+		n++
+		if n == 2 {
+			return nil, errors.New("backend down")
+		}
+		return &llm.Reply{JSON: "{}"}, nil
+	}), dir, Options{FailedCalls: keep})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []string{"text: Orders MUST be paid.", "text: other", "text: Orders ship."} {
+		j.Complete(context.Background(), llm.Request{System: "sys", Turns: []llm.Turn{{Role: "user", Text: text}}})
+	}
+	stmts := []translate.Statement{{ID: "S1", Prose: "Orders MUST be paid."}, {ID: "S2", Prose: "Orders ship."}}
+	res := &Result{Ends: []End{{ID: "S1", State: Invalid}, {ID: "S2", State: Translated}}}
+	if err := j.keepFailed(stmts, res); err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	entries, _ := os.ReadDir(keep)
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	if strings.Join(names, ",") != "000001.json,000002.json" {
+		t.Fatalf("kept %v; want the failed statement's call and the failed call", names)
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Fatalf("the run folder holds %v", entries)
+	}
+	// Nothing failed: nothing kept.
+	keep2 := filepath.Join(t.TempDir(), "failed")
+	j2, _ := newCallJournal(completionFunc(func(llm.Request) (*llm.Reply, error) { return &llm.Reply{JSON: "{}"}, nil }), t.TempDir(), Options{FailedCalls: keep2})
+	j2.Complete(context.Background(), llm.Request{System: "sys", Turns: []llm.Turn{{Role: "user", Text: "text: Orders ship."}}})
+	if err := j2.keepFailed(stmts, &Result{Ends: []End{{ID: "S2", State: Translated}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(keep2); err == nil {
+		t.Fatal("a run with nothing failed kept calls")
 	}
 }
