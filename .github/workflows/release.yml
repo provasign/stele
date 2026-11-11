@@ -2,15 +2,23 @@ name: Release
 # Runs only when a release tag is pushed. Stele needs cgo (tree-sitter, via
 # Grove), so every platform builds natively; Linux binaries are static so
 # they run on older glibc. Adapted from Prism's release workflow.
+# It can also be started by hand for a tag already pushed, to finish a
+# release whose run failed for reasons outside the code.
 on:
   push:
     tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build, e.g. v0.1.15
+        required: true
 permissions:
   contents: write
   id-token: write
   attestations: write
 env:
   GO_VERSION: "1.26.3"
+  TAG: ${{ inputs.tag || github.ref_name }}
 jobs:
   build-linux:
     name: Build linux/${{ matrix.goarch }}
@@ -26,6 +34,8 @@ jobs:
             runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
       - uses: actions/setup-go@v7
         with:
           go-version: ${{ env.GO_VERSION }}
@@ -37,7 +47,7 @@ jobs:
           CC: gcc
         run: |
           mkdir -p dist
-          go build -tags netgo,osusergo -ldflags="-s -w -extldflags \"-static\" -X github.com/provasign/stele/internal/version.Version=${{ github.ref_name }}" -o "dist/stele-${{ github.ref_name }}-linux-${{ matrix.goarch }}" ./cmd/stele
+          go build -tags netgo,osusergo -ldflags="-s -w -extldflags \"-static\" -X github.com/provasign/stele/internal/version.Version=${{ env.TAG }}" -o "dist/stele-${{ env.TAG }}-linux-${{ matrix.goarch }}" ./cmd/stele
       - uses: actions/upload-artifact@v7
         with:
           name: stele-linux-${{ matrix.goarch }}
@@ -51,6 +61,8 @@ jobs:
         goarch: [amd64, arm64]
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
       - uses: actions/setup-go@v7
         with:
           go-version: ${{ env.GO_VERSION }}
@@ -62,7 +74,7 @@ jobs:
           CC: ${{ matrix.goarch == 'amd64' && 'clang -arch x86_64' || 'clang -arch arm64' }}
         run: |
           mkdir -p dist
-          go build -ldflags="-s -w -X github.com/provasign/stele/internal/version.Version=${{ github.ref_name }}" -o "dist/stele-${{ github.ref_name }}-darwin-${{ matrix.goarch }}" ./cmd/stele
+          go build -ldflags="-s -w -X github.com/provasign/stele/internal/version.Version=${{ env.TAG }}" -o "dist/stele-${{ env.TAG }}-darwin-${{ matrix.goarch }}" ./cmd/stele
       - uses: actions/upload-artifact@v7
         with:
           name: stele-darwin-${{ matrix.goarch }}
@@ -74,6 +86,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
       - uses: actions/download-artifact@v8
         with:
           merge-multiple: true
@@ -88,6 +102,7 @@ jobs:
           subject-path: dist/*
       - uses: softprops/action-gh-release@v3
         with:
+          tag_name: ${{ env.TAG }}
           files: |
             dist/*
             install.sh
