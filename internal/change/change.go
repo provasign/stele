@@ -938,7 +938,7 @@ func (c *cache) translate(ctx context.Context, opt Options, todo []translate.Sta
 	sort.Slice(others, func(i, j int) bool { return others[i].ID < others[j].ID })
 	fr, err := formalize.Run(ctx, opt.Clients[0], todo, dir, formalize.Options{VocabFiles: files, Context: newIn, Compact: true, FactsFirst: factsFirst,
 		Batch: translateBatch, Parallel: 4, MaxRepairs: 2, Known: ks, Others: others, Lessons: opt.lessons, Log: log, MaxCost: opt.MaxCost,
-		RequestTimeout: opt.RequestTimeout})
+		RequestTimeout: opt.RequestTimeout, FailedCalls: filepath.Join(opt.Out, "failed-calls", filepath.Base(dir))})
 	if err != nil {
 		return fmt.Errorf("translate: %w", err)
 	}

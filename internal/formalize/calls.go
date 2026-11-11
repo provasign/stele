@@ -8,10 +8,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/provasign/stele/internal/llm"
+	"github.com/provasign/stele/internal/translate"
 )
 
 // CallStats counts backend invocations, including failures, across resumes.
@@ -54,8 +57,61 @@ type callJournal struct {
 	pricedCost  float64
 	inflight    int
 	pending     float64
-	unpriced    bool // a call completed without a cost: the budget cannot apply
-	done        *sync.Cond
+	// held are this run's calls, in memory, when only failed ones are
+	// kept (Options.FailedCalls): written out by keepFailed.
+	held     []heldCall
+	unpriced bool // a call completed without a cost: the budget cannot apply
+	done     *sync.Cond
+}
+
+type heldCall struct {
+	id     int
+	failed bool   // the call itself failed, not the run's own deadline
+	text   string // what the request said, to match a failed statement's text
+	data   []byte
+}
+
+// keepFailed writes the calls that failed, and those whose request read a
+// statement the run could not translate, to Options.FailedCalls. A run
+// with nothing failed keeps nothing.
+func (j *callJournal) keepFailed(stmts []translate.Statement, res *Result) error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if len(j.held) == 0 || j.opt.FailedCalls == "" {
+		return nil
+	}
+	var failed []string
+	if res != nil {
+		prose := map[string]string{}
+		for _, s := range stmts {
+			prose[s.ID] = s.Prose
+		}
+		for _, e := range res.Ends {
+			if e.State == Invalid && prose[e.ID] != "" {
+				failed = append(failed, prose[e.ID])
+			}
+		}
+	}
+	var keep []heldCall
+	for _, h := range j.held {
+		if h.failed || slices.ContainsFunc(failed, func(p string) bool { return strings.Contains(h.text, p) }) {
+			keep = append(keep, h)
+		}
+	}
+	j.held = nil
+	if len(keep) == 0 {
+		return nil
+	}
+	if err := os.MkdirAll(j.opt.FailedCalls, 0o700); err != nil {
+		return err
+	}
+	for _, h := range keep {
+		if err := os.WriteFile(filepath.Join(j.opt.FailedCalls, fmt.Sprintf("%06d.json", h.id)), h.data, 0o600); err != nil {
+			return err
+		}
+	}
+	fmt.Fprintf(j.opt.Log, "kept %d failed model call(s) in %s, until the change is approved\n", len(keep), j.opt.FailedCalls)
+	return nil
 }
 
 // KeepCalls reports whether a developer asked, with STELE_KEEP_CALLS=1,
@@ -278,6 +334,23 @@ func (j *callJournal) Complete(ctx context.Context, req llm.Request) (*llm.Reply
 	// Preserve the exact input and raw reply before callers validate it. This
 	// makes failed translations reproducible without another backend call.
 	var archiveErr error
+	if !KeepCalls() && j.opt.FailedCalls != "" {
+		// Held in memory; only a failure's calls reach the disk.
+		data, merr := json.MarshalIndent(struct {
+			Request llm.Request `json:"request"`
+			Reply   *llm.Reply  `json:"reply"`
+			Error   string      `json:"error,omitempty"`
+		}{req, reply, e.Error}, "", "  ")
+		if merr == nil {
+			var text strings.Builder
+			text.WriteString(req.System)
+			for _, t := range req.Turns {
+				text.WriteString("\n")
+				text.WriteString(t.Text)
+			}
+			j.held = append(j.held, heldCall{id: e.ID, failed: err != nil && run.Err() == nil, text: text.String(), data: append(data, '\n')})
+		}
+	}
 	if j.file != nil && KeepCalls() {
 		e.Artifact = filepath.Join("requests", fmt.Sprintf("%06d.json", e.ID))
 		var artifact []byte
