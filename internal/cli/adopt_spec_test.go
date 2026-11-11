@@ -160,8 +160,8 @@ func TestAdoptionBySpecLaterConflict(t *testing.T) {
 		"reply.sh": "in=$(cat)\ncase \"$in\" in\n" +
 			`*'You review software requirements for contradictions'*) echo '{"conflicts":[{"statement_ids":["orders/Paid","samples/Free"],"world_facts":[],"situation":"the two cannot both hold for one order"}]}' ;;` + "\n" +
 			`*'list its clauses'*) echo '{"statements":[{"statement_id":"s1","clauses":[{"text":"all","status":"covered","rules":["r1"]}],"broader":[]}]}' ;;` + "\n" +
-			`*'An order MUST be paid'*) echo '` + entity("Order", "paid") + `' ;;` + "\n" +
 			`*'An order is never paid'*) echo '` + strings.Replace(entity("Order", "paid"), `"assert":"self.paid"`, `"assert":"not self.paid"`, 1) + `' ;;` + "\n" +
+			`*'An order MUST be paid'*) echo '` + entity("Order", "paid") + `' ;;` + "\n" +
 			"*) echo '{}' ;;\nesac\n",
 	} {
 		os.MkdirAll(filepath.Dir(rel), 0o755)
