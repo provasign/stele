@@ -3,6 +3,7 @@ package change
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -70,5 +71,24 @@ func TestUnaccountedText(t *testing.T) {
 	}
 	if got := unaccounted("A member MUST be able to reserve an available tool; the tool is then reserved.", []string{"A member MUST be able to reserve an available tool", "the tool is then reserved"}); got != nil {
 		t.Fatalf("every sentence quoted: %q", got)
+	}
+}
+
+// TestLimitCarriesAcrossRuns: a check run again after its time slice keeps
+// one account; a $0.15 limit with $0.10 spent in an earlier run allows one
+// more $0.10 call, not a fresh $0.15.
+func TestLimitCarriesAcrossRuns(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "slice-spend")
+	calls := 0
+	first := withLimits(Options{Clients: []llm.Client{pricedCall{cost: 0.10, calls: &calls}}, MaxCost: 0.15, SpendFile: file})
+	if _, err := first.Clients[0].Complete(context.Background(), llm.Request{}); err != nil {
+		t.Fatal(err)
+	}
+	second := withLimits(Options{Clients: []llm.Client{pricedCall{cost: 0.10, calls: &calls}}, MaxCost: 0.15, SpendFile: file})
+	if _, err := second.Clients[0].Complete(context.Background(), llm.Request{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := second.Clients[0].Complete(context.Background(), llm.Request{}); !errors.Is(err, ErrOverBudget) || calls != 2 {
+		t.Fatalf("third call: %v after %d calls", err, calls)
 	}
 }

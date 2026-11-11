@@ -83,6 +83,11 @@ type Options struct {
 	// MaxCost caps the translation's model calls, in dollars as the backend
 	// reports them (formalize.Options.MaxCost); 0 is unlimited.
 	MaxCost float64
+	// SpendFile, when set, carries what a check has spent across the runs
+	// that make it up: a check stopped at its time slice and run again is
+	// the same check, and each run starting from the whole limit let a
+	// $7 limit spend $10 (a case-study run, 2026-11-11).
+	SpendFile string
 	// RequestTimeout limits each model call (formalize.Options); a call
 	// that stalls fails and is retried, instead of using up the whole run.
 	RequestTimeout time.Duration
