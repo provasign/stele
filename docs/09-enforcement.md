@@ -62,6 +62,7 @@ Each rule declares `explanation` visibility:
 | Checker error, or `unknown` in the slice |
 | The change adds a conflict that is not an acknowledged open conflict |
 | A rule the change touches is not approved, or its statement changed after approval |
+| A vocabulary change alters what an approved rule means (a value's range or values, what a step writes) and the rule's approval does not name it |
 | A rule's code verdict changes from followed to contradicted (once the code check is built) |
 | An active rule has no linked passing test (once tests are generated) |
 | An `@implements` reference does not resolve |

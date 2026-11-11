@@ -178,6 +178,8 @@ source:
   doc: specs/prose/resources.md#resource-deletion
   prose: "Resources with active holds can't be deleted."
   approvedBy: jane@acme       # the owner's approval, pinned to textHash
+  approvedReading: 4be1...    # and to the rule as it read when approved
+  approvedChanges: [9c0d...]  # vocabulary changes under the rule that the approval accepted
   approvedExamples: [ex-41, ex-42, ex-43]
   textHash: sha256:9f2c...    # set by importers
   introduced: 2026-03-02      # date the text first appeared in git

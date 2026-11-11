@@ -47,7 +47,7 @@ For each feature, the agent writes the spec, runs Stele's check, and comes back 
   > The new waitlist rule clashes with an earlier one. Booking spec, FR-003: a member holds at most one plot. Waitlist spec, FR-006: a released plot goes to the first member waiting. If the first member waiting already holds a plot, they would hold two. Can a member on the waitlist hold a plot?
 
   You answer in plain words. The agent updates the spec, and Stele remembers what you said (the lessons in `.stele/registry/lessons/`).
-- **Findings,** when there are any: where Stele's reading says more than your text, or would block a step. Clauses its reading does not check are a count in the summary and a list in the report, so that you know what only tests will guard.
+- **Findings,** when there are any: where Stele's reading says more than your text, or would block a step. Before the approval the agent also names each clause of a requirement that no rule checks, so that you know what only tests will guard, and can show every requirement clause by clause with what checks it in plain words.
 - **The approval.** The agent runs the command that approves, and Claude Code asks you to allow it, with Stele's summary in the prompt. Allow it to approve; deny it and nothing is recorded. Approving pins Stele's reading of each requirement. From then on, every later change is checked against it. In a session that never asks for permissions, or a headless run with no one at the prompt, the agent asks you in chat instead.
 
 Then the agent writes the code and commits the specs, the registry and the code together.
@@ -88,7 +88,7 @@ Open an issue at [provasign/stele](https://github.com/provasign/stele/issues), o
 
 - `stele version` and `claude --version`;
 - for each question you thought was wrong or unclear: the question as the agent put it, and what you answered;
-- anything that got stuck, with `.stele/change/<feature>/report.md` attached if you can share it;
+- anything that got stuck, with `.stele/change/<feature>/report.md` attached if you can share it (it is there until you approve the change; a reading that failed also leaves its model calls in `failed-calls/` beside it);
 - your answers to the questions under "What to look for".
 
 Leave out anything private: the registry and reports quote your specs.
