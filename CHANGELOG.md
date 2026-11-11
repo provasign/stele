@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+Found rechecking, on this release, that the conflicts the case studies report are still found.
+
+- **A large reading finishes.** A check stopped at its eight-minute slice while its coverage stage read requirements again restarted that stage from its first judgment: every requirement judged again, a new set sent back, and the stage longer than a slice never ended. On a 126-requirement case study the check ran six slices without finishing. The stage now keeps its progress and goes on from it.
+- **A spending limit holds across a check's slices.** `--max-cost` applied to each eight-minute run of a check, so a large adoption that took several runs could spend that limit several times over. What a check spends is now carried across its runs until it ends.
+- **A step's inferred reset is a value of the right type.** Reading "the heartbeat records when it was last seen" as a reset of the timestamp to `now` stopped a whole adoption with "now does not fit Node.lastHeartbeatAt". Only a fixed value of the attribute's own type is inferred as a reset.
 ## v0.1.18 - 2026-11-11
 
 - **One spending limit and one time limit over a whole check.** The review of the texts at an adoption, the audit and the code reading ran outside `--request-timeout`, and each part of a check kept its own account of `--max-cost`: a $0.01 limit let two review calls spend $0.20, and the translation after them started from the whole budget again. Every model call of a check now counts against one limit and has the per-call time limit. A call's cost is known only when it answers, so calls already running can pass the limit by their own cost; none starts once it is reached. Under a limit, the review's two passes run one after the other.

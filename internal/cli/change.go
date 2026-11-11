@@ -311,7 +311,14 @@ func cmdChange(args []string, out io.Writer) int {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
+	if sliced {
+		// One spending limit over the whole check, across its slices.
+		opt.SpendFile = filepath.Join(*outDir, "slice-spend")
+	}
 	res, err := change.Run(ctx, opt)
+	if !(err != nil && sliced && ctx.Err() != nil) && opt.SpendFile != "" {
+		_ = os.Remove(opt.SpendFile) // the check ended: the next one starts its own account
+	}
 	if err != nil && sliced && ctx.Err() != nil {
 		read, total := readSoFar(*outDir), len(adoptStmts)
 		progress := "The work so far is kept."

@@ -3,6 +3,9 @@ package change
 import (
 	"context"
 	"errors"
+	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,6 +30,7 @@ type limited struct {
 	max     float64
 	mu      sync.Mutex
 	spent   float64
+	file    string // SpendFile: what earlier runs of the check spent
 }
 
 func (l *limited) Complete(ctx context.Context, req llm.Request) (*llm.Reply, error) {
@@ -45,6 +49,9 @@ func (l *limited) Complete(ctx context.Context, req llm.Request) (*llm.Reply, er
 	if reply != nil {
 		l.mu.Lock()
 		l.spent += reply.Usage.CostUSD
+		if l.file != "" {
+			_ = os.WriteFile(l.file, []byte(strconv.FormatFloat(l.spent, 'f', -1, 64)+"\n"), 0o600)
+		}
 		l.mu.Unlock()
 	}
 	return reply, err
@@ -92,7 +99,12 @@ func withLimits(opt Options) Options {
 	if len(opt.Clients) == 0 || limiter(opt) != nil {
 		return opt
 	}
-	l := &limited{Client: opt.Clients[0], timeout: opt.RequestTimeout, max: opt.MaxCost}
+	l := &limited{Client: opt.Clients[0], timeout: opt.RequestTimeout, max: opt.MaxCost, file: opt.SpendFile}
+	if opt.SpendFile != "" {
+		if b, err := os.ReadFile(opt.SpendFile); err == nil {
+			l.spent, _ = strconv.ParseFloat(strings.TrimSpace(string(b)), 64)
+		}
+	}
 	clients := append([]llm.Client{}, opt.Clients...)
 	clients[0] = l
 	if h, ok := opt.Clients[0].(llm.Hedger); ok {

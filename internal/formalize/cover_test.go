@@ -345,11 +345,13 @@ func TestInterruptedRereadKeepsRules(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	stop := true
+	firstJudgments := 0
 	m := completionFunc(func(req llm.Request) (*llm.Reply, error) {
 		text := req.Turns[0].Text
 		switch {
 		case strings.HasPrefix(req.System, coverPrompt):
 			if strings.Contains(text, "s2") {
+				firstJudgments++
 				return &llm.Reply{JSON: `{"statements":[{"statement_id":"s1","clauses":[{"text":"a","status":"covered","rules":["r1"]}],"broader":[]},{"statement_id":"s2","clauses":[{"text":"before shipping","status":"uncovered","rules":[]}],"broader":[]}]}`}, nil
 			}
 			return coverReply("s1", `{"text":"before shipping","status":"covered","rules":["r1"]}`), nil
@@ -375,6 +377,14 @@ func TestInterruptedRereadKeepsRules(t *testing.T) {
 	res, err := Run(context.Background(), m, stmts, dir, opt)
 	if err != nil {
 		t.Fatal(err)
+	}
+	// The resumed run goes on from the first judgment, not a new one: a
+	// stage longer than a check's time slice otherwise never finished.
+	if firstJudgments != 1 {
+		t.Fatalf("the coverage check judged every statement %d times", firstJudgments)
+	}
+	if st, _ := loadState(dir); st.CoverProgress != nil {
+		t.Fatalf("a finished coverage stage left its progress: %+v", st.CoverProgress)
 	}
 	if res.Counts[Translated] != 2 || res.Cover.Retranslated != 1 {
 		t.Fatalf("after resuming: counts %v, cover %+v", res.Counts, res.Cover)

@@ -336,29 +336,47 @@ func cover(ctx context.Context, m llm.Client, stmts []translate.Statement, st *s
 	first := withRules(nil)
 	errsBefore := len(st.Errors)
 	st.CoverStats = CoverStats{Statements: len(first)}
-	fmt.Fprintf(opt.Log, "cover: checking the clauses and scope of %d statement(s) with rules or read as informal ...\n", len(first))
-	cov, err := checkCoverage(ctx, m, first, st, opt)
-	if err != nil {
-		return err
-	}
+	var cov []StatementCoverage
 	var back []string
-	for _, sc := range cov {
-		if !sc.Faithful() {
-			back = append(back, sc.StatementID)
+	var before map[string][]translate.Candidate
+	if pr := st.CoverProgress; pr != nil {
+		// A run stopped while it reread: go on from its first judgment.
+		cov, back, before = pr.First, pr.Back, pr.Before
+		fmt.Fprintf(opt.Log, "cover: resuming: %d of %d statement(s) already read again\n", len(pr.Done), len(back))
+	} else {
+		fmt.Fprintf(opt.Log, "cover: checking the clauses and scope of %d statement(s) with rules or read as informal ...\n", len(first))
+		var err error
+		if cov, err = checkCoverage(ctx, m, first, st, opt); err != nil {
+			return err
 		}
-	}
-	fmt.Fprintf(opt.Log, "cover: %d statement(s) have an uncovered clause or a rule beyond the text\n", len(back))
-	if len(back) > 0 && opt.CoverRounds >= 0 {
-		st.CoverStats.Retranslated = len(back)
-		before := map[string][]translate.Candidate{}
+		for _, sc := range cov {
+			if !sc.Faithful() {
+				back = append(back, sc.StatementID)
+			}
+		}
+		fmt.Fprintf(opt.Log, "cover: %d statement(s) have an uncovered clause or a rule beyond the text\n", len(back))
+		before = map[string][]translate.Candidate{}
 		for _, c := range st.Cands {
 			if slices.Contains(back, c.StatementID) {
 				before[c.StatementID] = append(before[c.StatementID], c)
 			}
 		}
-		if err := retranslateFindings(ctx, m, stmts, back, cov, st, opt, dir); err != nil {
-			return err
+		if len(back) > 0 && opt.CoverRounds >= 0 {
+			st.CoverProgress = &coverProgress{First: cov, Back: back, Before: before}
+			if err := saveState(dir, st); err != nil {
+				return err
+			}
 		}
+	}
+	if len(back) > 0 && opt.CoverRounds >= 0 {
+		st.CoverStats.Retranslated = len(back)
+		todo := slices.DeleteFunc(slices.Clone(back), func(id string) bool { return slices.Contains(st.CoverProgress.Done, id) })
+		if len(todo) > 0 {
+			if err := retranslateFindings(ctx, m, stmts, todo, cov, st, opt, dir); err != nil {
+				return err
+			}
+		}
+		st.CoverProgress.Done = back
 		again, err := checkCoverage(ctx, m, withRules(back), st, opt)
 		if err != nil {
 			return err
@@ -390,6 +408,7 @@ func cover(ctx context.Context, m llm.Client, stmts []translate.Statement, st *s
 		fmt.Fprintf(opt.Log, "cover: %d of %d retranslated statement(s) now faithful\n", st.CoverStats.Recovered, len(back))
 	}
 	st.Coverage = cov
+	st.CoverProgress = nil // the stage finished
 	// A statement the check was due to judge and did not (its request
 	// failed, its reply did not parse or left it out) is named: its
 	// readings were approved as checked when no one had judged them (a
@@ -702,6 +721,8 @@ func restoreRereads(st *state, stmts []translate.Statement) bool {
 	for id, old := range st.Rereading {
 		if !has[id] {
 			st.Cands = append(st.Cands, old...)
+		} else if st.CoverProgress != nil && !slices.Contains(st.CoverProgress.Done, id) {
+			st.CoverProgress.Done = append(st.CoverProgress.Done, id) // its reread finished
 		}
 		delete(st.CompactErrors, id)
 	}
@@ -753,4 +774,14 @@ func sortByStatement(cs []translate.Candidate, stmts []translate.Statement) {
 		order[s.ID] = i
 	}
 	sort.SliceStable(cs, func(i, j int) bool { return order[cs[i].StatementID] < order[cs[j].StatementID] })
+}
+
+// coverProgress is the coverage check's state between runs: its first
+// judgment, the statements it sent to be read again with the rules they
+// had, and those whose reread finished.
+type coverProgress struct {
+	First  []StatementCoverage              `json:"first"`
+	Back   []string                         `json:"back"`
+	Before map[string][]translate.Candidate `json:"before"`
+	Done   []string                         `json:"done,omitempty"`
 }

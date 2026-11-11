@@ -264,11 +264,17 @@ type state struct {
 	// other, with the clash, and whose rules are held out.
 	// Rereading holds the earlier rules of statements being read again,
 	// until the new reading is accepted (restoreRereads).
-	Rereading     map[string][]translate.Candidate `json:"rereading,omitempty"`
-	SelfChecked   bool                             `json:"self_checked,omitempty"`
-	SelfConflicts map[string]string                `json:"self_conflicts,omitempty"`
-	Blocking      map[string]string                `json:"blocking,omitempty"` // statements with a rule that alone blocks a step
-	SelfStats     SelfStats                        `json:"self_stats,omitempty"`
+	Rereading map[string][]translate.Candidate `json:"rereading,omitempty"`
+	// CoverProgress keeps the coverage check's own progress, so a run
+	// stopped while it rereads (a check's time slice) goes on from there:
+	// restarted from its first judgment, a stage longer than a slice
+	// judged every statement again, flagged a new set, and never finished
+	// (a 126-requirement case study, 2026-11-11).
+	CoverProgress *coverProgress    `json:"cover_progress,omitempty"`
+	SelfChecked   bool              `json:"self_checked,omitempty"`
+	SelfConflicts map[string]string `json:"self_conflicts,omitempty"`
+	Blocking      map[string]string `json:"blocking,omitempty"` // statements with a rule that alone blocks a step
+	SelfStats     SelfStats         `json:"self_stats,omitempty"`
 }
 
 // Run formalizes stmts into dir. It resumes from dir's saved state when
@@ -1278,9 +1284,31 @@ func resetValue(c *translate.Candidate, a *ir.Attr, op *ir.Operation) string {
 	if !ok || len(p.Segs) != 2 || p.Segs[0] != "self" || p.Segs[1] != a.Name {
 		return ""
 	}
+	// Only a fixed value of the attribute's own type is a reset: "now" is
+	// an identifier, the way enum values are written, and as the reset of a
+	// timestamp it stopped a whole adoption when the step was lowered
+	// ("now does not fit Node.lastHeartbeatAt", a case study, 2026-11-11).
 	switch v := b.R.(type) {
-	case *ir.IntLit, *ir.BoolLit, *ir.StrLit, *ir.DecLit, *ir.Ident:
-		return v.String()
+	case *ir.IntLit:
+		if a.Kind == ir.Int || a.Kind == ir.Decimal {
+			return v.String()
+		}
+	case *ir.DecLit:
+		if a.Kind == ir.Decimal {
+			return v.String()
+		}
+	case *ir.BoolLit:
+		if a.Kind == ir.Bool {
+			return v.String()
+		}
+	case *ir.StrLit:
+		if a.Kind == ir.String {
+			return v.String()
+		}
+	case *ir.Ident:
+		if a.Kind == ir.Enum && slices.Contains(a.Values, v.Name) {
+			return v.String()
+		}
 	}
 	return ""
 }
