@@ -33,6 +33,7 @@ func TestAdoptionLeavesAConflictOpen(t *testing.T) {
 	for rel, src := range map[string]string{
 		"openspec/specs/orders/spec.md": "# Orders\n\n### Requirement: Paid\nAn order MUST be paid.\n\n### Requirement: Free\nAn order MUST NOT be paid.\n",
 		"reply.sh": "in=$(cat)\ncase \"$in\" in\n" +
+			`*'You review software requirements for contradictions'*) echo '{"conflicts":[{"statement_ids":["orders/Paid","orders/Free"],"world_facts":[],"situation":"the two cannot both hold for one order"}]}' ;;` + "\n" +
 			`*'list its clauses'*) echo '{"statements":[{"statement_id":"s1","clauses":[{"text":"all","status":"covered","rules":["r1"]}],"broader":[]},{"statement_id":"s2","clauses":[{"text":"all","status":"covered","rules":["r1"]}],"broader":[]}]}' ;;` + "\n" +
 			`*'statement_id: s1'*) echo '{"entities":[{"name":"Order","statement_ids":["s1","s2"],"attributes":[{"name":"paid","type":"bool","values":[],"min":0,"max":0,"set_by":"system"}],"relations":[]}],"extensions":[],"operations":[],"rules":[{"statement_id":"s1","kind":"invariant","subject":"","on":"","when":"","assert":"order.paid","overrides":[]},{"statement_id":"s2","kind":"invariant","subject":"","on":"","when":"","assert":"not order.paid","overrides":[]}]}' ;;` + "\n" +
 			"*) echo '{}' ;;\nesac\n",

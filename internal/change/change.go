@@ -88,6 +88,7 @@ type Options struct {
 	NoReview bool
 	// NoAudit skips the check of a conflict's rules against their texts.
 	NoAudit bool
+	settles int          // times Stele's own answers sent the check round again
 	rounds  int          // times the glossary's definitions added facts this run
 	lessons []*ir.Lesson // the registry's lessons, for the coverage judge
 }
@@ -147,6 +148,13 @@ type Result struct {
 	// Possible are the contradictions a review of the texts found that
 	// the rules do not show, after their requirements were read again.
 	Possible []Possible `json:"possible_conflicts,omitempty"`
+	// SettledOpen, SettledPrecedence and SettledUnchecked count what Stele
+	// settled itself at an adoption (settle.go): clashes of its rules that
+	// a reading of the texts does not show, recorded as open or settled by
+	// precedence, and requirements recorded without rules.
+	SettledOpen       int `json:"settled_open,omitempty"`
+	SettledPrecedence int `json:"settled_precedence,omitempty"`
+	SettledUnchecked  int `json:"settled_unchecked,omitempty"`
 	// FlagOnly are the requirements whose only rules state one yes/no fact
 	// nothing else reads: recorded, and checked against nothing yet.
 	FlagOnly []string `json:"flag_only,omitempty"`
@@ -673,7 +681,7 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 		}
 		if len(all) > 0 {
 			for _, a := range answers {
-				if a.Kind == "conflict" && a.Choice == "later" {
+				if a.Kind == "conflict" && a.Choice == "later" && a.By != Settler {
 					res.Open++ // as the owner counts them: by question
 				}
 			}
@@ -698,25 +706,6 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 	}
 	res.FlagOnly = flagOnly(head, res)
 	res.Questions = questions(res, head, c, known, answers)
-	// A conflict that comes from glossary definitions left out of the
-	// rules is read again with them before the owner is asked (ISSUES 62).
-	if opt.rounds < 3 {
-		if n := definitions(ctx, opt, res, head, c, checkFiles, answers); n > 0 {
-			if err := c.save(opt.Out); err != nil {
-				return nil, err
-			}
-			if opt.Log != nil {
-				fmt.Fprintf(opt.Log, "definitions: %d world fact(s) from the glossary; checking again\n", n)
-			}
-			opt.rounds++
-			again, err := Run(ctx, opt)
-			if err != nil {
-				return nil, err
-			}
-			again.Usage.Add(res.Usage)
-			return again, nil
-		}
-	}
 	// At an adoption the texts are reviewed too: a contradiction they
 	// suggest and the rules do not show has its requirements read again.
 	if opt.rounds < 5 {
@@ -734,6 +723,43 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 	// aside before the owner is asked, and the check runs again without it.
 	if opt.rounds < 3 {
 		if n := audit(ctx, opt, res, head, c, answers); n > 0 {
+			opt.rounds++
+			again, err := Run(ctx, opt)
+			if err != nil {
+				return nil, err
+			}
+			again.Usage.Add(res.Usage)
+			return again, nil
+		}
+	}
+	// What is about Stele's own rules and not about the specs, Stele
+	// settles itself, and checks again: settling one clash can bring out
+	// the next among the same rules.
+	if opt.settles < 12 {
+		if n := settle(opt, res, answers); n > 0 {
+			if opt.Log != nil {
+				fmt.Fprintf(opt.Log, "settle: %d question(s) about Stele's own rules answered; checking again\n", n)
+			}
+			opt.settles++
+			again, err := Run(ctx, opt)
+			if err != nil {
+				return nil, err
+			}
+			again.Usage.Add(res.Usage)
+			return again, nil
+		}
+	}
+	res.SettledOpen, res.SettledPrecedence, res.SettledUnchecked, _ = settled(answers)
+	// A conflict that comes from glossary definitions left out of the
+	// rules is read again with them before the owner is asked (ISSUES 62).
+	if opt.rounds < 3 {
+		if n := definitions(ctx, opt, res, head, c, checkFiles, answers); n > 0 {
+			if err := c.save(opt.Out); err != nil {
+				return nil, err
+			}
+			if opt.Log != nil {
+				fmt.Fprintf(opt.Log, "definitions: %d world fact(s) from the glossary; checking again\n", n)
+			}
 			opt.rounds++
 			again, err := Run(ctx, opt)
 			if err != nil {
