@@ -46,7 +46,7 @@ func (c *apiClient) Complete(ctx context.Context, req Request) (*Reply, error) {
 		Model:     anthropic.Model(c.model),
 		MaxTokens: 64000,
 		// The system prompt is stable across runs, so it is the cached prefix.
-		System:   []anthropic.BetaTextBlockParam{{Text: req.System, CacheControl: anthropic.NewBetaCacheControlEphemeralParam()}},
+		System:   []anthropic.BetaTextBlockParam{{Text: systemOf(req), CacheControl: anthropic.NewBetaCacheControlEphemeralParam()}},
 		Messages: msgs,
 		OutputConfig: anthropic.BetaOutputConfigParam{
 			Effort: anthropic.BetaOutputConfigEffort(c.effort),

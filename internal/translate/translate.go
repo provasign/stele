@@ -235,7 +235,7 @@ func translateBatch(ctx context.Context, m llm.Client, system string, vocab *ir.
 	var req strings.Builder
 	req.WriteString("Translate each statement below into Stele IR rules. Under each statement are existing symbols whose names share its words; use them when they mean what the statement means.\n\n")
 	for _, s := range stmts {
-		fmt.Fprintf(&req, "statement_id: %s\nsource: %s\ntext: %s\n", s.ID, s.Source, s.Prose)
+		fmt.Fprintf(&req, "statement_id: %s\nsource: %s\ntext: %s\n", s.ID, llm.Data(s.Source), llm.Data(s.Prose))
 		if rel := Related(vocab, s.Prose, 12); len(rel) > 0 {
 			fmt.Fprintf(&req, "related symbols: %s\n", strings.Join(rel, ", "))
 		}

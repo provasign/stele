@@ -77,7 +77,7 @@ func Review(ctx context.Context, m llm.Client, stmts []translate.Statement, fact
 	known := map[string]bool{}
 	for _, s := range stmts {
 		known[s.ID] = true
-		fmt.Fprintf(&b, "statement_id: %s\nsource: %s\ntext: %s\n\n", s.ID, s.Source, s.Prose)
+		fmt.Fprintf(&b, "statement_id: %s\nsource: %s\ntext: %s\n\n", s.ID, llm.Data(s.Source), llm.Data(s.Prose))
 	}
 	b.WriteString("List every contradiction.")
 	reply, err := m.Complete(ctx, llm.Request{System: systemPrompt, Schema: outputSchema,

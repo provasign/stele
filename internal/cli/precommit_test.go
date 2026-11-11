@@ -433,3 +433,28 @@ func TestInstallGitHookKeepsOtherInterpreters(t *testing.T) {
 		}
 	}
 }
+
+// TestPrecommitBlocksBrokenConfigAndEmptiedRegistry: in a project whose
+// last commit has approved rules, a stele.yaml that does not load and a
+// registry emptied of its rules block the commit (a security review,
+// 2026-11-11).
+func TestPrecommitBlocksBrokenConfigAndEmptiedRegistry(t *testing.T) {
+	dir := doorProject(t, true)
+	os.WriteFile(filepath.Join(dir, "stele.yaml"), []byte("formatVersion: [broken\n"), 0o644)
+	if code, out := precommit(t, dir, "stele.yaml"); code != 1 || !strings.Contains(out, "stele.yaml does not load") {
+		t.Errorf("broken stele.yaml: %d\n%s", code, out)
+	}
+
+	dir = doorProject(t, true)
+	os.WriteFile(filepath.Join(dir, "registry/rules.yaml"), []byte(""), 0o644)
+	if code, out := precommit(t, dir, "registry/rules.yaml"); code != 1 || !strings.Contains(out, "blocked") {
+		t.Errorf("emptied registry: %d\n%s", code, out)
+	}
+
+	// A new project (no rules in the last commit) is not blocked.
+	dir = doorProject(t, false)
+	os.WriteFile(filepath.Join(dir, "specs/door.md"), []byte("# Door\n\nREQ-1: The door MUST be shut.\n"), 0o644)
+	if code, out := precommit(t, dir, "specs/door.md"); code != 0 {
+		t.Errorf("new project: %d\n%s", code, out)
+	}
+}

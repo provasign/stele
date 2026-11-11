@@ -104,7 +104,7 @@ func consolidateSteps(ctx context.Context, m llm.Client, stmts []translate.State
 			if k == 2 {
 				break
 			}
-			fmt.Fprintf(&req, "  used by: %s\n", oneLine(prose[id], 220))
+			fmt.Fprintf(&req, "  used by: %s\n", llm.Data(oneLine(prose[id], 220)))
 		}
 	}
 	reply, err := m.Complete(ctx, llm.Request{System: stepsPrompt, Turns: []llm.Turn{{Role: "user", Text: req.String()}}, Schema: stepsSchema})

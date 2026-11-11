@@ -65,7 +65,7 @@ func (c *claudeCLI) Name() string { return "claude-cli:" + orDefault(c.model) + 
 
 func (c *claudeCLI) Complete(ctx context.Context, req Request) (*Reply, error) {
 	args := []string{"-p", "--output-format", "json", "--json-schema", req.Schema,
-		"--system-prompt", req.System, "--tools", "", "--no-session-persistence"}
+		"--system-prompt", systemOf(req), "--tools", "", "--no-session-persistence"}
 	if c.model != "" {
 		args = append(args, "--model", c.model)
 	}

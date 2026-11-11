@@ -73,7 +73,7 @@ func extendBatch(ctx context.Context, m llm.Client, batch []Gap, acc Proposal, o
 
 `)
 	for _, g := range batch {
-		fmt.Fprintf(&req, "statement_id: %s\ntext: %s\nmissing: %s\n", g.Statement.ID, g.Statement.Prose, strings.Join(g.Missing, "; "))
+		fmt.Fprintf(&req, "statement_id: %s\ntext: %s\nmissing: %s\n", g.Statement.ID, llm.Data(g.Statement.Prose), strings.Join(g.Missing, "; "))
 		for _, r := range g.Rationale {
 			if r != "" {
 				fmt.Fprintf(&req, "translator: %s\n", r)

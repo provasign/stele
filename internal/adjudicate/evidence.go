@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"github.com/provasign/stele/internal/llm"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -236,14 +237,14 @@ func (ev *Evidence) Render() string {
 		if e.Test {
 			kind = " (test)"
 		}
-		fmt.Fprintf(&b, "--- %s%s, lines %d-%d (terms: %s)\n", e.File, kind, e.From, e.From+len(e.Lines)-1, strings.Join(e.Terms, ", "))
+		fmt.Fprintf(&b, "--- %s%s, lines %d-%d (terms: %s)\n<project-data>\n", llm.Defang(e.File), kind, e.From, e.From+len(e.Lines)-1, strings.Join(e.Terms, ", "))
 		for i, l := range e.Lines {
 			if len(l) > 300 {
 				l = l[:300] + "…"
 			}
-			fmt.Fprintf(&b, "%6d  %s\n", e.From+i, l)
+			fmt.Fprintf(&b, "%6d  %s\n", e.From+i, llm.Defang(l))
 		}
-		b.WriteString("\n")
+		b.WriteString("</project-data>\n\n")
 	}
 	return b.String()
 }

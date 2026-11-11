@@ -127,7 +127,7 @@ func checkEdit(ctx context.Context, m llm.Client, byID map[string]translate.Stat
 		if !ok {
 			continue
 		}
-		fmt.Fprintf(&b, "statement %s (%s)\n  source: %s\n  text: %s\n\n", id, role(id), s.Source, strings.Join(strings.Fields(s.Prose), " "))
+		fmt.Fprintf(&b, "statement %s (%s)\n  source: %s\n  text: %s\n\n", id, role(id), llm.Data(s.Source), llm.Data(strings.Join(strings.Fields(s.Prose), " ")))
 	}
 	fmt.Fprintf(&b, "Verdict: %s. Reason: %s\n\nDrafted edit: %s\n\n", v.Kind, v.Reason, v.Action)
 	header := b.String()

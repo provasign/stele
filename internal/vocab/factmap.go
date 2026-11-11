@@ -43,7 +43,7 @@ func FactMap(ctx context.Context, m llm.Client, base *ir.Registry, used []Used, 
 				fmt.Fprintf(&b, " [%s]", s)
 			}
 			if u.Meaning != "" {
-				fmt.Fprintf(&b, " - %s", u.Meaning)
+				fmt.Fprintf(&b, " - %s", llm.Data(u.Meaning))
 			}
 			if len(u.Examples) > 0 {
 				fmt.Fprintf(&b, "\n      used by: %s", u.Examples[0])

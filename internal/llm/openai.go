@@ -45,7 +45,7 @@ type oaMessage struct {
 }
 
 func (c *openAIClient) Complete(ctx context.Context, req Request) (*Reply, error) {
-	msgs := []oaMessage{{Role: "system", Content: req.System}}
+	msgs := []oaMessage{{Role: "system", Content: systemOf(req)}}
 	for _, t := range req.Turns {
 		msgs = append(msgs, oaMessage{Role: t.Role, Content: t.Text})
 	}

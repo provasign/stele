@@ -63,7 +63,10 @@ func WriteBack(repo string, items []Item, stmts []translate.Statement, dryRun bo
 	var written []Note
 	for _, f := range files {
 		notes := byFile[f]
-		path := filepath.Join(repo, filepath.FromSlash(f))
+		path, err := insideRepo(repo, f)
+		if err != nil {
+			return nil, err
+		}
 		src, err := os.ReadFile(path)
 		if err != nil {
 			return nil, err
@@ -126,4 +129,31 @@ func oneLine(s string) string {
 		s = string(r[:237]) + "..."
 	}
 	return s
+}
+
+// insideRepo resolves a statement's source file under repo, following
+// symlinks, and refuses one that lands outside it: the sources come from a
+// statements file, and "../x.md#L1" wrote a note into a file outside the
+// repository (a security review, 2026-11-11).
+func insideRepo(repo, file string) (string, error) {
+	root, err := filepath.EvalSymlinks(repo)
+	if err != nil {
+		return "", err
+	}
+	root, err = filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	if filepath.IsAbs(file) {
+		return "", fmt.Errorf("source %q is not a path inside the repository", file)
+	}
+	path, err := filepath.EvalSymlinks(filepath.Join(root, filepath.FromSlash(file)))
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("source %q is outside the repository; nothing written", file)
+	}
+	return path, nil
 }

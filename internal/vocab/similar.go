@@ -119,7 +119,7 @@ func ConsolidatePairs(ctx context.Context, m llm.Client, base *ir.Registry, used
 		var b strings.Builder
 		fmt.Fprintf(&b, "%s: %s", u.Name, u.Type)
 		if u.Meaning != "" {
-			fmt.Fprintf(&b, " - %s", u.Meaning)
+			fmt.Fprintf(&b, " - %s", llm.Data(u.Meaning))
 		}
 		for _, x := range u.Examples {
 			fmt.Fprintf(&b, "\n      used by: %s", x)

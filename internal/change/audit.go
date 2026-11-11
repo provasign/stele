@@ -168,7 +168,7 @@ func audit(ctx context.Context, opt Options, res *Result, head *ir.Registry, c *
 		block.WriteString("Requirements:\n")
 		for _, r := range q.Requirements {
 			text, _, _ := strings.Cut(r.Text, "\nGlossary: ")
-			fmt.Fprintf(&block, "- %s: %s\n", r.ID, strings.Join(strings.Fields(text), " "))
+			fmt.Fprintf(&block, "- %s: %s\n", r.ID, llm.Data(strings.Join(strings.Fields(text), " ")))
 		}
 		block.WriteString("Rules (rule id: reading):\n")
 		for _, id := range slices.Compact(slices.Sorted(slices.Values(q.rules))) {

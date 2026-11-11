@@ -1723,7 +1723,7 @@ func consolidateUsed(ctx context.Context, m llm.Client, stmts []translate.Statem
 		u := vocab.Used{Name: q, Type: typeOf(a), Meaning: a.Meaning}
 		for k, id := range readers[q] {
 			if k < 2 {
-				u.Examples = append(u.Examples, oneLine(prose[id], 160))
+				u.Examples = append(u.Examples, llm.Data(oneLine(prose[id], 160)))
 			}
 			u.Text += " " + prose[id]
 		}
