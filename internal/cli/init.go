@@ -204,11 +204,24 @@ func cmdInit(args []string, in io.Reader, out io.Writer, interactive bool) int {
 			return fail(err)
 		}
 	}
+	if c.Translate.Model == "" && slices.Contains([]string{"agent", "claude", "anthropic"}, c.Translate.LLM) {
+		// A new project reads its specs with Sonnet, named in stele.yaml
+		// for anyone to change. Left to the model the developer was
+		// working with, a session on a larger model read 86 requirements
+		// in over sixteen minutes for $6.37, past the agent's command
+		// limit, where every figure Stele gives was measured on Sonnet
+		// (the owner, 2026-11-10; before: the agent's model, 2026-11-06).
+		c.Translate.Model = DefaultReadingModel
+	}
 	if err := config.Write(dir, c); err != nil {
 		return fail(err)
 	}
+	model := llmLabel(c.Translate.LLM)
+	if c.Translate.Model != "" {
+		model += ", reading specs with " + c.Translate.Model + " (translate.model in " + config.FileName + ")"
+	}
 	fmt.Fprintf(out, "Wrote %s (model: %s) and the registry %s.\n",
-		config.FileName, llmLabel(c.Translate.LLM), c.Registry)
+		config.FileName, model, c.Registry)
 	code := setUpAgents(dir, c, selected, *hook, *gitHook, false, out)
 	if code == 0 && found > 0 && len(selected) > 0 {
 		fmt.Fprintf(out, "To start, ask your agent: \"adopt our specs with Stele\". It reads the %d requirement(s) once and asks you only what needs a person.\n", found)
@@ -499,11 +512,14 @@ func writeSteleIgnore(dir string) error {
 	return os.WriteFile(path, []byte("# Stele's working folders: not committed.\nchange/\naudit/\nadopt/\ncache/\n"), 0o644)
 }
 
+// DefaultReadingModel is the model a new project reads its specs with.
+const DefaultReadingModel = "claude-sonnet-5-5"
+
 // llmLabel names a translation backend for people.
 func llmLabel(backend string) string {
 	switch backend {
 	case "agent":
-		return "the coding agent you run Stele from, and the model it is using"
+		return "the coding agent you run Stele from"
 	case "claude":
 		return "your Claude Code CLI"
 	case "codex":
