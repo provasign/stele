@@ -3,6 +3,7 @@ package adopt
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -127,5 +128,50 @@ func TestReadingIncludesStep(t *testing.T) {
 	b := &ir.Rule{Kind: ir.Invariant, On: "Order.ship"}
 	if a.ReadingHash() == b.ReadingHash() {
 		t.Fatal("rules on different steps read the same")
+	}
+}
+
+// TestApprovalNamesVocabularyChanges: approving under a changed vocabulary
+// records the change on each rule it affects, and keeps those an earlier
+// approval recorded.
+func TestApprovalNamesVocabularyChanges(t *testing.T) {
+	base, err := ir.LoadDir(writeDir(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApproveRules(base, []string{"S1"}, "jane"); err != nil {
+		t.Fatal(err)
+	}
+	if base, err = ir.LoadDir(filepath.Dir(strings.SplitN(base.Rule("S1").File, ":", 2)[0])); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	src, _ := os.ReadFile(strings.SplitN(base.Rule("S1").File, ":", 2)[0])
+	os.WriteFile(filepath.Join(dir, "r.yaml"), []byte(strings.Replace(string(src), "range: [0, 5]", "range: [0, 9]", 1)), 0o644)
+	load := func() *ir.Registry {
+		t.Helper()
+		reg, err := ir.LoadDir(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return reg
+	}
+	head := load()
+	if got := gate.Unapproved(base, head); !slices.Contains(got, "S1") {
+		t.Fatalf("a wider range under an approved rule: unapproved = %v", got)
+	}
+	if err := ApproveRulesUnder(head, []string{"S1"}, "jane", gate.MeaningChanges(base, head)); err != nil {
+		t.Fatal(err)
+	}
+	head = load()
+	if got := gate.Unapproved(base, head); slices.Contains(got, "S1") || len(head.Rule("S1").ApprovedChanges) != 1 {
+		t.Fatalf("after approval: unapproved = %v, changes = %v", got, head.Rule("S1").ApprovedChanges)
+	}
+	// Approved again for another reason, the rule keeps the change it carries.
+	if err := ApproveRules(head, []string{"S1"}, "jane"); err != nil {
+		t.Fatal(err)
+	}
+	if got := gate.Unapproved(base, load()); slices.Contains(got, "S1") {
+		t.Fatalf("a later approval dropped the change: %v", got)
 	}
 }

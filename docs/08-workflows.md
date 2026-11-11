@@ -186,10 +186,14 @@ This layer detects drift and prepares work. `in_sync` means no saved-source/prov
 
 ### Commit hook
 
-`stele init` installs a git pre-commit hook that runs `stele precommit`. It respects `core.hooksPath`, and it never replaces a hook it did not write; instead it prints the line to add. It is quiet unless the commit stages spec or registry files. It blocks only on what an approval clears:
+`stele init` installs a git pre-commit hook that runs `stele precommit`. It respects `core.hooksPath`, and it never replaces a hook it did not write: into another tool's shell hook it adds its own line after the shebang, and a hook that another interpreter runs (Python, Node) it leaves as it is and says what to add. It is quiet unless the commit stages spec or registry files. It blocks on what an approval clears:
 
 - an approved rule whose statement text has changed or disappeared;
-- a staged registry that `stele gate` refuses, checked against the registry in `HEAD`, as CI checks it: conflicts, unapproved rules, errors.
+- a staged registry that `stele gate` refuses, checked against the registry in `HEAD`, as CI checks it: conflicts, unapproved rules, errors, and a step the solver could not decide that no approval accepts unchecked.
+
+It also blocks, saying why, when the project has approved requirements and the commit cannot be checked: the registry does not load, the staged specs cannot be compared with it (the saved specs are missing from the commit), or the commit removes the registry.
+
+A vocabulary change that alters what approved rules mean (a value's type, range or values, who sets it, what a step writes or does) leaves those rules unapproved until the owner's approval of the change names it: the approval records each such change on the rules it affects (`approvedChanges`), and `stele gate` and the hook refuse the registry without it.
 
 A new requirement the owner has not approved yet gets the command that checks it, without blocking: on a branch, the merge waits for the approval. In a Shale project, a commit to the base branch itself (`origin`'s default, else `main`) is blocked until the owner approves the requests it carries, since no later merge would hold them; a request the owner retired waits there for its replacement's approval too. Before the specs are adopted, a spec commit passes with the adoption command. Every message ends with the command to run, for the coding agent to act on. A clone without `stele` on PATH is not checked, and CI's gate remains the backstop.
 

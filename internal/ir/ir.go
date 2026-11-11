@@ -355,6 +355,11 @@ type Rule struct {
 	// rule read again from unchanged text needs approving again. Empty for
 	// approvals recorded before readings were pinned.
 	ApprovedReading string
+	// ApprovedChanges are the vocabulary changes the owner accepted under
+	// this rule (gate.Change.Key): a change to a value's type, range or
+	// values, or to what a step writes, changes what the rule means without
+	// changing its text, so the approval names each one it covers.
+	ApprovedChanges []string
 	File            string
 }
 

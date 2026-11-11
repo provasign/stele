@@ -13,6 +13,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -191,10 +192,13 @@ type Result struct {
 	// error, or no valid reading after the repairs), with why. Nothing was
 	// checked for them, so the change can be neither clean nor approved
 	// until a later check translates them; failures are never cached.
-	Failed   map[string]string `json:"failed,omitempty"`
-	Watched  []string          `json:"watched"` // the roots the fingerprint covers
-	Repo     string            `json:"repo"`
-	Registry string            `json:"registry"`
+	Failed  map[string]string `json:"failed,omitempty"`
+	Watched []string          `json:"watched"` // the roots the fingerprint covers
+	// HeadFingerprint covers Head, the rules the check wrote: the approval
+	// applies exactly those.
+	HeadFingerprint string `json:"head_fingerprint,omitempty"`
+	Repo            string `json:"repo"`
+	Registry        string `json:"registry"`
 	// narrow maps a pair of conflicting statements to the one whose
 	// condition lies inside the other's.
 	narrow map[string]string
@@ -221,31 +225,44 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 			}
 		}
 	}
+	// What the check reads is fingerprinted before it is read, and again
+	// when the check ends: a requirement edited while the check ran was
+	// checked as it read before, and an approval that compared the files
+	// with a fingerprint taken afterwards approved the new text under the
+	// old reading (a code review, 2026-11-11).
+	switch {
+	case opt.Adopt != nil, opt.Format == "markdown":
+		res.Watched = []string{opt.SpecsDir}
+	case opt.Base == "":
+		res.Watched = []string{filepath.Join(opt.Repo, "openspec", "changes", opt.Change)}
+	default:
+		res.Watched = []string{filepath.Join(opt.Repo, specRoot(opt.Format))}
+	}
+	res.Watched = append(res.Watched, opt.Registry)
+	read, err := Fingerprint(res.Watched...)
+	if err != nil {
+		return nil, err
+	}
 	switch {
 	case opt.Adopt != nil:
 		after = opt.Adopt
 		for _, s := range after {
 			res.Added = append(res.Added, s.ID)
 		}
-		res.Watched = []string{opt.SpecsDir}
 	case opt.Format == "markdown":
 		// Plain Markdown in the folder stele.yaml names (SpecsDir).
 		if truth, after, err = markdownChange(opt, res); err != nil {
 			return nil, err
 		}
-		res.Watched = []string{opt.SpecsDir}
 	case opt.Base == "":
 		if truth, after, err = openSpecChange(opt, res); err != nil {
 			return nil, err
 		}
-		res.Watched = []string{filepath.Join(opt.Repo, "openspec", "changes", opt.Change)}
 	default:
 		if truth, after, err = branchChange(opt, res); err != nil {
 			return nil, err
 		}
-		res.Watched = []string{filepath.Join(opt.Repo, specRoot(opt.Format))}
 	}
-	res.Watched = append(res.Watched, opt.Registry)
 	res.Texts = map[string]string{}
 	for _, s := range after {
 		if slices.Contains(res.Added, s.ID) || slices.Contains(res.Modified, s.ID) {
@@ -787,8 +804,20 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 	if res.Fingerprint, err = Fingerprint(res.Watched...); err != nil {
 		return nil, err
 	}
+	if res.Fingerprint != read {
+		return nil, ErrChangedDuringCheck
+	}
+	if res.Head != "" {
+		if res.HeadFingerprint, err = Fingerprint(res.Head); err != nil {
+			return nil, err
+		}
+	}
 	return res, nil
 }
+
+// ErrChangedDuringCheck: a requirement or the registry was edited while the
+// check ran, so its result describes text that is no longer there.
+var ErrChangedDuringCheck = errors.New("the requirements or the registry changed while the check was running, so its result is for text that is no longer there. Next: run the check again")
 
 // translateBatch is how many statements one translation request holds.
 const translateBatch = 20
