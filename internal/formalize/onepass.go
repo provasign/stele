@@ -49,7 +49,7 @@ func onePass(ctx context.Context, m llm.Client, stmts []translate.Statement, st 
 		var req strings.Builder
 		req.WriteString("Build the vocabulary these statements need, beyond the vocabulary above, and translate every statement into rules over it. Reuse existing symbols whenever they mean the same thing.\n\n")
 		for _, s := range part {
-			fmt.Fprintf(&req, "statement_id: %s\nsource: %s\ntext: %s\n\n", s.ID, s.Source, s.Prose)
+			fmt.Fprintf(&req, "statement_id: %s\nsource: %s\ntext: %s\n\n", s.ID, llm.Data(s.Source), llm.Data(s.Prose))
 			for _, note := range s.Notes {
 				fmt.Fprintf(&req, "vocabulary note: %s\n", note)
 			}

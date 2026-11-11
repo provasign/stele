@@ -192,7 +192,7 @@ func proposeBatch(ctx context.Context, m llm.Client, batch []translate.Statement
 	}
 	req.WriteString("Propose the vocabulary these statements need, beyond the vocabulary above. Under each statement are existing symbols whose names share its words: reuse them when they cover it.\n\n")
 	for _, s := range batch {
-		fmt.Fprintf(&req, "statement_id: %s\nsource: %s\ntext: %s\n", s.ID, s.Source, s.Prose)
+		fmt.Fprintf(&req, "statement_id: %s\nsource: %s\ntext: %s\n", s.ID, llm.Data(s.Source), llm.Data(s.Prose))
 		if rel := translate.Related(current, s.Prose, 12); len(rel) > 0 {
 			fmt.Fprintf(&req, "related symbols: %s\n", strings.Join(rel, ", "))
 		}

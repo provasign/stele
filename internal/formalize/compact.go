@@ -160,7 +160,7 @@ func compactPass(ctx context.Context, m llm.Client, stmts []translate.Statement,
 				attempts[s.ID]++
 				alias := fmt.Sprintf("s%d", k+1)
 				aliases[alias] = s.ID
-				fmt.Fprintf(&req, "statement_id: %s\nsource: %s\ntext: %s\n", alias, s.Source, s.Prose)
+				fmt.Fprintf(&req, "statement_id: %s\nsource: %s\ntext: %s\n", alias, llm.Data(s.Source), llm.Data(s.Prose))
 				for _, note := range s.Notes {
 					if r, ok := strings.CutPrefix(note, "review: "); ok {
 						fmt.Fprintf(&req, "review note: %s\n", r)
@@ -731,5 +731,5 @@ The spec statements remain the requirements: translate what each says, even
 where the code differs from it, and never use the code to narrow or drop
 part of a statement.
 
-` + text + "\n"
+` + llm.Data(text) + "\n"
 }

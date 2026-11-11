@@ -36,8 +36,14 @@ import (
 func cmdPrecommit(args []string, out io.Writer) int {
 	cfg, err := config.Find(".")
 	if err != nil {
-		// Which files are specs is not known without it, so nothing is
-		// blocked; the commit is not checked, and says so.
+		// A project already using Stele (its last commit has a stele.yaml)
+		// cannot be checked without it, so the commit waits: a broken
+		// stele.yaml let every commit through (a security review,
+		// 2026-11-11). A stele.yaml not yet committed is being set up.
+		if _, herr := git("cat-file", "-e", "HEAD:./"+config.FileName); herr == nil {
+			fmt.Fprintf(out, "Stele blocked this commit: stele.yaml does not load, so the commit cannot be checked.\n- %v\nNext: fix stele.yaml (`git diff HEAD -- %s` shows what changed), or restore it with `git checkout HEAD -- %s`, then commit again. Do not bypass this check with --no-verify.\n", err, config.FileName, config.FileName)
+			return 1
+		}
 		fmt.Fprintf(out, "Stele: stele.yaml does not load (%v), so this commit is not checked.\nNext: fix stele.yaml.\n", err)
 		return 0
 	}
@@ -90,7 +96,11 @@ func cmdPrecommit(args []string, out io.Writer) int {
 		fmt.Fprintf(out, "Stele blocked this commit: the approved registry %s does not load, so the commit cannot be checked.\n- %v\nNext: restore the registry from the last commit (`git checkout HEAD -- %s`), then commit again. Do not bypass this check with --no-verify.\n", regRel, err, regRel)
 		return 1
 	}
-	if err != nil || len(reg.Rules) == 0 && !shale {
+	// An empty registry is a project not adopted yet only if the last
+	// commit's registry is empty too: emptying the approved rules file
+	// passed as "not adopted" (a security review, 2026-11-11).
+	emptied := err == nil && len(reg.Rules) == 0 && !shale && headHasRules(cfg.RegistryDir())
+	if !emptied && (err != nil || len(reg.Rules) == 0 && !shale) {
 		// With no requirements yet, there is nothing to adopt. A Shale
 		// project's requests are checked one by one as they are declared,
 		// never adopted: its first ones are new requirements as any later.
@@ -511,4 +521,19 @@ func hasRequirements(cfg *config.Config, root string) bool {
 	}
 	stmts, err := importSpecs(root, cfg.Specs)
 	return err != nil || len(stmts) > 0
+}
+
+// headHasRules reports whether the registry at dir, as the last commit
+// holds it, has a live rule.
+func headHasRules(dir string) bool {
+	at, cleanup, err := registryAt(dir, "HEAD")
+	if err != nil {
+		return false
+	}
+	defer cleanup()
+	reg, err := ir.LoadDir(at)
+	if err != nil {
+		return false
+	}
+	return slices.ContainsFunc(reg.Rules, func(x *ir.Rule) bool { return x.Live() })
 }

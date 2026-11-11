@@ -2,6 +2,7 @@ package translate
 
 import (
 	"fmt"
+	"github.com/provasign/stele/internal/llm"
 	"sort"
 	"strings"
 
@@ -30,7 +31,7 @@ func RenderVocabulary(reg *ir.Registry) string {
 			}
 			line := fmt.Sprintf("  %s%s: %s [%s]", prefix, an, a.TypeString(), by)
 			if a.Meaning != "" {
-				line += " - " + a.Meaning
+				line += " - " + llm.Data(a.Meaning)
 			}
 			b.WriteString(line + "\n")
 		}

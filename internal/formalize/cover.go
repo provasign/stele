@@ -191,7 +191,7 @@ func Judge(ctx context.Context, m llm.Client, items []JudgeItem, batch, parallel
 			alias := fmt.Sprintf("s%d", k+1)
 			p.aliases[alias] = it.ID
 			p.rules[it.ID] = map[string]string{}
-			fmt.Fprintf(&req, "statement_id: %s\ntext: %s\nrules:\n", alias, strings.Join(strings.Fields(it.Prose), " "))
+			fmt.Fprintf(&req, "statement_id: %s\ntext: %s\nrules:\n", alias, llm.Data(strings.Join(strings.Fields(it.Prose), " ")))
 			for j, r := range it.Rules {
 				short := fmt.Sprintf("r%d", j+1)
 				p.rules[it.ID][short] = r.ID

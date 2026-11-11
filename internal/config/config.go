@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -99,11 +100,34 @@ func Find(dir string) (*Config, error) {
 	}
 }
 
+// inProject reports whether a path stele.yaml names stays inside the
+// project: relative, and not climbing out of it. A crafted stele.yaml
+// could otherwise point an import, and the model calls that read it, at
+// files elsewhere on the machine (a security review, 2026-11-11).
+func inProject(p string) bool {
+	if p == "" {
+		return true
+	}
+	if filepath.IsAbs(p) || filepath.VolumeName(p) != "" {
+		return false
+	}
+	c := filepath.Clean(filepath.FromSlash(p))
+	return c != ".." && !strings.HasPrefix(c, ".."+string(filepath.Separator))
+}
+
 // Validate checks the settings.
 func (c *Config) Validate() error {
+	if !inProject(c.Registry) {
+		return fmt.Errorf("registry %q is outside the project: give a path inside the folder that holds stele.yaml", c.Registry)
+	}
 	if c.Specs != nil {
 		if c.Specs.Root == "" || c.Specs.Snapshot == "" {
 			return fmt.Errorf("specs.root and specs.snapshot are required")
+		}
+		for name, p := range map[string]string{"specs.root": c.Specs.Root, "specs.snapshot": c.Specs.Snapshot} {
+			if !inProject(p) {
+				return fmt.Errorf("%s %q is outside the project: give a path inside the folder that holds stele.yaml", name, p)
+			}
 		}
 		switch c.Specs.Format {
 		case "markdown", "speckit", "openspec", "kiro", "shale":

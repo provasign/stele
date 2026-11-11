@@ -124,7 +124,7 @@ func consolidateValues(ctx context.Context, m llm.Client, stmts []translate.Stat
 				if k == 2 {
 					break
 				}
-				fmt.Fprintf(&b, "  %s: %s\n", v, oneLine(prose[id], 220))
+				fmt.Fprintf(&b, "  %s: %s\n", v, llm.Data(oneLine(prose[id], 220)))
 			}
 		}
 		return b.String()

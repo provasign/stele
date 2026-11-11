@@ -63,7 +63,7 @@ func factChunk(ctx context.Context, m llm.Client, chunk []translate.Statement, b
 	var req strings.Builder
 	req.WriteString("List the facts these statements state requirements about. Reuse a fact above, by its name, when a statement is about it.\n\n")
 	for _, s := range chunk {
-		fmt.Fprintf(&req, "statement_id: %s\ntext: %s\n\n", s.ID, s.Prose)
+		fmt.Fprintf(&req, "statement_id: %s\ntext: %s\n\n", s.ID, llm.Data(s.Prose))
 	}
 	turns := []llm.Turn{{Role: "user", Text: req.String()}}
 	for round := 0; ; round++ {
@@ -348,7 +348,7 @@ func ConsolidateUsed(ctx context.Context, m llm.Client, base *ir.Registry, used 
 	for _, u := range used {
 		fmt.Fprintf(&list, "%s: %s", u.Name, u.Type)
 		if u.Meaning != "" {
-			fmt.Fprintf(&list, " - %s", u.Meaning)
+			fmt.Fprintf(&list, " - %s", llm.Data(u.Meaning))
 		}
 		list.WriteString("\n")
 		for _, x := range u.Examples {
