@@ -11,6 +11,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/provasign/stele/internal/ir"
 	"github.com/provasign/stele/internal/review"
@@ -78,6 +79,9 @@ func (st crossState) save(dir string) error {
 	if err != nil {
 		return err
 	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err // before the first reading the folder may not be there yet
+	}
 	return os.WriteFile(filepath.Join(dir, crossFile), append(src, '\n'), 0o644)
 }
 
@@ -97,69 +101,9 @@ func crossCheck(ctx context.Context, opt Options, res *Result, head *ir.Registry
 	if opt.Adopt == nil || opt.NoReview || len(opt.Clients) == 0 || len(opt.Adopt) == 0 || head == nil || res.Gate == nil || res.Gate.Check == nil {
 		return 0
 	}
-	// A part of the specs is reviewed with the requirements approved
-	// before it, or a contradiction between the two would have no backing.
-	adopting := map[string]bool{}
-	for _, s := range opt.Adopt {
-		adopting[s.ID] = true
-	}
-	var earlier []translate.Statement
-	for _, x := range head.Rules {
-		if x.Live() && x.StatementID != "" && !adopting[x.StatementID] && x.Prose != "" &&
-			!slices.ContainsFunc(earlier, func(s translate.Statement) bool { return s.ID == x.StatementID }) {
-			earlier = append(earlier, translate.Statement{ID: x.StatementID, Prose: x.Prose, Source: x.Source})
-		}
-	}
-	sort.Slice(earlier, func(i, j int) bool { return earlier[i].ID < earlier[j].ID })
-	h := sha256.New()
-	for _, s := range append(slices.Clone(opt.Adopt), earlier...) {
-		fmt.Fprintf(h, "%s\x00%s\x00", s.ID, s.Prose)
-	}
-	key := hex.EncodeToString(h.Sum(nil))[:16]
-	st := loadCross(opt.Out)
-	if st.Key != key {
-		if opt.MaxCost > 0 && res.Usage.CostUSD >= opt.MaxCost {
-			return 0
-		}
-		if opt.Log != nil {
-			fmt.Fprintf(opt.Log, "review: reading the %d requirements' texts for contradictions ...\n", len(opt.Adopt)+len(earlier))
-		}
-		// The glossary an importer appends is the same under every
-		// requirement of a spec: the review reads the requirement.
-		stmts := append(slices.Clone(opt.Adopt), earlier...)
-		for i, s := range stmts {
-			stmts[i].Prose, _, _ = strings.Cut(s.Prose, "\nGlossary: ")
-		}
-		// Two reviews, their findings joined: one review of 45 requirements
-		// named 16 contradictions and another 11, and each costs cents.
-		batches, _ := review.Plan(stmts, 150000)
-		var found []review.Finding
-		seen := map[string]bool{}
-		failed := 0
-		for pass := 0; pass < 2; pass++ {
-			rs := review.Batches(ctx, opt.Clients[0], batches, nil, 2, nil)
-			res.Usage.Add(rs.Usage)
-			failed += len(rs.Failed)
-			for _, f := range rs.Findings {
-				ids := slices.Clone(f.StatementIDs)
-				sort.Strings(ids)
-				if k := strings.Join(ids, "\x00"); !seen[k] {
-					seen[k] = true
-					found = append(found, f)
-				}
-			}
-		}
-		if failed > 0 && len(found) == 0 {
-			res.Warnings = append(res.Warnings, "review of the texts: the model call failed; contradictions are those the rules show")
-			return 0
-		}
-		st = crossState{Key: key, Findings: found, Steered: map[string]bool{}, Notes: map[string]crossNote{}}
-		if opt.Log != nil {
-			fmt.Fprintf(opt.Log, "review: %d possible contradiction(s) in the texts\n", len(found))
-		}
-		if err := st.save(opt.Out); err != nil {
-			return 0
-		}
+	st, adopting, earlier, ok := reviewTexts(ctx, opt, res, head)
+	if !ok {
+		return 0
 	}
 	// What the rules show, or the owner settled: pairs of statements.
 	shown := map[string]bool{}
@@ -263,7 +207,7 @@ func crossCheck(ctx context.Context, opt Options, res *Result, head *ir.Registry
 						others = append(others, title(o))
 					}
 				}
-				note := fmt.Sprintf("review: read by their texts alone, this requirement and another may not both hold. The other: %s. The situation: %s. The earlier rules of the two did not meet. Read this requirement again exactly as its text says: keep every condition and qualifier it states (\"only\", \"automatically\", a named role or case), write a rule for each thing it requires, and use for each fact the two share the symbol the vocabulary already has for it. Do not bend what the requirement says to make a contradiction, or to avoid one: if the two do not contradict as written, the rules should not either.", strings.Join(others, " | "), strings.TrimSpace(f.Situation))
+				note := steerNote(others, f.Situation, true)
 				if old, ok := st.Notes[id]; ok && old.Hash == translate.TextHash(text[id]) {
 					note = old.Note + " " + strings.TrimPrefix(note, "review: ")
 				}
@@ -336,4 +280,129 @@ func mergePossible(ps []Possible) []Possible {
 		sort.Strings(out[i].Statements)
 	}
 	return out
+}
+
+// reviewTexts returns an adoption's review of its texts, running it when
+// none is kept for these texts: two reviews at once, their findings joined
+// (one review of 45 requirements named 16 contradictions and another 11,
+// and each costs cents). A part of the specs is reviewed with the
+// requirements approved before it, in reg, or a contradiction between the
+// two would have no backing. Run before the first reading, each finding
+// becomes a note for its requirements, so that reading is steered at once:
+// read afterwards, the same hints cost two more rounds of reading and
+// checking, two minutes of eleven (a live session, 2026-11-10).
+func reviewTexts(ctx context.Context, opt Options, res *Result, reg *ir.Registry) (st crossState, adopting map[string]bool, earlier []translate.Statement, ok bool) {
+	adopting = map[string]bool{}
+	for _, s := range opt.Adopt {
+		adopting[s.ID] = true
+	}
+	if reg != nil {
+		for _, x := range reg.Rules {
+			if x.Live() && x.StatementID != "" && !adopting[x.StatementID] && x.Prose != "" &&
+				!slices.ContainsFunc(earlier, func(s translate.Statement) bool { return s.ID == x.StatementID }) {
+				earlier = append(earlier, translate.Statement{ID: x.StatementID, Prose: x.Prose, Source: x.Source})
+			}
+		}
+	}
+	sort.Slice(earlier, func(i, j int) bool { return earlier[i].ID < earlier[j].ID })
+	h := sha256.New()
+	for _, s := range append(slices.Clone(opt.Adopt), earlier...) {
+		fmt.Fprintf(h, "%s\x00%s\x00", s.ID, s.Prose)
+	}
+	key := hex.EncodeToString(h.Sum(nil))[:16]
+	st = loadCross(opt.Out)
+	if st.Key == key {
+		return st, adopting, earlier, true
+	}
+	if opt.MaxCost > 0 && res.Usage.CostUSD >= opt.MaxCost {
+		return st, adopting, earlier, false
+	}
+	if opt.Log != nil {
+		fmt.Fprintf(opt.Log, "review: reading the %d requirements' texts for contradictions ...\n", len(opt.Adopt)+len(earlier))
+	}
+	// The glossary an importer appends is the same under every
+	// requirement of a spec: the review reads the requirement.
+	stmts := append(slices.Clone(opt.Adopt), earlier...)
+	text := map[string]string{}
+	for i, s := range stmts {
+		text[s.ID] = s.Prose
+		stmts[i].Prose, _, _ = strings.Cut(s.Prose, "\nGlossary: ")
+	}
+	batches, _ := review.Plan(stmts, 150000)
+	passes := make([]*review.Result, 2)
+	var wg sync.WaitGroup
+	for pass := range passes {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			passes[pass] = review.Batches(ctx, opt.Clients[0], batches, nil, 2, nil)
+		}()
+	}
+	wg.Wait()
+	var found []review.Finding
+	seen := map[string]bool{}
+	failed := 0
+	for _, rs := range passes {
+		res.Usage.Add(rs.Usage)
+		failed += len(rs.Failed)
+		for _, f := range rs.Findings {
+			ids := slices.Clone(f.StatementIDs)
+			sort.Strings(ids)
+			if k := strings.Join(ids, "\x00"); !seen[k] {
+				seen[k] = true
+				found = append(found, f)
+			}
+		}
+	}
+	if failed > 0 && len(found) == 0 {
+		res.Warnings = append(res.Warnings, "review of the texts: the model call failed; contradictions are those the rules show")
+		return st, adopting, earlier, false
+	}
+	st = crossState{Key: key, Findings: found, Steered: map[string]bool{}, Notes: map[string]crossNote{}}
+	if opt.Log != nil {
+		fmt.Fprintf(opt.Log, "review: %d possible contradiction(s) in the texts\n", len(found))
+	}
+	if opt.steerFirst {
+		// Before any reading: every finding steers the first one.
+		for _, f := range found {
+			ids := slices.DeleteFunc(slices.Clone(f.StatementIDs), func(id string) bool { return text[id] == "" })
+			sort.Strings(ids)
+			ids = slices.Compact(ids)
+			if len(ids) < 2 || !slices.ContainsFunc(ids, func(id string) bool { return adopting[id] }) {
+				continue
+			}
+			st.Steered[strings.Join(ids, "\x00")] = true
+			for _, id := range ids {
+				if !adopting[id] {
+					continue
+				}
+				var others []string
+				for _, o := range ids {
+					if o != id {
+						t, _, _ := strings.Cut(text[o], "\nGlossary: ")
+						others = append(others, o+": "+oneLine(strings.Join(strings.Fields(t), " "), 160))
+					}
+				}
+				note := steerNote(others, f.Situation, false)
+				if old, ok := st.Notes[id]; ok {
+					note = old.Note + " " + strings.TrimPrefix(note, "review: ")
+				}
+				st.Notes[id] = crossNote{Hash: translate.TextHash(text[id]), Note: note}
+			}
+		}
+	}
+	if err := st.save(opt.Out); err != nil {
+		return st, adopting, earlier, false
+	}
+	return st, adopting, earlier, true
+}
+
+// steerNote tells the translation what a review of the texts saw between
+// this requirement and others. again says an earlier reading did not show it.
+func steerNote(others []string, situation string, again bool) string {
+	before := ""
+	if again {
+		before = " The earlier rules of the two did not meet."
+	}
+	return fmt.Sprintf("review: read by their texts alone, this requirement and another may not both hold. The other: %s. The situation: %s.%s Read this requirement exactly as its text says: keep every condition and qualifier it states (\"only\", \"automatically\", a named role or case), write a rule for each thing it requires, and use for each fact the two share one symbol, the one the vocabulary has for it. Do not bend what the requirement says to make a contradiction, or to avoid one: if the two do not contradict as written, the rules should not either.", strings.Join(others, " | "), strings.TrimSpace(situation), before)
 }

@@ -66,6 +66,18 @@ func codeEvidence(ctx context.Context, opt Options, res *Result) {
 	rereading := map[string]bool{}
 	var wait []string
 	overBudget := false
+	fresh := map[string]adjudicate.Verdict{} // verdicts of this run, also those not kept
+	// The code is read for every question at once, four at a time: read
+	// one after another, four questions took a minute and a half of an
+	// eleven-minute adoption (a live session, 2026-11-10).
+	type job struct {
+		key string
+		q   *Question
+	}
+	var jobs []job
+	var cands []adjudicate.Candidate
+	var all []translate.Statement
+	keyOf := map[string]string{} // question -> cache key
 	for i := range res.Questions {
 		q := &res.Questions[i]
 		if q.Kind != "conflict" || !q.AskOwner || len(q.stmts) < 2 {
@@ -73,14 +85,15 @@ func codeEvidence(ctx context.Context, opt Options, res *Result) {
 		}
 		h := sha256.New()
 		fmt.Fprintf(h, "%s\x00%s\x00%s", q.ID, state, q.Example)
-		var stmts []translate.Statement
 		for _, r := range q.Requirements {
 			fmt.Fprintf(h, "\x00%s\x00%s", r.ID, r.Text)
-			stmts = append(stmts, translate.Statement{ID: r.ID, Prose: r.Text, Source: r.Source})
 		}
 		key := hex.EncodeToString(h.Sum(nil))[:16]
-		v, ok := cache[key]
-		if !ok && opt.MaxCost > 0 && res.Usage.CostUSD >= opt.MaxCost {
+		keyOf[q.ID] = key
+		if _, ok := cache[key]; ok {
+			continue
+		}
+		if opt.MaxCost > 0 && res.Usage.CostUSD >= opt.MaxCost {
 			// The owner's limit covers the whole check, not only the
 			// translation: an adoption capped at $3 spent $3.66 with these
 			// calls on top (2026-11-10). The questions are asked without
@@ -91,31 +104,52 @@ func codeEvidence(ctx context.Context, opt Options, res *Result) {
 			overBudget = true
 			continue
 		}
-		if !ok {
-			situation := q.Example
-			if situation == "" {
-				situation = q.Text
+		situation := q.Example
+		if situation == "" {
+			situation = q.Text
+		}
+		for _, r := range q.Requirements {
+			if !slices.ContainsFunc(all, func(s translate.Statement) bool { return s.ID == r.ID }) {
+				all = append(all, translate.Statement{ID: r.ID, Prose: r.Text, Source: r.Source})
 			}
-			if opt.Log != nil {
-				fmt.Fprintf(opt.Log, "code: what the code does for %s\n", strings.Join(slices.Compact(slices.Sorted(slices.Values(q.stmts))), ", "))
+		}
+		ids := slices.Compact(slices.Sorted(slices.Values(q.stmts)))
+		if opt.Log != nil {
+			fmt.Fprintf(opt.Log, "code: what the code does for %s\n", strings.Join(ids, ", "))
+		}
+		jobs = append(jobs, job{key, q})
+		cands = append(cands, adjudicate.Candidate{StatementIDs: ids, Situation: situation})
+	}
+	if len(jobs) > 0 {
+		if graph == nil && opt.Graph {
+			g, err := codegraph.Open(ctx, opt.Repo)
+			if err != nil && opt.Log != nil {
+				fmt.Fprintf(opt.Log, "code: no code graph (%v); searching text only\n", err)
 			}
-			if graph == nil && opt.Graph {
-				g, err := codegraph.Open(ctx, opt.Repo)
-				if err != nil && opt.Log != nil {
-					fmt.Fprintf(opt.Log, "code: no code graph (%v); searching text only\n", err)
-				}
-				if graph = g; g != nil {
-					evidence.Define, evidence.NoDefinitions = g.Define, false
-				}
-				opt.Graph = g != nil
+			if graph = g; g != nil {
+				evidence.Define, evidence.NoDefinitions = g.Define, false
 			}
-			ids := slices.Compact(slices.Sorted(slices.Values(q.stmts)))
-			vs, usage := adjudicate.Decide(ctx, opt.Clients[0], stmts, []adjudicate.Candidate{{StatementIDs: ids, Situation: situation}},
-				adjudicate.Options{Repo: opt.Repo, Evidence: evidence, Ranges: true, Timeout: opt.RequestTimeout}, nil)
-			res.Usage.Add(usage)
-			v = vs[0]
+			opt.Graph = g != nil
+		}
+		vs, usage := adjudicate.Decide(ctx, opt.Clients[0], all, cands,
+			adjudicate.Options{Repo: opt.Repo, Evidence: evidence, Ranges: true, Timeout: opt.RequestTimeout, Parallel: 4}, nil)
+		res.Usage.Add(usage)
+		for k, v := range vs {
 			if !strings.HasPrefix(v.Reason, "model call failed") && !strings.HasPrefix(v.Reason, "code search failed") {
-				cache[key] = v
+				cache[jobs[k].key] = v
+			}
+			fresh[jobs[k].key] = v
+		}
+	}
+	for i := range res.Questions {
+		q := &res.Questions[i]
+		if q.Kind != "conflict" || !q.AskOwner || len(q.stmts) < 2 {
+			continue
+		}
+		v, ok := cache[keyOf[q.ID]]
+		if !ok {
+			if v, ok = fresh[keyOf[q.ID]]; !ok {
+				continue
 			}
 		}
 		applyCode(q, v)

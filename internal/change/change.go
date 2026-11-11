@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
@@ -88,9 +89,12 @@ type Options struct {
 	NoReview bool
 	// NoAudit skips the check of a conflict's rules against their texts.
 	NoAudit bool
-	settles int          // times Stele's own answers sent the check round again
-	rounds  int          // times the glossary's definitions added facts this run
-	lessons []*ir.Lesson // the registry's lessons, for the coverage judge
+	// steerFirst: the texts are being reviewed before any reading, so the
+	// review's findings steer the first one.
+	steerFirst bool
+	settles    int          // times Stele's own answers sent the check round again
+	rounds     int          // times the glossary's definitions added facts this run
+	lessons    []*ir.Lesson // the registry's lessons, for the coverage judge
 }
 
 // request is ctx limited to one model call's RequestTimeout.
@@ -340,6 +344,13 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 		}
 	}
 
+	// An adoption reviews its texts first, so that what the review sees
+	// steers the first reading.
+	if opt.Adopt != nil && !opt.NoReview && len(opt.Clients) > 0 && len(pending) > 0 {
+		first := opt
+		first.steerFirst = !dirHasReadings(opt.Out)
+		reviewTexts(ctx, first, res, base)
+	}
 	// Translate what the change adds or edits, over the registry's
 	// vocabulary and the terms the change proposes.
 	for i := range pending {
@@ -1619,4 +1630,17 @@ func leftUnchecked(as []Answer, id, hash string) bool {
 		}
 	}
 	return false
+}
+
+// dirHasReadings reports whether a check already keeps readings: a review
+// made after them steers by a second reading, not the first.
+func dirHasReadings(out string) bool {
+	src, err := os.ReadFile(filepath.Join(out, cacheFile))
+	if err != nil {
+		return false
+	}
+	var c struct {
+		Entries map[string]json.RawMessage `json:"entries"`
+	}
+	return json.Unmarshal(src, &c) == nil && len(c.Entries) > 0
 }
