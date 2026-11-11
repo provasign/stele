@@ -91,9 +91,51 @@ type Requirement struct {
 	Reading []string `json:"reading,omitempty"`
 	// InWords is Reading in plain English, rule for rule, for the owner:
 	// they approve the reading without reading rule syntax.
-	InWords    []string `json:"in_words,omitempty"`
-	Findings   []string `json:"findings,omitempty"`
-	NotChecked []string `json:"not_checked,omitempty"`
+	InWords []string `json:"in_words,omitempty"`
+	// Clauses are the requirement's clauses, each with what checks it in
+	// words, or nothing: the owner sees which parts of the text a rule
+	// checks and which none does, rather than a count (a review,
+	// 2026-11-11: most readings are weaker than their text).
+	Clauses    []ClauseCheck `json:"clauses,omitempty"`
+	Findings   []string      `json:"findings,omitempty"`
+	NotChecked []string      `json:"not_checked,omitempty"`
+}
+
+// ClauseCheck is one clause of a requirement and what checks it.
+type ClauseCheck struct {
+	Text string `json:"text"`
+	// Checked is true when a rule of the approved reading checks it.
+	Checked bool `json:"checked"`
+	// By says those rules in words; Why, for a clause no rule checks,
+	// says why when Stele knows.
+	By  []string `json:"checked_by,omitempty"`
+	Why string   `json:"why,omitempty"`
+}
+
+// ClauseChecks says, for each clause of a requirement, which rules of head
+// check it.
+func ClauseChecks(cls []Clause, head *ir.Registry) []ClauseCheck {
+	var out []ClauseCheck
+	for _, cl := range cls {
+		cc := ClauseCheck{Text: cl.Text}
+		for _, id := range cl.Rules {
+			if x := head.Rule(id); x != nil && x.Live() {
+				cc.By = append(cc.By, x.Words())
+			}
+		}
+		cc.Checked = len(cc.By) > 0
+		switch {
+		case cc.Checked:
+		case cl.Status == "not_checkable":
+			cc.Why = "nothing a rule can check: it says how, or about something outside the system"
+		case len(cl.Rules) > 0:
+			cc.Why = "the rule that checked it was set aside: it did not say what the text says"
+		default:
+			cc.Why = "no rule of the reading checks it"
+		}
+		out = append(out, cc)
+	}
+	return out
 }
 
 // OwnerFinding reports whether a finding of Stele's own checks is one the
@@ -970,6 +1012,7 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 					r.InWords = append(r.InWords, x.Words())
 				}
 			}
+			r.Clauses = ClauseChecks(res.Clauses[id], head)
 			r.Findings, r.NotChecked, _ = SplitFindings(res.Findings[id])
 			if len(r.Findings) > 0 {
 				flagged++

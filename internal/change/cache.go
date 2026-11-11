@@ -47,6 +47,16 @@ type entry struct {
 	// clauses no rule checks, rules broader than the text, rules that block
 	// a step. The owner sees them beside the reading before approving.
 	Findings []string `json:"findings,omitempty"`
+	// Clauses are the statement's clauses as the coverage check split
+	// them, each with the rules that check it, by position among the
+	// entry's rule candidates (their IDs change when they are kept).
+	Clauses []cachedClause `json:"clauses,omitempty"`
+}
+
+type cachedClause struct {
+	Text   string `json:"text"`
+	Status string `json:"status"`
+	Rules  []int  `json:"rules,omitempty"`
 }
 
 // key identifies what a statement was translated from: its text and the

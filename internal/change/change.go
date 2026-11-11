@@ -130,6 +130,9 @@ type Result struct {
 	// Findings maps a translated statement to what the coverage and self
 	// checks found in its reading (formalize: cover.go, selfcheck.go).
 	Findings map[string][]string `json:"findings,omitempty"`
+	// Clauses are each requirement's clauses with the rules that check
+	// them, as the coverage check judged its reading.
+	Clauses map[string][]Clause `json:"clauses,omitempty"`
 	// Lessons maps a translated statement to the owner's lessons it was
 	// read with; NewLessons are the lessons this change's answers add to
 	// the registry, committed with it (D-063).
@@ -373,6 +376,7 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 	for i := range pending {
 		pending[i].Notes = append(pending[i].Notes, notes(answers, pending[i])...)
 		pending[i].Notes = append(pending[i].Notes, crossNotes(opt.Out, pending[i])...)
+		pending[i].Notes = append(pending[i].Notes, auditNotes(opt.Out, pending[i])...)
 		// What the owner taught Stele earlier (D-063); in the notes, so the
 		// translation cache notices a changed lesson.
 		for _, l := range lesson.Relevant(base.Lessons, pending[i].ID, translate.TextHash(pending[i].Prose), pending[i].Prose, 8) {
@@ -446,6 +450,7 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 			}
 		}
 		keepRuleIDs(all, rep.RulesOf, base)
+		res.Clauses = clauseRules(all, pending, c)
 		all = setAside(all, loadAudit(opt.Out), c, res)
 		textPrecedence(all, res.Statements)
 		answerPrecedence(all, answers, res.Statements)
@@ -999,7 +1004,7 @@ func (c *cache) translate(ctx context.Context, opt Options, todo []translate.Sta
 			// review, 2026-11-03).
 			k, retry = "retry:"+k, true
 		}
-		c.Entries[s.ID] = entry{Key: k, Cands: byStmt[s.ID], Findings: findings[s.ID]}
+		c.Entries[s.ID] = entry{Key: k, Cands: byStmt[s.ID], Findings: findings[s.ID], Clauses: clausesOf(fr.Coverage, s.ID, byStmt[s.ID])}
 	}
 	if len(fr.Deferred) > 0 || retry {
 		// The run's state records the failures as settled; a rerun with the
@@ -1687,4 +1692,64 @@ func dirHasReadings(out string) bool {
 		Entries map[string]json.RawMessage `json:"entries"`
 	}
 	return json.Unmarshal(src, &c) == nil && len(c.Entries) > 0
+}
+
+// Clause is one clause of a requirement and the rules that check it; none
+// when no rule does.
+type Clause struct {
+	Text   string   `json:"text"`
+	Status string   `json:"status"` // covered, uncovered, not_checkable
+	Rules  []string `json:"rules,omitempty"`
+}
+
+// clausesOf keeps a statement's clauses from the coverage check, naming
+// each rule by its position among the statement's rule candidates.
+func clausesOf(cov []formalize.StatementCoverage, id string, cands []translate.Candidate) []cachedClause {
+	k := slices.IndexFunc(cov, func(sc formalize.StatementCoverage) bool { return sc.StatementID == id })
+	if k < 0 {
+		return nil
+	}
+	pos := map[string]int{}
+	n := 0
+	for _, c := range cands {
+		if c.Outcome == "rule" {
+			pos[c.RuleID] = n
+			n++
+		}
+	}
+	var out []cachedClause
+	for _, cl := range cov[k].Clauses {
+		cc := cachedClause{Text: cl.Text, Status: cl.Status}
+		for _, r := range cl.Rules {
+			if i, ok := pos[r]; ok {
+				cc.Rules = append(cc.Rules, i)
+			}
+		}
+		out = append(out, cc)
+	}
+	return out
+}
+
+// clauseRules names the rules of each pending statement's clauses by the
+// IDs they have once kept.
+func clauseRules(all []translate.Candidate, pending []translate.Statement, c *cache) map[string][]Clause {
+	ids := map[string][]string{}
+	for _, cd := range all {
+		if cd.Outcome == "rule" {
+			ids[cd.StatementID] = append(ids[cd.StatementID], cd.RuleID)
+		}
+	}
+	out := map[string][]Clause{}
+	for _, s := range pending {
+		for _, cc := range c.Entries[s.ID].Clauses {
+			cl := Clause{Text: cc.Text, Status: cc.Status}
+			for _, i := range cc.Rules {
+				if i < len(ids[s.ID]) {
+					cl.Rules = append(cl.Rules, ids[s.ID][i])
+				}
+			}
+			out[s.ID] = append(out[s.ID], cl)
+		}
+	}
+	return out
 }
