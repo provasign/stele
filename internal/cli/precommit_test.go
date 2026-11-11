@@ -366,3 +366,70 @@ func TestPrecommitRetiredWaitsForApproval(t *testing.T) {
 		t.Errorf("on main: %d\n%s", code, out)
 	}
 }
+
+// TestPrecommitFailsClosed: where the project has approved requirements
+// and the hook cannot check the commit, it blocks and says why; each of
+// these passed with no word (a code review, 2026-11-11).
+func TestPrecommitFailsClosed(t *testing.T) {
+	// A registry that does not load.
+	dir := doorProject(t, true)
+	os.WriteFile(filepath.Join(dir, "registry/rules.yaml"), []byte("id: R1\nkind: [broken\n"), 0o644)
+	if code, out := precommit(t, dir, "registry/rules.yaml"); code != 1 || !strings.Contains(out, "does not load") || !strings.Contains(out, "--no-verify") {
+		t.Errorf("malformed registry: %d\n%s", code, out)
+	}
+
+	// An approved requirement edited, and the saved specs deleted with it.
+	dir = doorProject(t, true)
+	os.WriteFile(filepath.Join(dir, "specs/door.md"), []byte("# Door\n\nREQ-1: The door MUST be open.\n"), 0o644)
+	if out, err := exec.Command("git", "-C", dir, "rm", "-q", "statements.yaml").CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	if code, out := precommit(t, dir, "specs/door.md"); code != 1 || !strings.Contains(out, "blocked this commit") {
+		t.Errorf("edited requirement, deleted snapshot: %d\n%s", code, out)
+	}
+
+	// The registry removed from the commit.
+	dir = doorProject(t, true)
+	if out, err := exec.Command("git", "-C", dir, "rm", "-rq", "--cached", "registry").CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	if code, out := precommit(t, dir); code != 1 || !strings.Contains(out, "removes the approved registry") {
+		t.Errorf("registry removed from the index: %d\n%s", code, out)
+	}
+	// Deleted from disk as well.
+	os.RemoveAll(filepath.Join(dir, "registry"))
+	if code, out := precommit(t, dir); code != 1 || !strings.Contains(out, "blocked this commit") {
+		t.Errorf("registry deleted: %d\n%s", code, out)
+	}
+}
+
+// TestInstallGitHookKeepsOtherInterpreters: a hook Python or Node runs is
+// left as it is, with a note: a shell line in it is a syntax error.
+func TestInstallGitHookKeepsOtherInterpreters(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+	dir := t.TempDir()
+	if out, err := exec.Command("git", "-C", dir, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	hook := filepath.Join(dir, ".git/hooks/pre-commit")
+	os.MkdirAll(filepath.Dir(hook), 0o755)
+	for _, shebang := range []string{"#!/usr/bin/env python3", "#!/usr/bin/python", "#!/usr/bin/env -S node --no-warnings"} {
+		src := shebang + "\nimport sys\nsys.exit(0)\n"
+		os.WriteFile(hook, []byte(src), 0o755)
+		p, note, err := installGitHook(dir)
+		if b, _ := os.ReadFile(hook); p != "" || err != nil || string(b) != src || !strings.Contains(note, "not a shell script") {
+			t.Errorf("%s: %q %q %v\n%s", shebang, p, note, err, b)
+		}
+	}
+	for _, shebang := range []string{"#!/bin/sh", "#!/usr/bin/env bash", "#!/bin/bash -e"} {
+		os.WriteFile(hook, []byte(shebang+"\nexit 0\n"), 0o755)
+		if p, _, err := installGitHook(dir); p == "" || err != nil {
+			t.Errorf("%s: not added: %q %v", shebang, p, err)
+		}
+		if b, _ := os.ReadFile(hook); !strings.HasPrefix(string(b), shebang+"\n"+gitHookLine+"\n") {
+			t.Errorf("%s:\n%s", shebang, b)
+		}
+	}
+}

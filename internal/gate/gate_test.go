@@ -392,3 +392,27 @@ func TestOpenConflictPinsHistory(t *testing.T) {
 		}
 	}
 }
+
+// A wider range changes what an approved rule over that value means, so the
+// rule waits for the owner until an approval names the change; a verdict of
+// "accepted" with the change only listed let it merge unapproved (a code
+// review, 2026-11-11).
+func TestRangeChangeNeedsApprovalOfAffectedRules(t *testing.T) {
+	approved := strings.Replace(r12, "when: self.holds > 0\n", "when: self.holds > 0\nsource: { approvedBy: owner }\n", 1)
+	wider := strings.Replace(vocab, "range: [0, 5]", "range: [0, 20]", 1)
+	res := gate(t, vocab+approved, wider+approved)
+	if len(res.NeedsApproval) != 1 || res.NeedsApproval[0].Kind != "range-changed" {
+		t.Fatalf("needs approval = %+v", res.NeedsApproval)
+	}
+	if strings.Join(res.Unapproved, ",") != "R12" || res.Passes(true) || !res.Passes(false) {
+		t.Fatalf("unapproved = %v, passes = %v", res.Unapproved, res.Passes(true))
+	}
+	named := strings.Replace(approved, "approvedBy: owner", "approvedBy: owner, approvedChanges: ["+res.NeedsApproval[0].Key()+"]", 1)
+	if res := gate(t, vocab+approved, wider+named); len(res.Unapproved) != 0 || !res.Passes(true) {
+		t.Fatalf("after the approval names the change: unapproved = %v", res.Unapproved)
+	}
+	// Unchanged vocabulary asks nothing of rules approved before.
+	if res := gate(t, vocab+approved, vocab+approved); len(res.Unapproved) != 0 || !res.Passes(true) {
+		t.Fatalf("no change: unapproved = %v", res.Unapproved)
+	}
+}

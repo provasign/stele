@@ -31,9 +31,7 @@ func cmdGate(args []string, out io.Writer) int {
 		fmt.Fprintf(os.Stderr, "stele gate: %v\n", err)
 		return 2
 	}
-	if *requireApproval && len(res.Unapproved) > 0 {
-		res.Accepted = false
-	}
+	res.Accepted = res.Passes(*requireApproval)
 	if *jsonOut {
 		enc := json.NewEncoder(out)
 		enc.SetIndent("", "  ")
@@ -52,7 +50,7 @@ func cmdGate(args []string, out io.Writer) int {
 			fmt.Fprintf(out, "[ERROR] %s\n", e)
 		}
 		for _, id := range res.Unapproved {
-			fmt.Fprintf(out, "[UNAPPROVED] %s: the owner has not approved it for its current statement text (stele approve)\n", id)
+			fmt.Fprintf(out, "[UNAPPROVED] %s: the owner has not approved it for its current statement text and vocabulary (stele change, or stele approve)\n", id)
 		}
 		if res.Check != nil {
 			for _, c := range res.Check.Conflicts {

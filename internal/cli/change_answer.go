@@ -17,6 +17,7 @@ import (
 
 	"github.com/provasign/stele/internal/adopt"
 	"github.com/provasign/stele/internal/change"
+	"github.com/provasign/stele/internal/gate"
 	"github.com/provasign/stele/internal/importer"
 	"github.com/provasign/stele/internal/ir"
 	"github.com/provasign/stele/internal/translate"
@@ -209,6 +210,20 @@ func approveChange(res *change.Result, by string, out io.Writer) error {
 	if now != res.Fingerprint {
 		return fmt.Errorf("the change or the registry changed since the check; run `stele change` again")
 	}
+	// What is applied is what was checked: the rules the check wrote.
+	if res.HeadFingerprint != "" {
+		if h, err := change.Fingerprint(res.Head); err != nil || h != res.HeadFingerprint {
+			return fmt.Errorf("the checked rules changed since the check; run `stele change` again")
+		}
+	}
+	// The vocabulary changes this approval accepts under approved rules,
+	// measured against the registry as it is before the change is applied.
+	var accepted map[string][]string
+	if before, err := ir.LoadDir(res.Registry); err == nil {
+		if head, err := ir.LoadDir(res.Head); err == nil {
+			accepted = gate.MeaningChanges(before, head)
+		}
+	}
 	read := readSpecs(res.Registry)
 	if err := copyDir(res.Head, res.Registry); err != nil {
 		return err
@@ -229,7 +244,7 @@ func approveChange(res *change.Result, by string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if err := adopt.ApproveRules(reg, g.Unapproved, by); err != nil {
+	if err := adopt.ApproveRulesUnder(reg, g.Unapproved, by, accepted); err != nil {
 		return err
 	}
 	if g.OnlyUndecided() {

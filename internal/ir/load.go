@@ -90,15 +90,16 @@ type rawDoc struct {
 	Status    string    `yaml:"status"`
 	Prose     string    `yaml:"prose"`
 	Source    struct {
-		StatementID     string `yaml:"statementId"`
-		StatementHash   string `yaml:"statementHash"`
-		Doc             string `yaml:"doc"`
-		Prose           string `yaml:"prose"`
-		TextHash        string `yaml:"textHash"`
-		Introduced      string `yaml:"introduced"`
-		ApprovedBy      string `yaml:"approvedBy"`
-		ApprovedHash    string `yaml:"approvedHash"`
-		ApprovedReading string `yaml:"approvedReading"`
+		StatementID     string   `yaml:"statementId"`
+		StatementHash   string   `yaml:"statementHash"`
+		Doc             string   `yaml:"doc"`
+		Prose           string   `yaml:"prose"`
+		TextHash        string   `yaml:"textHash"`
+		Introduced      string   `yaml:"introduced"`
+		ApprovedBy      string   `yaml:"approvedBy"`
+		ApprovedHash    string   `yaml:"approvedHash"`
+		ApprovedReading string   `yaml:"approvedReading"`
+		ApprovedChanges []string `yaml:"approvedChanges"`
 	} `yaml:"source"`
 
 	Resolves  []string      `yaml:"resolves"`
@@ -649,7 +650,7 @@ func (l *loader) rule(d *rawDoc, where string) {
 		ID: d.ID, Version: d.Version, Kind: d.Kind, Effect: d.Effect.Value, Operation: d.Operation, On: d.On, Assume: d.Assume,
 		Subject: d.Subject, Status: d.Status, Source: d.Source.Doc, Prose: d.Source.Prose,
 		StatementID: d.Source.StatementID, StatementHash: d.Source.StatementHash, TextHash: d.Source.TextHash, Introduced: d.Source.Introduced, File: where,
-		Overrides: d.Overrides, ApprovedBy: d.Source.ApprovedBy, ApprovedHash: d.Source.ApprovedHash, ApprovedReading: d.Source.ApprovedReading,
+		Overrides: d.Overrides, ApprovedBy: d.Source.ApprovedBy, ApprovedHash: d.Source.ApprovedHash, ApprovedReading: d.Source.ApprovedReading, ApprovedChanges: d.Source.ApprovedChanges,
 		Rationale: strings.TrimSpace(d.Rationale),
 	}
 	if x.Version == 0 {

@@ -16,6 +16,7 @@ package gate
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"slices"
 	"sort"
@@ -56,15 +57,17 @@ type Result struct {
 	Rules  []Change        `json:"rule_changes,omitempty"`
 	Vocab  []Change        `json:"vocabulary_changes,omitempty"`
 	// NeedsApproval lists vocabulary changes that can change the meaning of
-	// existing rules. They do not block the machine check; the context owner
-	// approves them in review.
+	// existing rules. The rules they affect are in Unapproved until the
+	// owner's approval names the change (ir.Rule.ApprovedChanges).
 	NeedsApproval []Change `json:"needs_approval,omitempty"`
 	// Open lists the open conflicts and what this check found for each; the
 	// conflicts they tolerate are not in Check (D-044).
 	Open []OpenStatus `json:"open_conflicts,omitempty"`
 	// Unapproved lists the live rules this change adds or edits that the
-	// owner has not approved for their current statement text (D-056).
-	// They block the merge only when the caller requires approval.
+	// owner has not approved for their current statement text (D-056), and
+	// the rules whose meaning a vocabulary change alters without an
+	// approval that names it. They block the merge only when the caller
+	// requires approval.
 	Unapproved []string `json:"unapproved,omitempty"`
 	// Pinned lists values that can never hold because one invariant fixes
 	// the attribute: the rule's meaning, so they do not fail the check.
@@ -127,13 +130,54 @@ func Registries(ctx context.Context, z *solver.Z3, base, head *ir.Registry) (*Re
 	return res, nil
 }
 
+// Passes is the gate's verdict, the one every caller acts on (stele gate,
+// the pre-commit hook): the check accepted the registry, and, where
+// approval is required, no rule waits for the owner.
+func (r *Result) Passes(requireApproval bool) bool {
+	return r != nil && r.Accepted && !(requireApproval && len(r.Unapproved) > 0)
+}
+
+// Key identifies a vocabulary change in the approval that accepts it.
+func (c Change) Key() string {
+	h := sha256.Sum256([]byte(c.Kind + "\x00" + c.Symbol + "\x00" + c.Detail))
+	return fmt.Sprintf("%x", h[:8])
+}
+
+// MeaningChanges lists, for each live rule of head, the vocabulary changes
+// from base that alter what it means (Change.Key). Open-conflict changes
+// are the owner's own records and are not among them.
+func MeaningChanges(base, head *ir.Registry) map[string][]string {
+	out := map[string][]string{}
+	if base == nil {
+		return out
+	}
+	for _, c := range vocabChanges(base, head) {
+		for _, id := range c.Affected {
+			if x := head.Rule(id); x != nil && x.Live() && !slices.Contains(out[id], c.Key()) {
+				out[id] = append(out[id], c.Key())
+			}
+		}
+	}
+	return out
+}
+
 // Unapproved lists the live rules of head that base lacks, or that differ
 // from base in meaning, version or text, and are not approved for their
-// current text. Rules base already had unchanged are grandfathered.
+// current text; and the rules a vocabulary change affects whose approval
+// does not name that change. Rules base already had unchanged, under
+// unchanged vocabulary, are grandfathered.
 func Unapproved(base, head *ir.Registry) []string {
 	var out []string
+	changed := MeaningChanges(base, head)
 	for _, h := range head.Rules {
-		if !h.Live() || h.Approved() {
+		if !h.Live() {
+			continue
+		}
+		if slices.ContainsFunc(changed[h.ID], func(k string) bool { return !slices.Contains(h.ApprovedChanges, k) }) {
+			out = append(out, h.ID)
+			continue
+		}
+		if h.Approved() {
 			continue
 		}
 		if base != nil {

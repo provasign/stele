@@ -1207,7 +1207,7 @@ func cmdApprove(args []string, out io.Writer) int {
 			return failf("approve", fmt.Errorf("no rule %s", id))
 		}
 	}
-	if err := adopt.ApproveRules(reg, ids, *by); err != nil {
+	if err := adopt.ApproveRulesUnder(reg, ids, *by, gate.MeaningChanges(baseReg, reg)); err != nil {
 		return failf("approve", err)
 	}
 	fmt.Fprintf(out, "approved %d rule(s) as %s\n", len(ids), *by)

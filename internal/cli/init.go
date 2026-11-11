@@ -324,9 +324,27 @@ exec stele precommit
 // the same check, which still blocks the commit when it fails.
 const gitHookLine = "if command -v stele >/dev/null 2>&1; then stele precommit || exit 1; fi # stele (stele init)"
 
+// shellShebang reports whether a hook's first line names a POSIX shell,
+// directly or through env.
+func shellShebang(line string) bool {
+	f := strings.Fields(strings.TrimPrefix(strings.TrimSpace(line), "#!"))
+	if len(f) > 1 && filepath.Base(f[0]) == "env" {
+		f = slices.DeleteFunc(f[1:], func(a string) bool { return strings.HasPrefix(a, "-") })
+	}
+	if len(f) == 0 {
+		return false
+	}
+	switch filepath.Base(f[0]) {
+	case "sh", "bash", "zsh", "dash", "ksh", "ash":
+		return true
+	}
+	return false
+}
+
 // installGitHook writes the pre-commit hook into the repository's hooks
 // directory (core.hooksPath when set). It never replaces a hook it did not
-// write: it returns a note saying the line to add instead. Outside a git
+// write: into another tool's shell hook it adds its line, and for a hook
+// that is not shell it returns a note saying what to add. Outside a git
 // repository it does nothing.
 func installGitHook(dir string) (path, note string, err error) {
 	cmd := exec.Command("git", "rev-parse", "--git-path", "hooks")
@@ -351,6 +369,12 @@ func installGitHook(dir string) (path, note string, err error) {
 		at := 0
 		if len(lines) > 0 && strings.HasPrefix(lines[0], "#!") {
 			at = 1
+			// The line is shell: in a hook another interpreter runs
+			// (Python, Node) it is a syntax error, and the hook that
+			// worked fails on every commit (a code review, 2026-11-11).
+			if !shellShebang(lines[0]) {
+				return "", fmt.Sprintf("The pre-commit hook %s is not a shell script, so Stele left it as it is. Make it run `stele precommit` and fail when that fails; until then commits are not checked.", path), nil
+			}
 		}
 		head := strings.Join(lines[:at], "")
 		if at == 1 && !strings.HasSuffix(head, "\n") {

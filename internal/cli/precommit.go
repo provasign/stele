@@ -22,16 +22,27 @@ import (
 
 // cmdPrecommit is the git pre-commit hook `stele init` installs. It is
 // silent unless the commit stages spec or registry files. It blocks (exit 1)
-// only on what an approval clears: approved rules whose statement text has
+// on what an approval clears: approved rules whose statement text has
 // changed or disappeared, and a staged registry the gate refuses (conflicts,
-// unapproved rules, errors), checked as CI checks it. A new requirement the
+// unapproved rules, errors, steps the solver cannot decide), checked as
+// `stele gate` checks it. It also blocks when it cannot check a project
+// that has approved requirements: a registry that does not load, staged
+// specs it cannot compare, a registry removed from the commit. Passing
+// there let those commits through with no word (a code review,
+// 2026-11-11). A new requirement the
 // owner has not approved gets the command that checks it, without blocking,
 // except in a commit to a Shale project's base branch (onBase). Every
 // message ends with the command to run, for the coding agent to act on.
 func cmdPrecommit(args []string, out io.Writer) int {
 	cfg, err := config.Find(".")
-	if err != nil || cfg == nil {
-		return 0 // not a Stele project, or one Stele cannot read: never block on that
+	if err != nil {
+		// Which files are specs is not known without it, so nothing is
+		// blocked; the commit is not checked, and says so.
+		fmt.Fprintf(out, "Stele: stele.yaml does not load (%v), so this commit is not checked.\nNext: fix stele.yaml.\n", err)
+		return 0
+	}
+	if cfg == nil {
+		return 0 // not a Stele project
 	}
 	root, err := git("rev-parse", "--show-toplevel")
 	if err != nil {
@@ -73,6 +84,12 @@ func cmdPrecommit(args []string, out io.Writer) int {
 	next := nextCommand(cfg, root)
 	reg, err := ir.LoadDir(cfg.RegistryDir())
 	shale := cfg.Specs != nil && cfg.Specs.Format == "shale"
+	if err != nil && (hasYAML(cfg.RegistryDir()) || inHead(regRel)) {
+		// A registry that is there and does not load is not a project
+		// without one: nothing can be checked against it.
+		fmt.Fprintf(out, "Stele blocked this commit: the approved registry %s does not load, so the commit cannot be checked.\n- %v\nNext: restore the registry from the last commit (`git checkout HEAD -- %s`), then commit again. Do not bypass this check with --no-verify.\n", regRel, err, regRel)
+		return 1
+	}
 	if err != nil || len(reg.Rules) == 0 && !shale {
 		// With no requirements yet, there is nothing to adopt. A Shale
 		// project's requests are checked one by one as they are declared,
@@ -94,11 +111,14 @@ func cmdPrecommit(args []string, out io.Writer) int {
 		// check of the files on disk (a code review, 2026-11-03).
 		staged, cleanup, serr := stagedTree(root, cfg, rel)
 		if serr != nil {
-			fmt.Fprintf(out, "Stele: could not read the staged specs (%v); CI's stele gate still checks them.\n", serr)
-			return 0
+			fmt.Fprintf(out, "Stele blocked this commit: it could not read the staged specs, so the commit cannot be checked.\n- %v\nNext: commit again; if it fails the same way, report it. Do not bypass this check with --no-verify.\n", serr)
+			return 1
 		}
 		defer cleanup()
-		if r, err := evaluateStaged(cfg, staged, rel); err == nil {
+		r, err := evaluateStaged(cfg, staged, rel)
+		if err != nil {
+			blocks = append(blocks, fmt.Sprintf("the staged specs could not be compared with the approved requirements (%v): the commit must carry the registry and %s as they were approved", err, rel(cfg.SnapshotFile())))
+		} else {
 			for _, id := range r.StaleRules {
 				blocks = append(blocks, fmt.Sprintf("approved rule %s was approved for text that has since changed", id))
 			}
@@ -145,15 +165,18 @@ func cmdPrecommit(args []string, out io.Writer) int {
 		res, skipped, err := gateStaged(root, regRel)
 		switch {
 		case err != nil:
-			fmt.Fprintf(out, "Stele: could not check the staged registry (%v); CI's stele gate still will.\n", err)
+			blocks = append(blocks, fmt.Sprintf("the staged registry could not be checked (%v)", err))
 		case skipped:
 			// The registry's first commit (adoption): nothing approved to compare with.
+		case res == nil:
+			blocks = append(blocks, "the commit removes the approved registry "+regRel)
 		default:
+			before := len(blocks)
 			for _, e := range res.Errors {
 				blocks = append(blocks, "registry error: "+e)
 			}
 			for _, id := range res.Unapproved {
-				blocks = append(blocks, fmt.Sprintf("rule %s is not approved by the owner for its current text", id))
+				blocks = append(blocks, fmt.Sprintf("rule %s is not approved by the owner for its current text and vocabulary", id))
 			}
 			if res.Check != nil {
 				for _, c := range res.Check.Conflicts {
@@ -162,6 +185,15 @@ func cmdPrecommit(args []string, out io.Writer) int {
 				for _, d := range res.Check.Dead {
 					blocks = append(blocks, fmt.Sprintf("%s can never happen: %s", d.Response, strings.Join(d.Rules, " + ")))
 				}
+			}
+			// The gate's verdict decides, not the list above: whatever it
+			// refuses blocks, also what this hook has no line for.
+			if !res.Passes(true) && len(blocks) == before {
+				why := "the staged registry does not pass `stele gate`"
+				if res.OnlyUndecided() {
+					why = "the solver could not decide " + strings.Join(res.Check.Undecided, ", ") + ", and no approval accepts it unchecked"
+				}
+				blocks = append(blocks, why)
 			}
 		}
 	}
@@ -348,8 +380,28 @@ func evaluateSpecs(cfg *config.Config) (*specsync.Result, error) {
 	return specsync.Evaluate(o)
 }
 
+// hasYAML reports whether dir holds a registry file.
+func hasYAML(dir string) bool {
+	found := false
+	filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && (filepath.Ext(p) == ".yaml" || filepath.Ext(p) == ".yml") {
+			found = true
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return found
+}
+
+// inHead reports whether the last commit holds path.
+func inHead(path string) bool {
+	_, err := git("cat-file", "-e", "HEAD:"+path)
+	return err == nil
+}
+
 // gateStaged gates the registry as staged against the one in HEAD. skipped
-// is true when HEAD has no registry yet.
+// is true when HEAD has no registry yet; a nil result with no error means
+// HEAD has one and the commit removes it.
 func gateStaged(root, regRel string) (*gate.Result, bool, error) {
 	tmp, err := os.MkdirTemp("", "stele-precommit-")
 	if err != nil {
@@ -380,7 +432,7 @@ func gateStaged(root, regRel string) (*gate.Result, bool, error) {
 	}
 	paths := splitNUL(listed)
 	if len(paths) == 0 {
-		return &gate.Result{Accepted: true}, false, nil
+		return nil, false, nil // HEAD has a registry and the commit has none
 	}
 	export := exec.Command("git", append([]string{"checkout-index", "--prefix=" + head + "/", "--"}, paths...)...)
 	export.Dir = root

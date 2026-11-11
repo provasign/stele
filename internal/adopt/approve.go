@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -23,6 +24,15 @@ import (
 // different rule, needs approving again. Each approval is also appended to
 // the ledger next to the rule's file.
 func ApproveRules(reg *ir.Registry, ids []string, by string) error {
+	return ApproveRulesUnder(reg, ids, by, nil)
+}
+
+// ApproveRulesUnder is ApproveRules for a change that also alters the
+// vocabulary under approved rules: accepted names, for each rule, the
+// vocabulary changes the owner accepts with it (gate.MeaningChanges). They
+// are added to those the rule already carries, so an approval earlier on
+// the same branch still covers its own change.
+func ApproveRulesUnder(reg *ir.Registry, ids []string, by string, accepted map[string][]string) error {
 	if strings.TrimSpace(by) == "" {
 		return fmt.Errorf("approval needs the approver's name")
 	}
@@ -38,6 +48,24 @@ func ApproveRules(reg *ir.Registry, ids []string, by string) error {
 		setString(source, "approvedBy", by)
 		setString(source, "approvedHash", x.TextHash)
 		setString(source, "approvedReading", x.ReadingHash())
+		keys := slices.Clone(x.ApprovedChanges)
+		for _, k := range accepted[x.ID] {
+			if !slices.Contains(keys, k) {
+				keys = append(keys, k)
+			}
+		}
+		if len(keys) > 0 {
+			sort.Strings(keys)
+			list := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq", Style: yaml.FlowStyle}
+			for _, k := range keys {
+				list.Content = append(list.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: k})
+			}
+			if old := mappingValue(source, "approvedChanges"); old != nil {
+				*old = *list
+			} else {
+				source.Content = append(source.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "approvedChanges"}, list)
+			}
+		}
 		return false, nil
 	}); err != nil {
 		return err

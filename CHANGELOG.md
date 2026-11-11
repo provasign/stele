@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+Four faults an outside review of the code found, each reproduced there in a throwaway repository.
+
+- **A check is for the text it read.** A requirement edited while a check ran was checked as it stood before, and the approval then compared the files with a fingerprint taken after the check, so it approved the new text under the old reading. The check now fingerprints what it reads before reading it and refuses its own result when that changed meanwhile, saying to run again. The approval also applies exactly the rules the check wrote.
+- **The commit hook blocks what it cannot check.** `stele precommit` passed with no word when the approved registry did not load, when the staged specs could not be compared with it (an approved requirement edited and the saved specs deleted in one commit), when the commit removed the registry, and when the solver could not decide a step that `stele gate` refuses. Each now blocks the commit and says why. The hook takes the gate's verdict, where it used to read some of its findings. A `stele.yaml` that does not load is said, where the hook was silent.
+- **A vocabulary change under approved rules waits for the owner.** Widening a number's range, adding a value to a list of values, or changing what a step writes changes what approved rules mean with no change to their text. `stele gate` listed such a change and passed. The rules it affects are now unapproved until the owner's approval of the change names it, which `stele change` records on each of them as it applies the change; nothing more is asked of the owner. A registry whose vocabulary has not changed is read as before.
+- **`stele init` leaves a hook that is not shell alone.** It added its shell line after the shebang of any existing pre-commit hook, and a hook Python or Node runs then failed on every commit. Such a hook is now left as it is, with a note saying what to add.
+
 ## v0.1.15 - 2026-11-11
 
 Found by a real Claude Code session adopting a held-out project of 179 requirements from one sentence of its owner's. That session read everything at once, had its first command killed at Claude Code's ten-minute limit, answered 19 questions of Stele's itself over three more rounds, and after 42 minutes and $3.45 brought its owner 22 contradictions, 17 of them with nothing recommended. A review of the specs' texts backed one of the 22.
