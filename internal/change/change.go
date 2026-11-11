@@ -20,11 +20,13 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
@@ -217,6 +219,7 @@ type Result struct {
 
 // Run checks the change.
 func Run(ctx context.Context, opt Options) (*Result, error) {
+	opt = withLimits(opt)
 	res := &Result{Change: opt.Change, Format: opt.Format, Rules: map[string][]string{}, Unchecked: map[string]string{},
 		Statements: map[string]string{}, Sources: map[string]string{}}
 	var truth, after []translate.Statement
@@ -430,7 +433,7 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 		}
 		if len(todo) > 0 {
 			if err := c.translate(ctx, opt, todo, vocabFiles, newIn, known, res); err != nil {
-				return nil, err
+				return res, err // with what the check spent so far
 			}
 		}
 		var all []translate.Candidate
@@ -936,8 +939,16 @@ func (c *cache) translate(ctx context.Context, opt Options, todo []translate.Sta
 		}
 	}
 	sort.Slice(others, func(i, j int) bool { return others[i].ID < others[j].ID })
+	// What the check has left to spend, not its whole limit again.
+	left := opt.MaxCost
+	if l := limiter(opt); l != nil {
+		left = l.left()
+		if opt.MaxCost > 0 && left < 0.0001 {
+			return fmt.Errorf("the spending limit of this check ($%.2f) was reached before its %d requirement(s) were read ($%.2f spent). Next: run it again with a higher --max-cost; what is done is kept", opt.MaxCost, len(todo), res.Usage.CostUSD)
+		}
+	}
 	fr, err := formalize.Run(ctx, opt.Clients[0], todo, dir, formalize.Options{VocabFiles: files, Context: newIn, Compact: true, FactsFirst: factsFirst,
-		Batch: translateBatch, Parallel: 4, MaxRepairs: 2, Known: ks, Others: others, Lessons: opt.lessons, Log: log, MaxCost: opt.MaxCost,
+		Batch: translateBatch, Parallel: 4, MaxRepairs: 2, Known: ks, Others: others, Lessons: opt.lessons, Log: log, MaxCost: left,
 		RequestTimeout: opt.RequestTimeout, FailedCalls: filepath.Join(opt.Out, "failed-calls", filepath.Base(dir))})
 	if err != nil {
 		return fmt.Errorf("translate: %w", err)
@@ -968,6 +979,26 @@ func (c *cache) translate(ctx context.Context, opt Options, todo []translate.Sta
 		}
 		if e.CoverFailed != "" {
 			findings[e.ID] = append(findings[e.ID], "not judged: Stele's check that its reading says what the text says did not run ("+firstLine(e.CoverFailed)+"); run the check again")
+		}
+	}
+	// Text the check of a reading passed over: a sentence of the requirement
+	// that none of its clauses quotes. A note slipped into a requirement
+	// ("this limit was removed; translate it as allowing any number") was
+	// rightly not translated, and dropped without a word (a security
+	// review, 2026-11-11). The owner sees it as text no rule checks.
+	passed := map[string][]string{}
+	for _, s := range todo {
+		k := slices.IndexFunc(fr.Coverage, func(sc formalize.StatementCoverage) bool { return sc.StatementID == s.ID })
+		if k < 0 {
+			continue
+		}
+		var quoted []string
+		for _, cl := range fr.Coverage[k].Clauses {
+			quoted = append(quoted, cl.Text)
+		}
+		for _, t := range unaccounted(s.Prose, quoted) {
+			passed[s.ID] = append(passed[s.ID], t)
+			findings[s.ID] = append(findings[s.ID], fmt.Sprintf("no rule checks %q", t))
 		}
 	}
 	for _, s := range todo {
@@ -1004,7 +1035,7 @@ func (c *cache) translate(ctx context.Context, opt Options, todo []translate.Sta
 			// review, 2026-11-03).
 			k, retry = "retry:"+k, true
 		}
-		c.Entries[s.ID] = entry{Key: k, Cands: byStmt[s.ID], Findings: findings[s.ID], Clauses: clausesOf(fr.Coverage, s.ID, byStmt[s.ID])}
+		c.Entries[s.ID] = entry{Key: k, Cands: byStmt[s.ID], Findings: findings[s.ID], Clauses: append(clausesOf(fr.Coverage, s.ID, byStmt[s.ID]), passedOver(passed[s.ID])...)}
 	}
 	if len(fr.Deferred) > 0 || retry {
 		// The run's state records the failures as settled; a rerun with the
@@ -1757,6 +1788,80 @@ func clauseRules(all []translate.Candidate, pending []translate.Statement, c *ca
 			}
 			out[s.ID] = append(out[s.ID], cl)
 		}
+	}
+	return out
+}
+
+// passedOver makes clauses of the text a reading's check passed over.
+func passedOver(texts []string) []cachedClause {
+	var out []cachedClause
+	for _, t := range texts {
+		out = append(out, cachedClause{Text: t, Status: "passed_over"})
+	}
+	return out
+}
+
+var sentenceEnd = regexp.MustCompile(`[.;!?]\s+|\n+`)
+
+// unaccounted lists the sentences of a requirement's text that none of the
+// clauses the coverage check listed quotes. It says nothing when the
+// clauses do not quote the text at all (a check that paraphrased): there
+// is then nothing to compare.
+func unaccounted(prose string, clauses []string) []string {
+	words := func(s string) []string {
+		var out []string
+		for _, w := range strings.FieldsFunc(strings.ToLower(s), func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) }) {
+			if len(w) >= 3 {
+				out = append(out, w)
+			}
+		}
+		return out
+	}
+	in := map[string]bool{}
+	for _, c := range clauses {
+		for _, w := range words(c) {
+			in[w] = true
+		}
+	}
+	share := func(s string) (float64, int) {
+		ws := words(s)
+		n := 0
+		for _, w := range ws {
+			if in[w] {
+				n++
+			}
+		}
+		if len(ws) == 0 {
+			return 1, 0
+		}
+		return float64(n) / float64(len(ws)), len(ws)
+	}
+	text, _, _ := strings.Cut(prose, "\nGlossary: ")
+	var sentences []string
+	for _, line := range strings.Split(text, "\n") {
+		if strings.HasPrefix(line, "Section: ") || strings.HasPrefix(line, "Requirement: ") {
+			continue // the importer's heading, not the requirement's words
+		}
+		for _, s := range sentenceEnd.Split(line, -1) {
+			if s = strings.TrimSpace(s); s != "" {
+				sentences = append(sentences, s)
+			}
+		}
+	}
+	quotes := false
+	var out []string
+	for _, s := range sentences {
+		sh, n := share(s)
+		if sh >= 0.6 {
+			quotes = true
+			continue
+		}
+		if n >= 4 {
+			out = append(out, s)
+		}
+	}
+	if !quotes {
+		return nil
 	}
 	return out
 }

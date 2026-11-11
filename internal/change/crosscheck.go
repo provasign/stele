@@ -330,15 +330,23 @@ func reviewTexts(ctx context.Context, opt Options, res *Result, reg *ir.Registry
 	}
 	batches, _ := review.Plan(stmts, 150000)
 	passes := make([]*review.Result, 2)
-	var wg sync.WaitGroup
-	for pass := range passes {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			passes[pass] = review.Batches(ctx, opt.Clients[0], batches, nil, 2, nil)
-		}()
+	if opt.MaxCost > 0 {
+		// Under a spending limit the passes run one after the other, so
+		// the second starts only if the first left something to spend.
+		for pass := range passes {
+			passes[pass] = review.Batches(ctx, opt.Clients[0], batches, nil, 1, nil)
+		}
+	} else {
+		var wg sync.WaitGroup
+		for pass := range passes {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				passes[pass] = review.Batches(ctx, opt.Clients[0], batches, nil, 2, nil)
+			}()
+		}
+		wg.Wait()
 	}
-	wg.Wait()
 	var found []review.Finding
 	seen := map[string]bool{}
 	failed := 0
