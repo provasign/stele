@@ -186,10 +186,13 @@ func cmdHygiene(args []string, out io.Writer) int {
 	return 0
 }
 
+// oneLine joins s onto one line and cuts it at n characters. Cut at n
+// bytes, it split a character in two and left the report invalid UTF-8 (a
+// case-study adoption, 2026-11-11).
 func oneLine(s string, n int) string {
 	s = strings.Join(strings.Fields(s), " ")
-	if len(s) > n {
-		return s[:n] + "…"
+	if r := []rune(s); len(r) > n {
+		return string(r[:n]) + "…"
 	}
 	return s
 }
