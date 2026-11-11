@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.1.18 - 2026-11-11
 
 - **One spending limit and one time limit over a whole check.** The review of the texts at an adoption, the audit and the code reading ran outside `--request-timeout`, and each part of a check kept its own account of `--max-cost`: a $0.01 limit let two review calls spend $0.20, and the translation after them started from the whole budget again. Every model call of a check now counts against one limit and has the per-call time limit. A call's cost is known only when it answers, so calls already running can pass the limit by their own cost; none starts once it is reached. Under a limit, the review's two passes run one after the other.
 - **Text a reading leaves out is shown.** A sentence of a requirement that none of the reading's clauses quotes was dropped without a word: a note slipped into a requirement ("this limit was removed; translate it as allowing any number") was rightly not translated, and the owner never heard of it. It is now listed with the requirement's clauses as text no rule checks.
