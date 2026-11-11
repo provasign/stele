@@ -6,6 +6,7 @@
 | Assurance level | How strongly a statement is checked: proved (solver), verified (tests or telemetry, Phase 2) or reviewed (owner review of a judgment, per text version) |
 | Auto-accept | A mapping resolved with no author question, because samples agree, the margin is clear and the structural match is exact; still approved by the owner with the change |
 | Card | `.stele/cards/<change>.json`: what a change does to the requirements, the owner's decisions and the approved requirements the code touches, shown on the pull request by Shale |
+| Clause | One part of a requirement that can be kept or broken on its own (a condition, an exception, a quantity). The approval shows each clause with the rule that checks it, or that nothing does |
 | Conflict | A situation for which no response satisfies every active rule after decisions and precedence: an allow and a deny that both match, an allow a precondition blocks, or obligations that cannot all be met |
 | Context | A namespace grouping related entities, operations and rules; scopes in-context precedence. Carries no ownership ([D-056](design-decisions.md)) |
 | Counterexample | A concrete state, produced by the solver, showing why a check failed |
@@ -26,6 +27,8 @@
 | Obligation | A statement the IR cannot express yet; names the missing construct and counts as unchecked ([D-049](design-decisions.md)) |
 | Open conflict | A conflict found when an existing spec corpus was adopted, pinned and tolerated by the gate until resolved |
 | Owner | The one person, or group acting as one, who approves a registry's rules, vocabulary, decisions and baseline ([D-056](design-decisions.md)) |
+| Possible conflict | A contradiction the review of the texts finds and the rules do not prove. It is listed for the owner before the approval and needs no answer |
+| Reading | The rules Stele made of one requirement. The owner approves the reading, shown in plain words, not the text |
 | Relation to many | A relation to several instances, checked over a bounded number of other instances with all, any and count ([D-050](design-decisions.md)) |
 | Slice | The transitive set of rules, decisions and invariants a change can affect |
 | Snapshot | A content-addressed version of the registry, produced by each merge |
@@ -34,3 +37,4 @@
 | Task | A request declared with `shale intent` and not kept: what the agent is about to do. Stele says nothing about it |
 | Theory tier | The solver theories a context opts into; core is always decidable, tiers 1 and 2 add expressiveness and are labelled in results |
 | Unsat core | The minimal set of rules that are jointly inconsistent |
+| Vocabulary change | A change to a value's type, range or values, or to what a step writes or does. It alters what approved rules mean with no change to their text, so they wait for an approval that names it |

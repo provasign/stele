@@ -63,7 +63,7 @@ The proved fragment is meant to grow until obligations are rare. Multiple instan
 | Tool | What it does | How Stele differs |
 | --- | --- | --- |
 | AWS Kiro Requirements Analysis | LLM-to-logic translation and SMT checking of one spec's requirements, with two-option questions; derives property-based tests | Checks every spec against every approved rule, over time, in any of four formats, and keeps the decisions in git. See [prior art](prior-art.md#spec-tools-for-coding-agents) |
-| AWS Cedar | Sound and complete SMT analysis of authorization policies, verified in Lean | Stele emits Cedar for the permission subset and adds invariants, state machines, prose ingestion and history ([D-012](design-decisions.md)) |
+| AWS Cedar | Sound and complete SMT analysis of authorization policies, verified in Lean | Stele is meant to emit Cedar for the permission subset (not built yet) and adds invariants, state machines, prose ingestion and history ([D-012](design-decisions.md)) |
 | OPA, OpenFGA | Policy evaluation and relationship-based authorization | Targets for runtime guards, not competitors |
 | DMN | Decision tables for business decisions | Decision tables are an authoring form here, lowered into the same checked IR |
 | Spec Kit, OpenSpec, Tessl | Spec authoring formats for AI-assisted development; Spec Kit's `analyze` asks a model for inconsistencies within one feature | Authoring front ends; Stele is the shared back end that checks across them |
@@ -71,8 +71,8 @@ The proved fragment is meant to grow until obligations are rare. Multiple instan
 | AWS Automated Reasoning checks | LLM extracts variables and rules from a policy document; SMT checks chatbot answers against it | Checks answers against one document; Stele checks the documents against each other |
 | VeriMed, SAT-LLM (research) | LLM to SMT, conflict and vacuity checks on 55 to 144 curated requirements | Hand-written or small vocabularies and no precision on unmodified specs; Stele builds the vocabulary from real repositories. See [prior art](prior-art.md) |
 
-The defensible product is not a permission checker. It is the registry: prose in, one checked model of permissions, invariants and state machines, history and decisions kept, outcomes explained at runtime.
+The defensible product is not a permission checker. It is the registry: prose in, one checked model of permissions, invariants and state machines, history and decisions kept.
 
 ## The honest claim
 
-Stele checks the approved rules, the specification as the owner approved its reading, against each other. A conflict it reports is proved, with a witness; the absence of one holds for those rules, one step deep and within stated bounds ([06](06-checker.md#what-a-verdict-means)). How faithfully the rules read the prose is measured, not proved, which is why the owner approves every reading. Deriving tests from the rules is Phase 2. Stele does not prove the code implements the specification. See [09](09-enforcement.md#the-implementation-gap).
+Stele checks the approved rules, the specification as the owner approved its reading, against each other. A conflict it reports as proved has a witness, a situation in which the rules cannot all hold; a contradiction it lists as possible comes from reading the texts, and is the owner's to judge; the absence of one holds for those rules, one step deep and within stated bounds ([06](06-checker.md#what-a-verdict-means)). How faithfully the rules read the prose is measured, not proved, which is why the owner approves every reading. Deriving tests from the rules is Phase 2. Stele does not prove the code implements the specification. See [09](09-enforcement.md#the-implementation-gap).
