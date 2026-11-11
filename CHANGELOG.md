@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.1.17 - 2026-11-11
 
 From an outside security review of v0.1.16; the first two were reproduced there with the released binary.
 
