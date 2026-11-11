@@ -158,6 +158,7 @@ func TestAdoptionBySpecLaterConflict(t *testing.T) {
 		"openspec/specs/orders/spec.md":  "# Orders\n\n### Requirement: Paid\nAn order MUST be paid.\n",
 		"openspec/specs/samples/spec.md": "# Samples\n\n### Requirement: Free\nAn order is never paid.\n",
 		"reply.sh": "in=$(cat)\ncase \"$in\" in\n" +
+			`*'You review software requirements for contradictions'*) echo '{"conflicts":[{"statement_ids":["orders/Paid","samples/Free"],"world_facts":[],"situation":"the two cannot both hold for one order"}]}' ;;` + "\n" +
 			`*'list its clauses'*) echo '{"statements":[{"statement_id":"s1","clauses":[{"text":"all","status":"covered","rules":["r1"]}],"broader":[]}]}' ;;` + "\n" +
 			`*'An order MUST be paid'*) echo '` + entity("Order", "paid") + `' ;;` + "\n" +
 			`*'An order is never paid'*) echo '` + strings.Replace(entity("Order", "paid"), `"assert":"self.paid"`, `"assert":"not self.paid"`, 1) + `' ;;` + "\n" +

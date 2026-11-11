@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -44,6 +45,7 @@ func cmdChange(args []string, out io.Writer) int {
 	timeout := fs.Duration("timeout", 30*time.Minute, "limit for the run")
 	requestTimeout := fs.Duration("request-timeout", 3*time.Minute, "limit per model call: a call that stalls fails and is retried, and a requirement whose calls keep failing is reported under failed")
 	base := fs.String("base", "", "compare the specs at this git ref with the working tree (a feature branch); required for speckit, kiro and shale")
+	allSpecs := fs.Bool("all", false, "stele adopt: read every spec of a large project at once, without being offered a part first")
 	specFlag := fs.String("spec", "", "stele adopt: read only these specs (names separated by commas) and leave the others for a later `stele adopt --spec`")
 	noCode := fs.Bool("no-code", false, "do not ask what the code does for each conflict (D-062)")
 	graph := fs.Bool("graph", false, "also find definitions in Grove's code graph (no gain measured on 2026-10-29)")
@@ -159,6 +161,13 @@ func cmdChange(args []string, out io.Writer) int {
 				fmt.Fprintf(out, "%s\t%d requirement(s)\t%s\n", n, count, state)
 			}
 			return 0
+		}
+		if *specFlag == "" && !*allSpecs && !hasRules && len(names) > 1 && len(adoptStmts) > largeAdoption && !dirExists(filepath.Join(repo, ".stele", "change", adoptChange, "translated")) {
+			// A large project is offered a part first, before anything is
+			// spent: a coding agent read 179 requirements at once and its
+			// owner heard nothing for 42 minutes, where one spec of 46 is
+			// about five (2026-11-10).
+			return chooseSpecs(out, *asJSON, names, adoptStmts)
 		}
 		switch {
 		case *specFlag == "" && hasRules && len(read) > 0 && len(unreadSpecs) > 0:
@@ -277,9 +286,45 @@ func cmdChange(args []string, out io.Writer) int {
 		return failf("change", err)
 	}
 	opt.Clients = append(opt.Clients, m)
+	// An agent's command has its own limit, ten minutes in Claude Code: a
+	// first reading of 86 requirements ran past it, was killed, and the
+	// agent waited nine minutes for word from a dead process (a live
+	// session, 2026-11-10). Read for an agent, a check works for a slice
+	// that fits, keeps what it did, and says to run it again.
+	if *asJSON {
+		// Asked again with nothing changed, the answer is the one kept: an
+		// agent whose tool cut the JSON short ran the whole check three
+		// more times to read it through `head` and `grep` (a live session,
+		// 2026-11-10).
+		if js, ok := sameAsBefore(*outDir, adoptName); ok {
+			fmt.Fprintln(os.Stderr, "nothing changed since the last check: its result, as kept in "+filepath.Join(*outDir, "summary.json"))
+			fmt.Fprintln(out, string(js))
+			return 1
+		}
+	}
+	sliced := *asJSON && !flagSet(fs, "timeout")
+	if sliced {
+		*timeout = slice
+		if d, err := time.ParseDuration(os.Getenv("STELE_SLICE")); err == nil && d > 0 {
+			*timeout = d // a harness with another limit, and the tests
+		}
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
 	res, err := change.Run(ctx, opt)
+	if err != nil && sliced && ctx.Err() != nil {
+		read, total := readSoFar(*outDir), len(adoptStmts)
+		progress := "The work so far is kept."
+		if total > 0 && read > 0 {
+			progress = fmt.Sprintf("%d of %d requirements are read so far, and the work is kept.", min(read, total), total)
+		}
+		js, _ := json.MarshalIndent(changeSummary{Change: id, Status: "continue", Questions: []change.Question{},
+			Summary: "Stele is not done reading: a first reading takes more than one run. " + progress,
+			Next:    "run the same command again now, as it was; it continues from what is kept. Tell the owner in one line that Stele is still reading and how far it is"}, "", "  ")
+		_ = os.WriteFile(filepath.Join(*outDir, "summary.json"), append(js, '\n'), 0o644)
+		fmt.Fprintln(out, string(js))
+		return 1
+	}
 	if err == nil && len(res.Failed) > 0 && !slices.ContainsFunc(slices.Collect(maps.Values(res.Failed)), func(why string) bool { return !strings.HasPrefix(why, change.NoRules) }) {
 		// The model answered with no rules for a few requirements. The next
 		// check reads them once more and reports what stays so as unchecked;
@@ -333,10 +378,16 @@ func cmdChange(args []string, out io.Writer) int {
 	}
 	blocked := len(res.Gate.Errors) > 0 || res.Gate.Check == nil || !res.Gate.Accepted || len(res.Failed) > 0
 	if *asJSON {
-		js, _ := json.MarshalIndent(summarize(res, *outDir), "", "  ")
+		sum := summarize(res, *outDir)
+		js, _ := json.MarshalIndent(sum, "", "  ")
 		// The same JSON on disk: an adoption's is tens of kilobytes, more
 		// than some agents' tools show of one command's output.
 		_ = os.WriteFile(filepath.Join(*outDir, "summary.json"), append(js, '\n'), 0o644)
+		if sum.Status == "questions" || sum.Status == "ready" {
+			_ = os.WriteFile(filepath.Join(*outDir, "summary.key"), []byte(summaryKey(*outDir, res.Fingerprint, adoptName)), 0o644)
+		} else {
+			_ = os.Remove(filepath.Join(*outDir, "summary.key"))
+		}
 		fmt.Fprintln(out, string(js))
 		if blocked {
 			return 1
@@ -389,6 +440,9 @@ type changeSummary struct {
 	// Possible are contradictions a review of the texts found that the
 	// rules do not show: the owner hears each before the approval.
 	Possible []change.Possible `json:"possible_conflicts,omitempty"`
+	// Specs are a large project's specs to choose from, with status
+	// "choose": nothing was read yet.
+	Specs []specChoice `json:"specs,omitempty"`
 }
 
 func summarize(res *change.Result, outDir string) changeSummary {
@@ -396,6 +450,22 @@ func summarize(res *change.Result, outDir string) changeSummary {
 		Unchecked: res.Unchecked, Failed: res.Failed, NewTerms: res.NewTerms, Reused: len(res.Reused), CostUSD: res.Usage.CostUSD, Report: filepath.Join(outDir, "report.md")}
 	if s.Questions == nil {
 		s.Questions = []change.Question{}
+	}
+	// What an agent reads is kept short: a glossary repeated under every
+	// requirement of every question, and the list of every new term of an
+	// adoption, were a third of 36 kilobytes its tool cut short.
+	for i := range s.Questions {
+		reqs := slices.Clone(s.Questions[i].Requirements)
+		for k := range reqs {
+			reqs[k].Text, _, _ = strings.Cut(reqs[k].Text, "\nGlossary: ")
+		}
+		s.Questions[i].Requirements = reqs
+	}
+	if len(s.NewTerms) > 30 {
+		s.NewTerms = append(slices.Clone(s.NewTerms[:30]), fmt.Sprintf("... and %d more, in the report", len(s.NewTerms)-30))
+	}
+	if len(s.Added) > 30 {
+		s.Added = append(slices.Clone(s.Added[:30]), fmt.Sprintf("... and %d more", len(s.Added)-30))
 	}
 	for _, p := range res.Possible {
 		p.Titles = nil
@@ -566,6 +636,8 @@ func ownerSummary(res *change.Result, status string) string {
 		switch {
 		case res.Open > 0:
 			fmt.Fprintf(&b, " Apart from the %d contradiction%s decided later, they agree with each other.", res.Open, plural(res.Open))
+		case res.SettledOpen+res.SettledPrecedence > 0:
+			b.WriteString(" A reading of their texts shows no contradiction the rules prove.")
 		case approved > 0:
 			b.WriteString(pick(n == 1, " It agrees", " They agree") + " with the approved requirements.")
 		case n > 1:
@@ -612,6 +684,9 @@ func ownerSummary(res *change.Result, status string) string {
 	}
 	if partial > 0 {
 		fmt.Fprintf(&b, " %d %s checked in part; the report lists the clauses no rule checks.", partial, pick(partial == 1, "is", "are"))
+	}
+	if n := res.SettledOpen + res.SettledPrecedence; n > 0 {
+		fmt.Fprintf(&b, " Stele's rules clash in %d more place%s that a reading of the texts does not show as contradictions; it settled them itself (%d recorded as open, %d by taking the check or the error case first) and the report lists each.", n, plural(n), res.SettledOpen, res.SettledPrecedence)
 	}
 	if n := len(res.Possible); n > 0 {
 		fmt.Fprintf(&b, " Read by their texts alone, %d more pair%s or group%s of requirements may contradict each other, which Stele's rules do not show (`possible_conflicts`): the owner should hear each before approving.", n, plural(n), plural(n))
@@ -1239,4 +1314,114 @@ func readSpecs(registry string) []string {
 func dirExists(p string) bool {
 	st, err := os.Stat(p)
 	return err == nil && st.IsDir()
+}
+
+// largeAdoption is the number of requirements above which a first adoption
+// is offered a part at a time.
+const largeAdoption = 100
+
+// specChoice is one spec of a large project, for the owner to choose from.
+type specChoice struct {
+	Name         string  `json:"name"`
+	Requirements int     `json:"requirements"`
+	Minutes      int     `json:"about_minutes"`
+	Dollars      float64 `json:"about_usd"`
+}
+
+// estimate is what reading n requirements took on a held-out project: 179
+// in about 13 minutes for $4.04, 46 in about 5 for $0.88 (2026-11-10).
+func estimate(n int) (minutes int, dollars float64) {
+	return max(2, (n*5+59)/60), float64(int(float64(n)*2.3+0.5)) / 100
+}
+
+// chooseSpecs answers a bare adoption of a large project with its specs and
+// what reading each takes, and reads nothing.
+func chooseSpecs(out io.Writer, asJSON bool, names []string, stmts []translate.Statement) int {
+	var specs []specChoice
+	for _, n := range names {
+		count := 0
+		for _, s := range stmts {
+			if specName(s.ID) == n {
+				count++
+			}
+		}
+		m, d := estimate(count)
+		specs = append(specs, specChoice{Name: n, Requirements: count, Minutes: m, Dollars: d})
+	}
+	m, d := estimate(len(stmts))
+	summary := fmt.Sprintf("This project has %d requirements in %d specs. Stele has read none yet. Reading all of them at once takes about %d minutes and $%.2f; reading one or two specs first takes a few minutes, and the others can follow, each checked against what is approved.", len(stmts), len(names), m, d)
+	next := "tell the owner the count and ask which specs to start with (the ones they are working on), offering each with its size from `specs`; then run `stele adopt --json --spec <name>[,<name>]`. If the owner wants everything now, run `stele adopt --json --all`, in the background or with a timeout of 30 minutes"
+	if asJSON {
+		js, _ := json.MarshalIndent(changeSummary{Change: adoptChange, Status: "choose", Summary: summary, Next: next, Questions: []change.Question{}, Specs: specs}, "", "  ")
+		fmt.Fprintln(out, string(js))
+		return 1
+	}
+	fmt.Fprintln(out, summary)
+	for _, s := range specs {
+		fmt.Fprintf(out, "  %s\t%d requirement(s)\tabout %d min, $%.2f\n", s.Name, s.Requirements, s.Minutes, s.Dollars)
+	}
+	fmt.Fprintln(out, "Next: `stele adopt --spec <name>[,<name>]`, or `stele adopt --all`.")
+	return 1
+}
+
+// slice is how long one check works when an agent runs it, under the ten
+// minutes Claude Code gives a command.
+const slice = 8 * time.Minute
+
+// readSoFar counts the requirements a check's translation has readings
+// for, from the state its runs keep.
+func readSoFar(outDir string) int {
+	seen := map[string]bool{}
+	states, _ := filepath.Glob(filepath.Join(outDir, "runs", "*", "formalize-state.json"))
+	for _, f := range states {
+		src, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		var st struct {
+			Candidates []struct {
+				StatementID string `json:"statement_id"`
+			} `json:"candidates"`
+		}
+		if json.Unmarshal(src, &st) == nil {
+			for _, c := range st.Candidates {
+				seen[c.StatementID] = true
+			}
+		}
+	}
+	return len(seen)
+}
+
+// summaryKey identifies what a kept summary answers: the specs and the
+// registry as fingerprinted, the answers recorded, and the part adopted.
+func summaryKey(outDir, fingerprint, part string) string {
+	answers, _ := os.ReadFile(filepath.Join(outDir, "answers.json"))
+	h := sha256.Sum256(answers)
+	return fmt.Sprintf("%s\n%x\n%s\n", fingerprint, h[:8], part)
+}
+
+// sameAsBefore returns the summary the last check kept, when the specs, the
+// registry and the answers are what that check saw.
+func sameAsBefore(outDir, part string) ([]byte, bool) {
+	key, err := os.ReadFile(filepath.Join(outDir, "summary.key"))
+	if err != nil {
+		return nil, false
+	}
+	src, err := os.ReadFile(filepath.Join(outDir, "result.json"))
+	if err != nil {
+		return nil, false
+	}
+	var res change.Result
+	if json.Unmarshal(src, &res) != nil || len(res.Watched) == 0 {
+		return nil, false
+	}
+	now, err := change.Fingerprint(res.Watched...)
+	if err != nil || summaryKey(outDir, now, part) != string(key) {
+		return nil, false
+	}
+	js, err := os.ReadFile(filepath.Join(outDir, "summary.json"))
+	if err != nil {
+		return nil, false
+	}
+	return bytes.TrimRight(js, "\n"), true
 }

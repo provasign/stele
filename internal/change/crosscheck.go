@@ -94,11 +94,25 @@ func crossNotes(dir string, s translate.Statement) []string {
 // found with what the rules show. It returns how many requirements it sent
 // to be read again; when none, res.Possible lists what stays unshown.
 func crossCheck(ctx context.Context, opt Options, res *Result, head *ir.Registry, as []Answer) int {
-	if opt.Adopt == nil || opt.NoReview || len(opt.Clients) == 0 || len(opt.Adopt) < 2 || head == nil || res.Gate == nil || res.Gate.Check == nil {
+	if opt.Adopt == nil || opt.NoReview || len(opt.Clients) == 0 || len(opt.Adopt) == 0 || head == nil || res.Gate == nil || res.Gate.Check == nil {
 		return 0
 	}
-	h := sha256.New()
+	// A part of the specs is reviewed with the requirements approved
+	// before it, or a contradiction between the two would have no backing.
+	adopting := map[string]bool{}
 	for _, s := range opt.Adopt {
+		adopting[s.ID] = true
+	}
+	var earlier []translate.Statement
+	for _, x := range head.Rules {
+		if x.Live() && x.StatementID != "" && !adopting[x.StatementID] && x.Prose != "" &&
+			!slices.ContainsFunc(earlier, func(s translate.Statement) bool { return s.ID == x.StatementID }) {
+			earlier = append(earlier, translate.Statement{ID: x.StatementID, Prose: x.Prose, Source: x.Source})
+		}
+	}
+	sort.Slice(earlier, func(i, j int) bool { return earlier[i].ID < earlier[j].ID })
+	h := sha256.New()
+	for _, s := range append(slices.Clone(opt.Adopt), earlier...) {
 		fmt.Fprintf(h, "%s\x00%s\x00", s.ID, s.Prose)
 	}
 	key := hex.EncodeToString(h.Sum(nil))[:16]
@@ -108,13 +122,12 @@ func crossCheck(ctx context.Context, opt Options, res *Result, head *ir.Registry
 			return 0
 		}
 		if opt.Log != nil {
-			fmt.Fprintf(opt.Log, "review: reading the %d requirements' texts for contradictions the rules may miss ...\n", len(opt.Adopt))
+			fmt.Fprintf(opt.Log, "review: reading the %d requirements' texts for contradictions ...\n", len(opt.Adopt)+len(earlier))
 		}
 		// The glossary an importer appends is the same under every
 		// requirement of a spec: the review reads the requirement.
-		stmts := make([]translate.Statement, len(opt.Adopt))
-		for i, s := range opt.Adopt {
-			stmts[i] = s
+		stmts := append(slices.Clone(opt.Adopt), earlier...)
+		for i, s := range stmts {
 			stmts[i].Prose, _, _ = strings.Cut(s.Prose, "\nGlossary: ")
 		}
 		// Two reviews, their findings joined: one review of 45 requirements
@@ -204,7 +217,7 @@ func crossCheck(ctx context.Context, opt Options, res *Result, head *ir.Registry
 		}
 	}
 	text := map[string]string{}
-	for _, s := range opt.Adopt {
+	for _, s := range append(slices.Clone(opt.Adopt), earlier...) {
 		text[s.ID] = s.Prose
 	}
 	title := func(id string) string {
@@ -217,8 +230,8 @@ func crossCheck(ctx context.Context, opt Options, res *Result, head *ir.Registry
 		ids := slices.DeleteFunc(slices.Clone(f.StatementIDs), func(id string) bool { return text[id] == "" })
 		sort.Strings(ids)
 		ids = slices.Compact(ids)
-		if len(ids) < 2 {
-			continue
+		if len(ids) < 2 || !slices.ContainsFunc(ids, func(id string) bool { return adopting[id] }) {
+			continue // among requirements approved earlier: not this adoption's
 		}
 		met := 0
 		for i := range ids {
@@ -241,6 +254,9 @@ func crossCheck(ctx context.Context, opt Options, res *Result, head *ir.Registry
 		if !st.Steered[fk] {
 			st.Steered[fk] = true
 			for _, id := range ids {
+				if !adopting[id] {
+					continue // approved: read as it was
+				}
 				var others []string
 				for _, o := range ids {
 					if o != id {

@@ -1051,6 +1051,9 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 		if n := len(res.NewLessons); n > 0 {
 			q.Text += fmt.Sprintf(". Your answers also teach Stele %d lesson(s) about this project, saved in the registry with the change: %s", n, strings.Join(res.NewLessons, "; "))
 		}
+		if o, p, _, _ := settled(as); o+p > 0 {
+			q.Text += ". " + settledText(o, p, 0)
+		}
 		if res.Open > 0 {
 			if res.Open == 1 {
 				q.Text += ". The 1 contradiction you chose to decide later stays open: `stele check` lists it, and no new one may join it"
