@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -39,7 +40,7 @@ func TestCoverRetranslatesUncoveredClause(t *testing.T) {
 				// First check: both statements; s2's rule is weaker than its text.
 				return &llm.Reply{JSON: `{"statements":[
 					{"statement_id":"s1","clauses":[{"text":"Orders MUST be paid","status":"covered","rules":["r1"]}]},
-					{"statement_id":"s2","clauses":[{"text":"Orders MUST be paid","status":"covered","rules":["r1"]},{"text":"before shipping","status":"uncovered","rules":[]}]}]}`}, nil
+					{"statement_id":"s2","clauses":[{"text":"Orders MUST be paid","status":"covered","rules":["r1"]},{"text":"before shipping","status":"uncovered","rules":[]}],"broader":[{"rules":["r1"],"what":"forbids unpaid orders that never ship"}]}]}`}, nil
 			}
 			// Second check: only the retranslated statement, now with two rules.
 			if !strings.Contains(text, "r2:") {
@@ -92,48 +93,67 @@ func TestCoverRetranslatesUncoveredClause(t *testing.T) {
 // partial, naming the clause; a retranslation that fails keeps the old rules.
 func TestCoverLeavesUncoveredStatementPartial(t *testing.T) {
 	dir, stmts, opt := compactFixture(t)
-	calls := 0
+	rereads := 0
 	m := completionFunc(func(req llm.Request) (*llm.Reply, error) {
-		calls++
 		text := req.Turns[0].Text
 		switch {
 		case strings.HasPrefix(req.System, coverPrompt):
-			alias := "s1"
-			if strings.Contains(text, "s2") {
-				return &llm.Reply{JSON: `{"statements":[
-					{"statement_id":"s1","clauses":[{"text":"Orders MUST be paid","status":"covered","rules":["r1"]}]},
-					{"statement_id":"s2","clauses":[{"text":"Orders MUST be paid","status":"covered","rules":["r9"]},{"text":"before shipping","status":"uncovered","rules":[]}]}]}`}, nil
-			}
-			return coverReply(alias, `{"text":"Orders MUST be paid","status":"covered","rules":["r1"]},{"text":"before shipping","status":"uncovered","rules":[]}`), nil
+			return &llm.Reply{JSON: `{"statements":[
+				{"statement_id":"s1","clauses":[{"text":"Orders MUST be paid","status":"covered","rules":["r1"]}]},
+				{"statement_id":"s2","clauses":[{"text":"Orders MUST be paid","status":"covered","rules":["r9"]},{"text":"before shipping","status":"uncovered","rules":[]}]}]}`}, nil
 		case strings.Contains(text, "leave these clauses of the text uncovered"):
-			// The new translation does not compile: the old rule must survive.
-			return compactFixtureReply(false, compactRule("s1", "order.nothing = true")), nil
+			rereads++
+			return compactFixtureReply(false, compactRule("s1", "order.paid = true")), nil
 		default:
 			return compactFixtureReply(true, compactRule("s1", "order.paid = true")+","+compactRule("s2", "order.paid = true")), nil
 		}
 	})
-	opt.NoCover, opt.MaxRepairs = false, 1
+	opt.NoCover = false
 	res, err := Run(context.Background(), m, stmts, dir, opt)
 	if err != nil {
 		t.Fatal(err)
+	}
+	// A clause left uncovered beside a working rule is not read again: it
+	// goes to the owner as text no rule checks.
+	if rereads != 0 {
+		t.Fatalf("read again %d time(s)", rereads)
 	}
 	if res.Counts[Translated] != 1 || res.Counts[Partial] != 1 || len(res.Deferred) != 0 {
 		t.Fatalf("counts %v, deferred %v", res.Counts, res.Deferred)
 	}
 	for _, e := range res.Ends {
-		if e.ID != stmts[1].ID {
-			continue
-		}
-		if len(e.Rules) != 1 || len(e.Uncovered) != 1 || e.Uncovered[0] != "before shipping" || !strings.Contains(e.Reason, `no rule checks "before shipping"`) {
+		if e.ID == stmts[1].ID && (len(e.Rules) != 1 || !slices.Contains(e.Uncovered, "before shipping") || !strings.Contains(e.Reason, `no rule checks "before shipping"`)) {
 			t.Fatalf("S2 = %+v", e)
 		}
 	}
 	// "covered" by a rule the statement does not have counts as uncovered.
-	if res.Cover.Uncovered != 1 || res.Cover.Covered != 2 {
+	if res.Cover.Uncovered != 2 || res.Cover.Covered != 1 || res.Cover.Retranslated != 0 {
 		t.Fatalf("cover = %+v", res.Cover)
 	}
 	if !strings.Contains(Coverage(res), "Clause coverage: 2 statements") || !strings.Contains(Coverage(res), `before shipping`) {
 		t.Fatalf("coverage report:\n%s", Coverage(res))
+	}
+}
+
+// TestNeedsReread: a rule broader than its text, or no working rule, sends
+// a statement back; an uncovered clause beside a working rule does not.
+func TestNeedsReread(t *testing.T) {
+	rule := []translate.Candidate{{Outcome: "rule"}}
+	uncovered := StatementCoverage{Clauses: []Clause{{Text: "a", Status: Uncovered}}}
+	broader := StatementCoverage{Broader: []Excess{{Rules: []string{"r1"}, What: "x"}}}
+	for _, c := range []struct {
+		sc    StatementCoverage
+		cands []translate.Candidate
+		want  bool
+	}{
+		{uncovered, rule, false},
+		{uncovered, nil, true},
+		{broader, rule, true},
+		{StatementCoverage{}, rule, false},
+	} {
+		if got := needsReread(c.sc, c.cands); got != c.want {
+			t.Errorf("%+v with %d candidate(s): %v", c.sc, len(c.cands), got)
+		}
 	}
 }
 
@@ -317,7 +337,7 @@ func TestCoverResumesCleanCompactRun(t *testing.T) {
 			if reread {
 				return coverReply("s1", `{"text":"Orders MUST be paid","status":"covered","rules":["r1"]}`), nil
 			}
-			return &llm.Reply{JSON: `{"statements":[{"statement_id":"s1","clauses":[{"text":"Orders MUST be paid","status":"uncovered","rules":[]}],"broader":[]},{"statement_id":"s2","clauses":[{"text":"x","status":"covered","rules":["r1"]}],"broader":[]}]}`}, nil
+			return &llm.Reply{JSON: `{"statements":[{"statement_id":"s1","clauses":[{"text":"Orders MUST be paid","status":"uncovered","rules":[]}],"broader":[{"rules":["r1"],"what":"x"}]},{"statement_id":"s2","clauses":[{"text":"x","status":"covered","rules":["r1"]}],"broader":[]}]}`}, nil
 		}
 		if strings.Contains(req.Turns[0].Text, "leave these clauses") {
 			reread = true
@@ -352,7 +372,7 @@ func TestInterruptedRereadKeepsRules(t *testing.T) {
 		case strings.HasPrefix(req.System, coverPrompt):
 			if strings.Contains(text, "s2") {
 				firstJudgments++
-				return &llm.Reply{JSON: `{"statements":[{"statement_id":"s1","clauses":[{"text":"a","status":"covered","rules":["r1"]}],"broader":[]},{"statement_id":"s2","clauses":[{"text":"before shipping","status":"uncovered","rules":[]}],"broader":[]}]}`}, nil
+				return &llm.Reply{JSON: `{"statements":[{"statement_id":"s1","clauses":[{"text":"a","status":"covered","rules":["r1"]}],"broader":[]},{"statement_id":"s2","clauses":[{"text":"before shipping","status":"uncovered","rules":[]}],"broader":[{"rules":["r1"],"what":"x"}]}]}`}, nil
 			}
 			return coverReply("s1", `{"text":"before shipping","status":"covered","rules":["r1"]}`), nil
 		case strings.Contains(text, "leave these clauses"):
@@ -632,7 +652,7 @@ func TestCoverRereadThatStallsIsNotSentAgain(t *testing.T) {
 			if strings.Contains(text, "s2") {
 				return &llm.Reply{JSON: `{"statements":[
 					{"statement_id":"s1","clauses":[{"text":"Orders MUST be paid","status":"covered","rules":["r1"]}]},
-					{"statement_id":"s2","clauses":[{"text":"Orders MUST be paid","status":"covered","rules":["r2"]},{"text":"before shipping","status":"uncovered","rules":[]}]}]}`}, nil
+					{"statement_id":"s2","clauses":[{"text":"Orders MUST be paid","status":"covered","rules":["r2"]},{"text":"before shipping","status":"uncovered","rules":[]}],"broader":[{"rules":["r1"],"what":"forbids unpaid orders that never ship"}]}]}`}, nil
 			}
 			return coverReply("s1", `{"text":"Orders MUST be paid","status":"covered","rules":["r1"]},{"text":"before shipping","status":"uncovered","rules":[]}`), nil
 		case strings.Contains(text, "leave these clauses of the text uncovered"):

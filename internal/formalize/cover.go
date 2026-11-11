@@ -350,7 +350,7 @@ func cover(ctx context.Context, m llm.Client, stmts []translate.Statement, st *s
 			return err
 		}
 		for _, sc := range cov {
-			if !sc.Faithful() {
+			if needsReread(sc, candidatesOf(st.Cands, sc.StatementID)) {
 				back = append(back, sc.StatementID)
 			}
 		}
@@ -784,4 +784,18 @@ type coverProgress struct {
 	Back   []string                         `json:"back"`
 	Before map[string][]translate.Candidate `json:"before"`
 	Done   []string                         `json:"done,omitempty"`
+}
+
+// needsReread says whether the coverage check sends a statement to be read
+// again: a rule that forbids what the text allows creates contradictions
+// the text does not have, and a statement with no working rule has nothing
+// checked. A clause left uncovered beside working rules is not read again:
+// the approval lists it for the owner as text no rule checks. Rereading
+// every unfaithful statement cost about half a large check's translation
+// and made 17 of 71 faithful on one case study (2026-11-11).
+func needsReread(sc StatementCoverage, cands []translate.Candidate) bool {
+	if len(sc.Broader) > 0 {
+		return true
+	}
+	return len(sc.uncovered()) > 0 && !hasRule(cands)
 }
