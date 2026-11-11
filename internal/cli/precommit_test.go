@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // doorProject is a git repository with one approved requirement, "The door
@@ -456,5 +457,13 @@ func TestPrecommitBlocksBrokenConfigAndEmptiedRegistry(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "specs/door.md"), []byte("# Door\n\nREQ-1: The door MUST be shut.\n"), 0o644)
 	if code, out := precommit(t, dir, "specs/door.md"); code != 0 {
 		t.Errorf("new project: %d\n%s", code, out)
+	}
+}
+
+// TestOneLineKeepsCharactersWhole: a cut never splits a character.
+func TestOneLineKeepsCharactersWhole(t *testing.T) {
+	got := oneLine(strings.Repeat("é", 10), 5)
+	if got != "ééééé…" || !utf8.ValidString(got) {
+		t.Fatalf("%q", got)
 	}
 }
