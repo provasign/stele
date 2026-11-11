@@ -42,3 +42,17 @@ func TestMarkdown(t *testing.T) {
 		t.Errorf("any case: want 6, got %d", len(any))
 	}
 }
+
+// TestMarkdownMay: an uppercase MAY is a requirement, restricting ("MAY
+// borrow only when") or permitting; a lowercase may in prose is not.
+func TestMarkdownMay(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "lending.md"), []byte("# Lending\n\nYou may read this first.\n\n- A member MAY borrow a tool only when the tool is available.\n- Only a steward MAY mark a tool as under repair.\n- A member MUST NOT hold more than 3 tools.\n"), 0o644)
+	stmts, err := Markdown(dir, MarkdownOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stmts) != 3 {
+		t.Fatalf("want the 3 requirements, got %d: %+v", len(stmts), stmts)
+	}
+}

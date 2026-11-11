@@ -19,7 +19,12 @@ var (
 	listItem  = regexp.MustCompile(`^(\s*)([-*+]|\d+[.)])\s+(.*)$`)
 	explicit  = regexp.MustCompile(`^\**\s*\[?([A-Z][A-Z0-9]*-[0-9][0-9A-Za-z.\-]*)\]?\**\s*[:.)-]?\s*`)
 	normLower = regexp.MustCompile(`(?i)\b(must|shall|required|should)\b`)
-	normUpper = regexp.MustCompile(`\b(MUST|SHALL|REQUIRED|SHOULD)\b`)
+	// MAY is RFC 2119's too: "MAY borrow only when the tool is available"
+	// and "Only a steward MAY mark it" restrict, and a plain MAY is a
+	// permission Stele checks can happen. Left out, a trial's specs lost
+	// three of eight requirements with no word (2026-11-11). Lowercase
+	// "may" stays out: in prose it is rarely a requirement.
+	normUpper = regexp.MustCompile(`\b(MUST|SHALL|REQUIRED|SHOULD|MAY)\b`)
 	slugDrop  = regexp.MustCompile(`[^a-z0-9]+`)
 )
 

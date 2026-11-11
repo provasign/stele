@@ -346,8 +346,16 @@ func cmdChange(args []string, out io.Writer) int {
 		if *asJSON {
 			// An agent reads the JSON: a run that stopped must still say so
 			// there, not only on stderr.
-			js, _ := json.MarshalIndent(changeSummary{Change: id, Status: "failed", Error: err.Error(), Questions: []change.Question{},
-				Next: "the check stopped before it finished (see error); nothing new was checked. Fix what the error names, or raise --timeout, and run the same check again: translations already done are kept"}, "", "  ")
+			next := "the check stopped before it finished (see error); nothing new was checked. Fix what the error names, or raise --timeout, and run the same check again: translations already done are kept"
+			if errors.Is(err, change.ErrChangedDuringCheck) {
+				// --timeout has nothing to do with it (a trial, 2026-11-11).
+				next = "a requirement or the registry was edited while the check ran, so its result was not kept. Run the same check again once the edit is done: translations already done are kept"
+			}
+			sum := changeSummary{Change: id, Status: "failed", Error: err.Error(), Questions: []change.Question{}, Next: next}
+			if res != nil {
+				sum.CostUSD = res.Usage.CostUSD
+			}
+			js, _ := json.MarshalIndent(sum, "", "  ")
 			fmt.Fprintln(out, string(js))
 			return 1
 		}
@@ -953,7 +961,7 @@ func changeReport(res *change.Result, head *ir.Registry) string {
 				fmt.Fprintf(&b, "> %s\n\n", oneLine(text, 600))
 			}
 			for _, id := range byStmt[s] {
-				fmt.Fprintf(&b, "- **%s**: %s\n", id, ruleEnglish(head.Rule(id)))
+				fmt.Fprintf(&b, "- **%s**: %s\n  `%s`\n", id, head.Rule(id).Words(), ruleEnglish(head.Rule(id)))
 			}
 			for _, f := range res.Findings[s] {
 				fmt.Fprintf(&b, "- ⚠ %s\n", oneLine(f, 300))
@@ -1004,12 +1012,15 @@ type ReviewItem struct {
 	Text      string       `json:"text,omitempty"`
 	Rules     []ReviewRule `json:"rules"`
 	Findings  []string     `json:"findings,omitempty"`
+	// Changes are the vocabulary changes that alter what its rules mean.
+	Changes []string `json:"vocabulary_changes,omitempty"`
 }
 
 // ReviewRule is one rule to approve, with the reading it replaces.
 type ReviewRule struct {
 	ID      string `json:"id"`
 	Reading string `json:"reading"`
+	InWords string `json:"in_words"`
 	Was     string `json:"was,omitempty"` // the base registry's reading, when it differs
 }
 
@@ -1049,7 +1060,7 @@ func reviewPacket(reg, base *ir.Registry, ids []string, dir string) []ReviewItem
 			at[s] = k
 			out = append(out, ReviewItem{Statement: s, Text: x.Prose, Findings: findings[s]})
 		}
-		r := ReviewRule{ID: id, Reading: ruleEnglish(x)}
+		r := ReviewRule{ID: id, Reading: ruleEnglish(x), InWords: x.Words()}
 		if base != nil {
 			if b := base.Rule(id); b != nil && b.Reading() != x.Reading() {
 				r.Was = ruleEnglish(b)
@@ -1144,6 +1155,7 @@ func cmdApprove(args []string, out io.Writer) int {
 	registry := fs.String("registry", "", "registry holding the rules")
 	rules := fs.String("rules", "", "comma-separated rule IDs to approve")
 	base := fs.String("base", "", "with no --rules: approve every rule that differs from this registry (the target branch's)")
+	since := fs.String("since", "", "as --base, with the registry as a git ref holds it (HEAD: what the last commit approved)")
 	all := fs.Bool("all", false, "with no --rules and no --base: approve every live rule not yet approved")
 	by := fs.String("by", "", "who approves (the owner)")
 	listOnly := fs.Bool("list", false, "list the rules that need approval, grouped by requirement with Stele's reading and what its checks found, and stop")
@@ -1151,7 +1163,7 @@ func cmdApprove(args []string, out io.Writer) int {
 	asJSON := fs.Bool("json", false, "with --list: emit the review packet as JSON, for an agent to put to the owner")
 	_ = fs.Parse(args)
 	if *registry == "" || (*by == "" && !*listOnly) {
-		fmt.Fprint(os.Stderr, "usage: stele approve --registry DIR (--rules A,B | --base DIR | --all) --by NAME [--list]\n")
+		fmt.Fprint(os.Stderr, "usage: stele approve --registry DIR (--rules A,B | --base DIR | --since REF | --all) --by NAME [--list]\n")
 		return 2
 	}
 	reg, err := ir.LoadDir(*registry)
@@ -1160,6 +1172,14 @@ func cmdApprove(args []string, out io.Writer) int {
 	}
 	var ids []string
 	var baseReg *ir.Registry
+	if *since != "" && *rules == "" {
+		dir, cleanup, err := registryAt(*registry, *since)
+		if err != nil {
+			return failf("approve", err)
+		}
+		defer cleanup()
+		*base = dir
+	}
 	switch {
 	case *rules != "":
 		for _, id := range strings.Split(*rules, ",") {
@@ -1180,8 +1200,36 @@ func cmdApprove(args []string, out io.Writer) int {
 		fmt.Fprint(os.Stderr, "stele approve: name the rules (--rules), a base registry (--base) or --all\n")
 		return 2
 	}
+	var changes []gate.Change
+	if baseReg != nil {
+		for _, c := range gate.VocabChanges(baseReg, reg) {
+			if len(c.Affected) > 0 {
+				changes = append(changes, c)
+			}
+		}
+	}
 	if *listOnly {
 		packet := reviewPacket(reg, baseReg, ids, *registry)
+		for i := range packet {
+			for _, c := range changes {
+				for _, r := range packet[i].Rules {
+					if slices.Contains(c.Affected, r.ID) {
+						packet[i].Changes = append(packet[i].Changes, c.Words())
+						break
+					}
+				}
+			}
+		}
+		if !*asJSON {
+			// What changed comes first: the readings alone did not say that
+			// a value had gained a status (a trial, 2026-11-11).
+			for _, c := range changes {
+				fmt.Fprintf(out, "Vocabulary change: %s. It changes what %d approved rule(s) mean: %s\n", c.Words(), len(c.Affected), strings.Join(c.Affected, ", "))
+			}
+			if len(changes) > 0 {
+				fmt.Fprintln(out)
+			}
+		}
 		if *asJSON {
 			js, _ := json.MarshalIndent(packet, "", "  ")
 			fmt.Fprintln(out, string(js))
@@ -1190,7 +1238,7 @@ func cmdApprove(args []string, out io.Writer) int {
 		for _, p := range packet {
 			fmt.Fprintf(out, "%s\n  text: %s\n", p.Statement, oneLine(p.Text, 400))
 			for _, r := range p.Rules {
-				fmt.Fprintf(out, "  %s: %s\n", r.ID, r.Reading)
+				fmt.Fprintf(out, "  %s: %s\n    rule: %s\n", r.ID, r.InWords, r.Reading)
 				if r.Was != "" {
 					fmt.Fprintf(out, "    was: %s\n", r.Was)
 				}
@@ -1211,6 +1259,9 @@ func cmdApprove(args []string, out io.Writer) int {
 		return failf("approve", err)
 	}
 	fmt.Fprintf(out, "approved %d rule(s) as %s\n", len(ids), *by)
+	for _, c := range changes {
+		fmt.Fprintf(out, "  with the vocabulary change: %s\n", c.Words())
+	}
 	return 0
 }
 
@@ -1424,4 +1475,50 @@ func sameAsBefore(outDir, part string) ([]byte, bool) {
 		return nil, false
 	}
 	return bytes.TrimRight(js, "\n"), true
+}
+
+// registryAt copies the registry at dir as the git ref holds it into a
+// temporary folder.
+func registryAt(dir, ref string) (string, func(), error) {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return "", nil, err
+	}
+	top := exec.Command("git", "rev-parse", "--show-toplevel")
+	top.Dir = abs
+	b, err := top.Output()
+	if err != nil {
+		return "", nil, fmt.Errorf("--since needs the registry in a git repository: %w", err)
+	}
+	root := strings.TrimSpace(string(b))
+	if r, err := filepath.EvalSymlinks(root); err == nil {
+		root = r
+	}
+	if a, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = a
+	}
+	rel, err := filepath.Rel(root, abs)
+	if err != nil {
+		return "", nil, err
+	}
+	rel = filepath.ToSlash(rel)
+	tmp, err := os.MkdirTemp("", "stele-since-")
+	if err != nil {
+		return "", nil, err
+	}
+	cleanup := func() { os.RemoveAll(tmp) }
+	archive := exec.Command("git", "archive", "--format=tar", ref, "--", rel)
+	archive.Dir = root
+	tarball, err := archive.Output()
+	if err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("%s holds no registry at %s", ref, rel)
+	}
+	untar := exec.Command("tar", "-x", "-C", tmp)
+	untar.Stdin = bytes.NewReader(tarball)
+	if out, err := untar.CombinedOutput(); err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("tar: %v: %s", err, out)
+	}
+	return filepath.Join(tmp, rel), cleanup, nil
 }

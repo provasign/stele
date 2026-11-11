@@ -741,7 +741,10 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 			opt.rounds++
 			again, err := Run(ctx, opt)
 			if err != nil {
-				return nil, err
+				if again != nil {
+					again.Usage.Add(res.Usage)
+				}
+				return again, err
 			}
 			again.Usage.Add(res.Usage)
 			return again, nil
@@ -754,7 +757,10 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 			opt.rounds++
 			again, err := Run(ctx, opt)
 			if err != nil {
-				return nil, err
+				if again != nil {
+					again.Usage.Add(res.Usage)
+				}
+				return again, err
 			}
 			again.Usage.Add(res.Usage)
 			return again, nil
@@ -771,7 +777,10 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 			opt.settles++
 			again, err := Run(ctx, opt)
 			if err != nil {
-				return nil, err
+				if again != nil {
+					again.Usage.Add(res.Usage)
+				}
+				return again, err
 			}
 			again.Usage.Add(res.Usage)
 			return again, nil
@@ -791,7 +800,10 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 			opt.rounds++
 			again, err := Run(ctx, opt)
 			if err != nil {
-				return nil, err
+				if again != nil {
+					again.Usage.Add(res.Usage)
+				}
+				return again, err
 			}
 			again.Usage.Add(res.Usage)
 			return again, nil
@@ -805,7 +817,9 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 		return nil, err
 	}
 	if res.Fingerprint != read {
-		return nil, ErrChangedDuringCheck
+		// The result is for text no longer there, but what it spent is
+		// spent: returned with the error, for the cost it reports.
+		return res, ErrChangedDuringCheck
 	}
 	if res.Head != "" {
 		if res.HeadFingerprint, err = Fingerprint(res.Head); err != nil {
@@ -816,7 +830,8 @@ func Run(ctx context.Context, opt Options) (*Result, error) {
 }
 
 // ErrChangedDuringCheck: a requirement or the registry was edited while the
-// check ran, so its result describes text that is no longer there.
+// check ran, so its result describes text that is no longer there. Run
+// returns its result with it only for the spending.
 var ErrChangedDuringCheck = errors.New("the requirements or the registry changed while the check was running, so its result is for text that is no longer there. Next: run the check again")
 
 // translateBatch is how many statements one translation request holds.

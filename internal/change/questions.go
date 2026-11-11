@@ -88,7 +88,10 @@ type Requirement struct {
 	// a step. NotChecked are the clauses the reading leaves out: recorded
 	// and listed in the report, a count in the summary, and nothing the
 	// owner can change by answering.
-	Reading    []string `json:"reading,omitempty"`
+	Reading []string `json:"reading,omitempty"`
+	// InWords is Reading in plain English, rule for rule, for the owner:
+	// they approve the reading without reading rule syntax.
+	InWords    []string `json:"in_words,omitempty"`
 	Findings   []string `json:"findings,omitempty"`
 	NotChecked []string `json:"not_checked,omitempty"`
 }
@@ -528,7 +531,7 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 			example := plainSituation(checker.Situation(head, cf.Counterexample))
 			if cf.Unit != "" && cf.Unit != "state" {
 				// The clash is in one step: say which.
-				step := strings.Trim(Words(cf.Unit, ""), `"`) + " runs"
+				step := ir.StepWords(cf.Unit) + " runs"
 				if example != "" {
 					step += " and "
 				}
@@ -790,10 +793,17 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 			q := Question{ID: qid("meaning_change", ch.Symbol, ch.Detail), Kind: "meaning_change", AskOwner: true, Term: ch.Symbol, Detail: ch.Kind + ": " + ch.Detail}
 			seen := map[string]bool{}
 			for _, r := range ch.Affected {
-				if s := head.Rule(r); s != nil && s.StatementID != "" && !seen[s.StatementID] {
+				// An approved requirement: one the change adds is read with
+				// the new vocabulary, and a first adoption was asked whether
+				// a value it added "changes how 1 approved requirement
+				// reads", with nothing approved (a trial, 2026-11-11).
+				if s := head.Rule(r); s != nil && s.StatementID != "" && s.ApprovedBy != "" && !inChange[s.StatementID] && !seen[s.StatementID] {
 					seen[s.StatementID] = true
 					q.Requirements = append(q.Requirements, req(s.StatementID))
 				}
+			}
+			if len(q.Requirements) == 0 {
+				continue
 			}
 			q.Text = fmt.Sprintf("This change alters %s (%s), which changes how %d approved requirement(s) read. Is that intended?", Words(ch.Symbol, ""), ch.Detail, len(q.Requirements))
 			q.Options = []Option{
@@ -957,6 +967,7 @@ func questions(res *Result, head *ir.Registry, c *cache, known map[string][]stri
 			for _, rid := range res.Rules[id] {
 				if x := head.Rule(rid); x != nil {
 					r.Reading = append(r.Reading, english(x))
+					r.InWords = append(r.InWords, x.Words())
 				}
 			}
 			r.Findings, r.NotChecked, _ = SplitFindings(res.Findings[id])

@@ -78,6 +78,9 @@ type Options struct {
 	NoPrune    bool
 	// NoConsolidate skips merging used attributes that name one fact twice.
 	NoConsolidate bool
+	// NoConsolidateSteps skips asking which new steps name an act another
+	// step names (consolidateSteps).
+	NoConsolidateSteps bool
 	// FactMap also asks once over every used attribute which name one fact
 	// and which facts tie others by their nature (ISSUES 16, 17).
 	FactMap bool
@@ -228,8 +231,11 @@ type state struct {
 	Flags       []vocab.Flag          `json:"possible_duplicates,omitempty"`
 	ValueMerges []ValueMerge          `json:"value_merges,omitempty"`
 	Merges      []vocab.Merge         `json:"merges,omitempty"`
-	Errors      []string              `json:"errors,omitempty"`
-	Mappings    []vocab.Mapping       `json:"mappings,omitempty"`
+	// StepMerges are new steps read again as another step that names the
+	// same act (consolidateSteps).
+	StepMerges []vocab.Merge   `json:"step_merges,omitempty"`
+	Errors     []string        `json:"errors,omitempty"`
+	Mappings   []vocab.Mapping `json:"mappings,omitempty"`
 	// Closed is set when gap closing has finished, so a rerun goes
 	// straight to the final steps.
 	Closed bool `json:"gaps_closed,omitempty"`
@@ -490,6 +496,11 @@ func Run(ctx context.Context, m llm.Client, stmts []translate.Statement, dir str
 		if opt.Compact {
 			if err := consolidateValues(ctx, m, stmts, st, opt); err != nil {
 				return nil, err
+			}
+			if !opt.NoConsolidateSteps {
+				if err := consolidateSteps(ctx, m, stmts, st, opt, dir); err != nil {
+					return nil, stopped(err, dir, m, stmts, st, opt, tracked)
+				}
 			}
 		}
 		st.Consolidated = true
