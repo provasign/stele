@@ -20,6 +20,35 @@ env:
   GO_VERSION: "1.26.3"
   TAG: ${{ inputs.tag || github.ref_name }}
 jobs:
+  # What is released is what was tested: the tag's own commit, with the
+  # steps of ci.yml, before anything is published.
+  test:
+    name: Test the tagged commit
+    runs-on: ubuntu-24.04
+    env:
+      Z3_VERSION: "5.3.1"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - name: Install Z3
+        run: |
+          curl -fsSL -o z3.zip "https://github.com/Z3Prover/z3/releases/download/z3-${Z3_VERSION}/z3-${Z3_VERSION}-x64-glibc-2.39.zip"
+          unzip -q z3.zip -d "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/z3-${Z3_VERSION}-x64-glibc-2.39/bin" >> "$GITHUB_PATH"
+      - run: go vet ./...
+      - run: go test -count=1 ./...
+      - name: Integration tests
+        run: |
+          go build -o bin/stele-sync ./cmd/stele
+          node --test $(git ls-files 'integrations/**/*.test.js')
+
   build-linux:
     name: Build linux/${{ matrix.goarch }}
     # arm64 builds natively on GitHub's arm runner: no cross-compiler to
@@ -82,7 +111,7 @@ jobs:
 
   release:
     name: Checksums, attestation and release
-    needs: [build-linux, build-darwin]
+    needs: [test, build-linux, build-darwin]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

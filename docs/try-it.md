@@ -78,6 +78,10 @@ In a project with OpenSpec, Spec Kit or Kiro specs, say: "This project already h
 - **A rerun can read a requirement differently.** That is why you approve each reading. If Stele misreads one, tell the agent what the requirement means; it records that, and Stele reads it again.
 - **Stele checks the specs, not the code.** After an edit, the agent hears which approved requirements the code touches, but nothing proves that the code keeps them.
 
+## What to expect from the readings
+
+Stele's reading of a requirement is a model's, and a second run can read the same sentence differently: a contradiction found in one run can go unfound in the next, and some questions come with no recommended answer. What Stele reports as a contradiction is checked by a solver and is one among its rules; what it does not report is not proof there is none. Before you approve, the agent shows each requirement clause by clause, with what checks it or that nothing does: that list, not the count, is what you approve.
+
 ## What to send back
 
 Open an issue at [provasign/stele](https://github.com/provasign/stele/issues), or reply to whoever sent you this guide, with:

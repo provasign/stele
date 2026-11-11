@@ -126,6 +126,8 @@ func ClauseChecks(cls []Clause, head *ir.Registry) []ClauseCheck {
 		cc.Checked = len(cc.By) > 0
 		switch {
 		case cc.Checked:
+		case cl.Status == "passed_over":
+			cc.Why = "Stele's reading left this part of the text out; if it is a requirement, say so and Stele reads it again"
 		case cl.Status == "not_checkable":
 			cc.Why = "nothing a rule can check: it says how, or about something outside the system"
 		case len(cl.Rules) > 0:

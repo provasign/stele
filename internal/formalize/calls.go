@@ -230,7 +230,7 @@ func (j *callJournal) reserve(bytes int) (float64, error) {
 		}
 		j.done.Wait()
 	}
-	j.stop = fmt.Errorf("cost budget reached ($%.2f of $%.2f); accepted work is saved", j.spent, j.opt.MaxCost)
+	j.stop = fmt.Errorf("cost budget reached: $%.3f spent of the $%.3f this reading had left; accepted work is saved. Run again with a higher --max-cost", j.spent, j.opt.MaxCost)
 	return 0, j.stop
 }
 
