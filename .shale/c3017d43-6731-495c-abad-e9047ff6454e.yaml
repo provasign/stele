@@ -1,0 +1,45 @@
+shale_version: "0"
+id: c3017d43-6731-495c-abad-e9047ff6454e
+created_at: 2026-11-12T18:13:37.433273Z
+finalized_at: 2026-11-12T18:19:29.392337Z
+agent:
+    tool: claude-code
+    model: claude-fable-5-2
+    adapter_version: 0.1.0
+repo:
+    root_hint: stele
+    branch: main
+privacy: redacted
+intent:
+    title: Add to the README where Stele reads specs from
+    body: 'A reader of the launch post asked whether Stele reads specs from ad hoc locations. Say in the README which layouts init finds, how to point Stele at another folder, and the limits: one spec folder per project, inside the repository.'
+    title_sha256: e52dfb7073f4c5b853a6d3cb764ffcd6044edee755c370c9d43f084623bb1a36
+    body_sha256: 3f9128242187f6c58f623304949fe539a432ddeeda491063e0eb160ddeb1636c
+    declared_at: 2026-11-12T18:19:16.49199Z
+    prompt_count: 2
+completion:
+    note: 'README: new ''Where the specs live'' paragraph in Quick start (layouts init finds, specs.root for any other folder, one folder inside the repository) and a matching Not yet entry.'
+    model: claude-fable-5-2
+files:
+    - path: README.md
+      ops:
+        - edit
+      via: hook
+      first_touched: 2026-11-12T18:19:29.092678Z
+    - path: .stele/cards/
+      ops:
+        - write
+      via: git
+    - path: .stele/retired-intents.yaml
+      ops:
+        - write
+      via: git
+commands:
+    - cmd: cat stele.yaml; ls docs; stele init --help 2>&1 | head -60
+      at: 2026-11-12T18:13:57.272361Z
+      classified: other
+    - cmd: shale intent "Add to the README where Stele reads specs from" --body "A reader of the launch post asked whether Stele reads specs from ad hoc locations. Say in the README which layouts init finds, how to point Stele at…
+      at: 2026-11-12T18:19:16.514766Z
+      classified: other
+notes: []
+redactions: 0

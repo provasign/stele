@@ -57,6 +57,17 @@ That is all you run. Stele supports [Claude Code](https://claude.com/claude-code
 
 **Without spec documents.** `stele init` gives a repository with no spec tool a `requirements/` folder of plain Markdown: one list item for each requirement, with an ID (`REQ-001`) and a MUST, MUST NOT, SHOULD or MAY. The agent writes them, you approve them, and `stele change markdown .` checks whatever the folder holds that you have not approved, from the first requirement on. In a repository that uses Shale and has no spec folder, `stele init` instead takes requirements from the requests the agents declare with `shale intent`. A request is a task, what the agent is about to do, and Stele says nothing about it. When you ask for something the product must keep from now on, the agent keeps that request as a requirement (`stele keep`, listed in `.stele/kept-intents.yaml`). Before it edits, Stele checks the kept request against every one approved before and asks you about any contradiction: change the new request, retire the earlier one, or restate both as one rule with its exception. Requests retired or set aside are listed in `.stele/retired-intents.yaml`; Shale's own evidence is never edited.
 
+**Where the specs live.** `stele init` finds OpenSpec (`openspec/`), Kiro (`.kiro/specs/`) and Spec Kit (`.specify/`, or `specs/001-name/spec.md`) by their folders, and otherwise plain Markdown in `specs/`, `docs/specs/` or `docs/`. Specs kept anywhere else in the repository are one setting away: name the folder in `stele.yaml`, and Stele reads every Markdown file under it for statements that say MUST, MUST NOT, SHOULD or MAY (`anyCase: true` also takes them in lowercase).
+
+```yaml
+specs:
+  root: design/rules
+  format: markdown
+  snapshot: .stele/accepted-statements.yaml
+```
+
+A project has one spec folder, and it is inside the repository: Stele does not read specs spread over several folders with no common parent, or kept in a wiki or a shared document.
+
 Stele is one file with nothing else to install: the [Z3](https://github.com/Z3Prover/z3) solver is built into it, and its Claude Code hooks are the same binary (`stele hook`). To build from source instead: `GOWORK=off go build -o bin/stele ./cmd/stele` (Go 1.26), which runs the `z3` on PATH; `scripts/build-z3.sh` builds the static Z3 the releases link in. `stele --help` lists the commands a project uses and `stele help all` every command; the [docs](docs/README.md) explain each step.
 
 ## With Shale
@@ -101,6 +112,7 @@ Kiro does the closest thing, inside its own IDE and for one spec at a time, and 
 - Coding agents other than Claude Code.
 - Running `stele gate` in GitHub Actions without setting it up yourself.
 - Generating tests from the rules, and checking that a code change keeps the rules it touches (`stele touches` finds them by name only).
+- Specs in more than one folder, or outside the repository (a wiki, a shared document).
 - Learning rules from the code itself, in projects with neither specs nor Shale.
 
 What a first try runs into, from comparisons Stele cannot check to rereads that differ, is listed under [known limits](docs/try-it.md#known-limits). Report what confused you, or what Stele got wrong, in [GitHub issues](https://github.com/provasign/stele/issues).
