@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.1.20 - 2026-11-11
 
 - **No Node.js needed.** The Claude Code and Codex hooks are Stele's own binary, `stele hook`, instead of a Node script. `stele init` moves a project set up by an earlier release to it and removes the old script; run it once after upgrading.
 - **Stele's checks run without a permission prompt each time.** `stele init` allows the agent's check commands (`stele change`, `gate` and the like) in `.claude/settings.json`, with the hook. An approval still asks the owner.
