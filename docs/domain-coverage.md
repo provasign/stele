@@ -75,7 +75,7 @@ Every project gets the primitive types programs have: bool, int, decimal, enum, 
 
 Tiers 1 and 2 are not implemented yet; statements needing them are obligations ([D-049](design-decisions.md)).
 
-A context enables a tier explicitly:
+A context will enable a tier explicitly:
 
 ```yaml
 context: motor-control
@@ -90,7 +90,7 @@ Results report their tier, so a `pass` from tier 2 is never presented with the s
 | --- | --- | --- | --- |
 | Domain pack | Contexts, entities, operations, synonyms and typical rules for a domain | A published context, imported by version | Accounts and identity, data privacy, industrial safety, cloud governance |
 | Extractor | Draft symbols with anchors, from a source format | Reads files, emits candidate symbols with `anchors` | SQL, OpenAPI, protobuf, GraphQL, ORM, C enums and state tables, Terraform, Kubernetes, dbt, Avro, CLI argument parsers |
-| Importer | Rules from another spec format | Emits candidate IR | OpenSpec, Spec Kit, EARS, Gherkin, DMN, Rego, Cedar |
+| Importer | Rules from another spec format | Emits candidate IR | Built: OpenSpec, Spec Kit, Kiro, Markdown, Shale requests. Planned: EARS, Gherkin, DMN, Rego, Cedar |
 | Test emitter | Generated tests in a language and framework | Takes a rule slice and examples, emits tests | Hypothesis, fast-check, jqwik, Go testing, Rust proptest, C Unity, pytest for data checks |
 | Guard emitter | Runtime checks | Takes a rule slice, emits code or policy | OPA/Rego, Cedar, C assertions, SQL constraints, Kubernetes admission policies |
 | Measurement adapter | Values for `measured` rules | Returns a metric value for a subject | k6, JMH, Criterion, Prometheus, OpenTelemetry |

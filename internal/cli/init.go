@@ -141,10 +141,8 @@ func cmdInit(args []string, in io.Reader, out io.Writer, interactive bool) int {
 		fmt.Fprintln(out, "  1  cheapest: one translation per requirement, taken as is")
 		fmt.Fprintln(out, "  3  each requirement is translated three times and the readings are compared;")
 		fmt.Fprintln(out, "     agreed readings are used, disagreements become questions for you.")
-		fmt.Fprintln(out, "     Costs three times as much. On the Project A case study it kept a bad draft")
-		fmt.Fprintln(out, "     from adding false conflicts (4 instead of up to 11) and found 5 ambiguous")
-		fmt.Fprintln(out, "     requirements in 14.")
-		fmt.Fprintln(out, "  With Claude Opus 5.5, one draft cost about $0.004-0.01 per requirement.")
+		fmt.Fprintln(out, "     Costs three times as much; it keeps a bad draft from adding false conflicts")
+		fmt.Fprintln(out, "     and finds requirements that can be read more than one way.")
 		ans, err := prompt("Drafts", strconv.Itoa(c.Translate.Drafts))
 		if err != nil {
 			return fail(err)

@@ -17,7 +17,7 @@ The checker is the deterministic core. Every check returns a verdict plus either
 | Shared write | Do two contexts write the same attribute? | Graph query | Error | Planned |
 | Stale decision | Does a decision resolve a rule version that is no longer current? | Graph query | Error | Built (the loader rejects a decision on an old rule version) |
 | Table overlap and completeness | Do two rows of a `unique` table both match? Is any input combination unmatched? | SMT | Error / warning | Planned |
-| Translation ambiguity | Are N sampled formalizations equivalent? | SMT equivalence | Question to author | Built (`translate --drafts` above 1) |
+| Translation ambiguity | Are N sampled formalizations equivalent? | SMT equivalence | Question to author | Built (`translate.drafts` above 1 in `stele.yaml`, or `stele translate --samples`) |
 
 Planned: conflicts with a `deprecated` rule become warnings, listing the deprecated rule's dependants ([D-005](design-decisions.md)). Today every conflict is an error.
 
@@ -25,9 +25,9 @@ The Phase 2 and Phase 3 parts below (Cedar, the cvc5 portfolio, the nightly full
 
 ### Gap detection
 
-Under a closed world, every operation has a defined outcome, so "a rule was expected" must be declared. An operation's `coverage.required` lists the roles that need at least one explicit rule. The checker reports a gap for role `x` when a reachable state exists where no explicit rule for `x` matches and only the default applies ([D-015](design-decisions.md)).
+Planned. Under a closed world, every operation has a defined outcome, so "a rule was expected" must be declared. An operation's `coverage.required` lists the roles that need at least one explicit rule. The checker reports a gap for role `x` when a reachable state exists where no explicit rule for `x` matches and only the default applies ([D-015](design-decisions.md)).
 
-Operations without `coverage` declarations are not gap-checked. The coverage matrix in the UI shows which operations have no declaration.
+Operations without `coverage` declarations are not gap-checked.
 
 ## Conflict enumeration
 
@@ -36,7 +36,7 @@ The checker reports every minimal conflicting set of rules, not only the first (
 1. Give each rule a selector. Ask the solver for a situation and a selection such that no response satisfies the selected rules, where no earlier core is wholly selected. "No response" quantifies over the response, and three ways of deciding it race. The first definite answer wins, and the search is `unknown` only when all three are:
    - **Refinement over concrete responses.** Ask for a situation and a selection that every response collected so far fails. Then ask for a response that satisfies the selection in that situation. If there is none, the situation is the answer. If there is one, collect it and ask again. If no situation is left, there is none. Responses are collected as generally as the rules allow, so one can answer many situations and selections:
      - A response value that equals a term over the situation that a rule or the frame sets it to (`v' = t`) is collected as that term, for example "unchanged" or "named after the VM".
-     - So is a whole number at the edge a linear bound in a rule allows it (`floor` or `ceil` of the bound), as in "the whole days overdue" stated by two bounds, and a string a rule says the value contains (`contains`, `startsWith`, `endsWith`), alone or all of them joined, as in "the message names the overdue tool". A map is collected as its entries, `store`d where the rule gives each (the result per tool, for the tools present), and the positions of a list prefer different terms, so one response lists every item. Whether a value equals a term is asked of the solver, since two equal maps can print differently, and a constant is never a term. A term that names another response value is resolved through that value's own terms. Without these, each response was a constant answering one situation, and the loop never converged.
+     - So is a whole number at the edge a linear bound in a rule allows it (`floor` or `ceil` of the bound), as in "the whole days overdue" stated by two bounds, and a string a rule says the value contains (`contains`, `startsWith`, `endsWith`), alone or all of them joined, as in "the message names the overdue tool". A map is collected as its entries, `store`d where the rule gives each (the result per tool, for the tools present), and the positions of a list prefer different terms, so one response lists every item. Whether a value equals a term is asked of the solver, since two equal maps can print differently, and a constant is never a term. A term that names another response value is resolved through that value's own terms.
      - The response query prefers, as soft constraints only, a response that also meets the rules not selected, that keeps values, and that equals one of these terms.
 
      The queries are quantifier-free, and the loop gives up after 32 responses.
@@ -48,30 +48,35 @@ The checker reports every minimal conflicting set of rules, not only the first (
 3. Block the core and repeat until the solver finds no situation. A solver `unknown` stops the enumeration with verdict `unknown`.
 4. Drop any core that strictly contains another. A core is minimal in the situation where it was found, but a smaller core found later, in another situation, makes it non-minimal. Every minimal set is found: the search ends only when every remaining selection contains a found core.
 
-Because the search covers the whole slice, it finds conflicts that span groups of rules a person would check separately. On the Project A case study it found two that the hand-made slices missed.
+Because the search covers the whole slice, it finds conflicts that span groups of rules a person would check separately.
 
 The implementation bounds enumeration at 100 new conflicts per unit. It checks whether another core remains before treating the search as complete; unfinished enumeration adds the unit to `undecided`. Existing failures still produce `fail`, and tolerating all reported failures then leaves `unknown`, which blocks the gate. Current, version-pinned open conflicts do not consume the gate's limit, but they are still solved and reported before the ratchet filters them. Closed or stale records receive no exemption. A baseline refuses an incomplete check.
 
 ## Output contract
 
+`stele check --json` prints:
+
 ```json
 {
-  "check": "permission-conflict",
+  "check": "transition-conflict",
   "verdict": "fail",
-  "rules": ["R12@3", "R31@1"],
-  "contexts": ["resources", "privacy"],
-  "counterexample": {
-    "actor": { "role": "User", "isOwner": true },
-    "request": { "kind": "erasure" },
-    "self": { "status": "active", "activeHolds": 1 }
-  },
-  "english": "An owner making an erasure request on a resource with 1 active hold is denied by R12 and allowed by R31.",
-  "sliceHash": "sha256:9f2c...",
-  "solver": { "name": "z3", "version": "4.13.x", "ms": 412 }
+  "conflicts": [
+    {
+      "unit": "Resource.delete",
+      "rules": ["R12", "R31"],
+      "counterexample": [
+        { "name": "Request.kind", "value": "erasure" },
+        { "name": "Resource.activeHolds", "value": "1" },
+        { "name": "Resource.ownerRequested", "value": "true" }
+      ],
+      "situation": [ ... ]
+    }
+  ],
+  "solver": "Z3 version 5.3.1 - 64 bit"
 }
 ```
 
-`verdict` is one of `pass`, `fail` or `unknown`. An unsat core replaces `counterexample` when the failure is joint inconsistency (T-A6).
+`verdict` is one of `pass`, `fail` or `unknown`. Each conflict names its unit (`state`, or the operation whose step has no valid outcome), its minimal set of rules, and the situation: `counterexample` holds what the rules read, `situation` the whole of it. `dead_responses`, `vacuous`, `unreachable`, `undecided` and `near_limit` (units decided only near the timeout) appear when there is something to report.
 
 ## What a verdict means
 
@@ -87,9 +92,9 @@ For the state, the situation is the environment and the response is the system-c
 
 **"No conflict" is bounded.**
 - *One step deep.* A step may start from any state the invariants allow, which over-approximates the reachable states. For must-rules that makes a pass sound for every reachable state, while a conflict may sit in a state no trace reaches; conflicts in states no `createdBy` step can enter are set apart. A `possible` rule's witness is likewise a state the invariants allow, not necessarily a reachable one. Multi-step reachability is planned.
-- *Bounded instances.* Collections, relations to many and `instances(E)` are checked over a bounded number of other instances: 3 by default, raised to fit a count a rule compares, up to 64. The check's warnings note each raised relation bound and any count beyond 64. Lists default to 3 elements. Within those bounds the encoding is exact; results over them hold up to the bound, in the sense of Alloy's small-scope checking.
+- *Bounded instances.* Collections, relations to many and `instances(E)` are checked over a bounded number of other instances: 3 by default, raised to fit a count a rule compares, up to 64. The check's warnings note each raised relation bound and any count beyond 64. Lists default to 3 elements, 8 for a list an operation writes. Within those bounds the encoding is exact; results over them hold up to the bound, in the sense of Alloy's small-scope checking.
 - *Exact arithmetic.* Integers, durations and times are mathematical integers, and decimals are exact reals, constrained only by declared ranges. Arithmetic is linear: multiplication by a constant only.
-- *Unknown is not a pass.* A query the solver does not settle within its budget is `unknown`, which blocks the gate unless the owner downgrades it for a named slice.
+- *Unknown is not a pass.* A query the solver does not settle within its budget is `unknown`, which blocks the gate unless the owner approved the step's rules knowing it stays unchecked ([05](05-ir-and-semantics.md#types)).
 
 **Policies that change the question.** Two are deliberate, and both are reported:
 - Assumptions that contradict each other are reported in their own unit, and every other unit is checked without them. Otherwise no situation would exist and every other conflict would pass unseen.
@@ -101,7 +106,7 @@ For the state, the situation is the environment and the response is the system-c
 
 A change re-checks only the rules it can affect. The slice must be a closure, not one hop ([D-018](design-decisions.md)).
 
-**Status: built for the state unit only.** The checker splits into units (the state, and one per operation). On the measured registries, an operation's rules do not split by shared variables, because every rule there mentions whether the operation runs, so steps are checked whole. The state unit is checked as its parts: the groups of rules, assumptions and variables that share no variable with another group. Each part is cached on its own, so a changed invariant re-solves only its part.
+**Status: built for the state unit only.** The checker splits into units (the state, and one per operation). An operation's rules do not split by shared variables, because every rule mentions whether the operation runs, so steps are checked whole. The state unit is checked as its parts: the groups of rules, assumptions and variables that share no variable with another group. Each part is cached on its own, so a changed invariant re-solves only its part.
 
 This is sound because the state unit has no frame and no operation default, so its question is its rules, assumptions and variable ranges alone. Parts that share no variable are independent:
 - A situation in which no response satisfies the rules exists exactly when one exists in some part, and each minimal conflict lies within one part.
@@ -131,10 +136,10 @@ Results are keyed by the hash of the slice: normalized IR of every member, the s
 
 ## Timeouts and solver portfolio
 
-- Each solver query has a hard budget, default 10 s locally and in CI.
+- Each solver query has a hard budget, default 10 s (`--timeout`).
 - Stele's release binaries carry Z3, linked in from a static library, and run each query in a Z3 context inside the process. Idle contexts are kept and each query is sent after `(reset)`, which clears every declaration and assertion, so each answer is the one a new context gives. z3's own timeout bounds each check. A query not answered within the budget plus 2 s, or whose answer is no longer needed (another way of deciding won the race), is interrupted, and its answer is `unknown`.
 - A build without Z3 inside (a source build), or one told to use another solver binary (`STELE_Z3`, or `--z3` on the commands that take it), runs z3 as processes the same way, and kills a process instead of interrupting it. `stele version --solver` says which Z3 is used.
-- A timeout is `unknown`. By default `unknown` blocks merge (T-F4); the owner can downgrade it to a warning for a named slice, which is recorded.
+- A timeout is `unknown`, which blocks the gate unless the owner approved the step's rules knowing it stays unchecked; that is recorded in the registry as an `unchecked: <step>` document.
 - Planned for Phase 3: Z3 and cvc5 race on hard queries; the first answer wins. In the nightly full run both must agree. A disagreement raises an incident and freezes that slice: merges touching it are blocked until resolved.
 
 ## Cedar for the permission subset
@@ -145,4 +150,4 @@ Cedar already provides sound and complete analysis of authorization policies. Fr
 - If they disagree, the slice is frozen as in a solver disagreement.
 - Invariants, state machines, preconditions, aggregates and time windows stay in Z3.
 
-Not built: v0 ships Z3 only, because invariants and state machines need it anyway.
+Not built: Stele uses Z3 only, because invariants and state machines need it anyway.

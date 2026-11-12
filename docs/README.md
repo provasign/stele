@@ -17,7 +17,7 @@ Stele keeps a project's specs consistent: it codifies every spec statement into 
 | 09 | [Enforcement](09-enforcement.md) | The gate, and what binding rules to code will add |
 | — | [Domain coverage](domain-coverage.md) | How any kind of project maps onto the model; assurance levels; theory tiers |
 | — | [Examples](examples/README.md) | Worked examples: web service, embedded controller, data pipeline, infrastructure policy, CLI tool |
-| — | [Prior art](prior-art.md) | Requirements-to-logic tools and papers, and what Stele takes from them |
+| — | [Prior art](prior-art.md) | Requirements-to-logic tools and papers, and how Stele differs |
 | — | [Design decisions](design-decisions.md) | The decision log, D-001 to D-064 |
 | — | [Glossary](glossary.md) | Terms used across these documents |
 

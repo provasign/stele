@@ -1,6 +1,6 @@
 # Prior art: requirements to logic, and conflicts between requirements
 
-Reviewed 2026-10-26. VeriMed and SAT-LLM were read in full; the others are summarized from their documentation and earlier knowledge, so check them before citing numbers.
+VeriMed and SAT-LLM are summarized from the papers; the others from their documentation, so check them before citing numbers.
 
 ## Summary
 
@@ -8,8 +8,8 @@ Turning requirements into logic and asking a solver whether they can all hold is
 
 Three findings matter for Stele's design:
 1. **Tools that work reliably constrain the input** (FRET, ASSERT, SpeAR) or **fix the vocabulary by hand** (VeriMed: 85 typed variables written by the authors). Free text to logic with a vocabulary the tool invents is the open problem, which is where Stele's losses are (dropped clauses, one thing named twice).
-2. **Disagreement between formalizations is a usable signal.** VeriMed samples a requirement five times and compares the samples with the solver; where they differ, the source is ambiguous or the translation unstable. This would have flagged Project F's FR-001, where "all input lines" was kept in one reading and dropped in another.
-3. **Precision on unmodified real specs is not reported anywhere.** SAT-LLM's precision of 1.00 is over 55 requirements built to contain conflicts; VeriMed reports detection of injected mutations only. Stele's measurements (4 real of 329 on six projects; the review-first pipeline's 0 false on Projects C and F) address a question these papers leave open.
+2. **Disagreement between formalizations is a usable signal.** VeriMed samples a requirement five times and compares the samples with the solver; where they differ, the source is ambiguous or the translation unstable. It flags a clause such as "all input lines" that one reading keeps and another drops.
+3. **Precision on unmodified real specs is not reported anywhere.** SAT-LLM's precision of 1.00 is over 55 requirements built to contain conflicts; VeriMed reports detection of injected mutations only. Stele is aimed at that question: the conflicts in specs as they are written.
 
 ## VeriMed: "Neurosymbolic Auditing of Natural-Language Software Requirements"
 
@@ -34,9 +34,9 @@ Hall and Eiers, Stevens Institute of Technology, arXiv [2605.13817](https://arxi
 - **Limits stated by the authors:** infusion devices only; proxies for faithfulness, not faithfulness; small sets compared with industrial ones.
 
 **For Stele:**
-- The check list matches ours: conflict, vacuous rule (Stele's `vacuous` is their vacuity, a condition that can never hold), dead response. Two we do not report: redundancy, and violatability, a rule no situation can break. Violatability catches a translation that came out always true (ISSUES 21, 004/FR-018). It would not have caught Project F's FR-001, whose order-only rule can still be broken; only comparing formalizations finds a dropped clause like that one.
-- Their consistency check found nothing on a real spec, and their fault detection relies on an equivalence oracle Stele does not have. Their result does not show that the formal path finds real conflicts; ours suggests it rarely does without a review to aim it.
-- Sampling and comparing formalizations works with one model, so it is compatible with the single-model rule. At five samples per statement it multiplies translation cost by five; applied only to a review candidate's two to six statements it costs cents.
+- The check list matches ours: conflict, vacuous rule (Stele's `vacuous` is their vacuity, a condition that can never hold), dead response. Two we do not report: redundancy, and violatability, a rule no situation can break. Violatability catches a translation that came out always true. It does not catch a dropped clause whose remaining rule can still be broken; only comparing formalizations finds that.
+- Their consistency check found nothing on a real spec, and their fault detection relies on an equivalence oracle Stele does not have. Their result does not show that the formal path finds real conflicts on its own, which is why Stele aims it with a review.
+- Sampling and comparing formalizations works with one model. At five samples per statement it multiplies translation cost by five; applied only to a review candidate's two to six statements it costs cents.
 
 ## SAT-LLM: "Translation Titans, Reasoning Challenges: Satisfiability-Aided Language Models for Detecting Conflicting Requirements"
 
@@ -54,7 +54,7 @@ Fazelnia, Mirakhorli (Hawaii), Bagheri (Nebraska), ASE 2024 NIER track, 5 pages,
 
 **For Stele:**
 - The protocol's four rules are the same problems Stele found and partly solved: terminology consistency is `normalize`'s synonym merge, decomposition is "every clause" in the prompt rules. That a 2024 paper on 55 requirements hit them supports the view that they are general, not corpus-specific.
-- The LLM-alone baseline is weak there (recall 0.31), while Stele's plain review on Project A found 4 of 6 and on Project C 2 of 2. The difference is likely model generation (GPT-4 in 2024 against Sonnet 5.5) and the composite conflicts that set was built around. It is a reminder that the review baseline must be re-measured, not assumed weak.
+- The LLM-alone baseline is weak there (recall 0.31), but that was GPT-4 in 2024 on a set built around composite conflicts; a current model's review is a stronger baseline and must be measured, not assumed weak.
 
 ## Tools for structured requirements
 
@@ -95,41 +95,3 @@ Kiro also derives property-based tests from requirements, which Stele does not d
 - Contradictions checked by a solver across every spec in a repository, and across time: a requirement written today against one approved months ago in another document.
 - A registry of approved readings in git that every later change is checked against, with the owner's decisions and what they taught.
 - One checker that reads Spec Kit, OpenSpec, Kiro and plain Markdown, so a project is not tied to the tool whose checker it uses.
-
-## What to take into Stele
-
-| Idea | Source | Fit |
-| --- | --- | --- |
-| Translate only what the suspected conflict needs | survey (focused assertions); our Project C and F runs | Give each review candidate's translation the review's situation as its target |
-| Compare several formalizations of the same statement | VeriMed | Only for a review candidate's statements; one model; flag disagreement as ambiguous instead of checking one reading |
-| Violatability check | VeriMed | Report a rule no situation can break; catches translations that came out always true |
-| Ambiguous translation as a verdict | AWS Automated Reasoning | A fifth outcome next to translated, partial, informal, invalid |
-| A structured intermediate form | FRET, EARS, SAT-LLM's decomposition | LLM writes one obligation per clause; a parser builds the IR |
-| Labelled conflict data | Fazelnia et al., RE 2024 ([Zenodo 11000349](https://zenodo.org/records/11000349), CC BY 4.0) | See [Datasets](#datasets) |
-| A spec with few or no conflicts | Hemodialysis (ABZ 2016), Open PCA Pump (CC BY-SA 3.0) | Measures false conflicts on carefully written requirements; no conflict labels |
-
-## Datasets
-
-Checked 2026-10-26.
-
-**NLI-RE conflict sets** (Fazelnia, Koscinski, Herzog, Mirakhorli, RE 2024; [Zenodo 11000349](https://zenodo.org/records/11000349), one spreadsheet, **CC BY 4.0**). Seven sets of one-sentence requirements, each with a list of conflicting pairs:
-
-| Set | Requirements | Conflicting pairs | Origin |
-| --- | ---: | ---: | --- |
-| Broker | 45 | 13 | written by the authors' experts, conflicts planted |
-| PROMISE p2, p6, p10 | 65, 95, 69 | 41 in all | PROMISE projects with conflicts planted by the experts |
-| ETCS | 64 | 34 | from Fantechi et al. (RE 2023) |
-| Library | 109 | 20 | from Fantechi et al. |
-| Coffee machine | 21 | 29 | from Fantechi et al. |
-
-- The planted sets label each pair with a type: composite negation, forbid-stop, input-output, output-output, start-forbid, two frequencies, negation (about equal counts).
-- Most conflicts are direct and lexical ("only through a Mac-compatible client" against "through a mobile application only"; "600 km/h" against "100 km/h"). Few need a world fact or a chain of three statements, which is where Stele's real-spec conflicts are.
-- Pairs not listed are presumably compatible, but nothing says the lists are complete; ETCS lists some pairs twice under different IDs.
-- The sets have been public since April 2024, so current models may have seen them; the review step's recall on them is an upper bound.
-- Good for: a recall and precision check on short requirements with answers, and a regression set. Not a substitute for held-out real repositories.
-
-**Hemodialysis machine case study** (Mashkoor, ABZ 2016, [PDF](https://irit.fr/ABZ-CS/html_files/files/2016/PDF/Case_Study_The%20Hemodialysis%20Machine_2016.pdf)). 15 pages: 11 safety requirements (S-1 to S-11) and 36 software requirements (R-1 to R-36), numbered prose with thresholds and phases (initiation, therapy, ending). VeriMed counts 64 after its own splitting. **No license is stated**: public for research use, but not ours to redistribute; keep it out of the repository. No conflicts are labelled; VeriMed found none.
-
-**Open PCA Pump requirements** (SAnToS Lab, Kansas State; mirrored in [ovasicek/pca-pump-ec-artifacts](https://github.com/ovasicek/pca-pump-ec-artifacts)). 103 pages, about 116 "shall" statements, **CC BY-SA 3.0**: may be redistributed with credit, and derived files must carry the same license. No conflicts labelled.
-
-The two medical specs suit a false-conflict measurement: a careful spec with few or no contradictions, where every reported conflict is likely a translation artifact.

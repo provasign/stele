@@ -5,7 +5,7 @@ This is the preview guide: an hour with Stele on a small project of your own, an
 ## What you need
 
 - **git**, and a repository you can experiment in. A new one is best for a first try.
-- **[Claude Code](https://claude.com/claude-code),** signed in: the one coding agent Stele supports for now. Stele reads your specs through it, so its spend lands on that account. `stele init` names Sonnet 5.5 for Stele's own calls (`translate.model` in `stele.yaml`); on it a short requirement costs about 2 cents to read, so a feature of 5 to 15 requirements costs about $0.10 to $0.30 of Stele's calls, on top of what the agent itself spends. Long requirements with scenarios cost several times that, and a larger model about four times.
+- **[Claude Code](https://claude.com/claude-code),** signed in: the one coding agent Stele supports for now. Stele reads your specs through it, so its spend lands on that account. `stele init` names Sonnet 5.5 for Stele's own calls (`translate.model` in `stele.yaml`); on it a short requirement costs about 1.5 cents to read, so a feature of 5 to 15 requirements costs about $0.10 to $0.25 of Stele's calls, on top of what the agent itself spends. Long requirements with scenarios cost several times that, and a larger model about four times.
 - **Optional:** [Spec Kit](https://github.com/github/spec-kit), [OpenSpec](https://github.com/Fission-AI/OpenSpec) or [Kiro](https://kiro.dev), if you already write specs with one. Without one, `stele init` sets up a `requirements/` folder of plain Markdown that the agent keeps; requests declared with [Shale](https://github.com/provasign/shale) work too.
 
 ## Install
@@ -26,7 +26,7 @@ git add -A && git commit -m "Set up Stele"
 
 ## The first hour
 
-Build something small, one feature at a time, and ask your agent for each feature the way you would ask a colleague. The trial project was a community garden tool:
+Build something small, one feature at a time, and ask your agent for each feature the way you would ask a colleague. For example, a community garden tool:
 
 1. "Keep a list of our garden plots. Each plot has a number and a size. I need commands to add a plot and list them. Plot numbers are unique."
 2. "Members join with a name and an email address. No two members may share an email."
@@ -54,7 +54,7 @@ Then the agent writes the code and commits the specs, the registry and the code 
 
 In a project with OpenSpec, Spec Kit or Kiro specs, say: "This project already has specs. Set them up with Stele." The agent runs `stele adopt`, which reads every requirement once, checks them against each other, and comes back with what needs you.
 
-- **Start with one or two specs on a large project.** On more than a hundred requirements the agent first shows you the specs with their sizes and asks which to start with; nothing is read or spent before you choose. `stele adopt --list` shows each spec and how many requirements it holds; `stele adopt --spec <name>` reads only the ones you name, and a later run reads more, checked against what you approved. On a project of ours, two specs with 76 requirements took about five minutes and $1.90 for the first check and asked the owner nothing in its first round; all 179 took about ten minutes and $4, and asked five questions.
+- **Start with one or two specs on a large project.** On more than a hundred requirements the agent first shows you the specs with their sizes and asks which to start with; nothing is read or spent before you choose. `stele adopt --list` shows each spec and how many requirements it holds; `stele adopt --spec <name>` reads only the ones you name, and a later run reads more, checked against what you approved. As a guide, a first check of 76 requirements takes about five minutes and $2, and of 179 about ten minutes and $4.
 - **You are asked only about contradictions a reader of your specs would see.** Stele's rules clash in more places than that, mostly where a spec leaves a gap any reader fills in. Those it settles itself and counts for you in one line; the report lists them.
 - **You do not have to settle every contradiction to finish.** Specs written over years disagree in places. For each contradiction the agent offers the answers that change nothing in your specs: one requirement is the exception to the other (recommended when one is a check or an error case), or decide later, which records the contradiction as open and lets you approve the rest. `stele check` lists what is open.
 - **Some contradictions are possible, not proved.** Stele also reads your specs' texts for contradictions. One its rules cannot prove is listed before the approval as possible, in one sentence. It needs no answer: reword a requirement if it is real, or approve knowing of it.

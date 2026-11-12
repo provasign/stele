@@ -1,6 +1,6 @@
 # Example: SaaS backend
 
-A subscription product with billing, identity and privacy areas, each written as its own specs. This is the scenario the original design used throughout. One owner approves the registry ([D-056](../design-decisions.md)).
+A subscription product with billing, identity and privacy areas, each written as its own specs. It is the core docs' running example (W2 in [08](../08-workflows.md#w2-conflict-with-a-rule-written-months-earlier)) in a billing setting. One owner approves the registry ([D-056](../design-decisions.md)).
 
 ## Contexts
 
@@ -28,7 +28,7 @@ assert: self.openInvoices = 0
 
 ## The contradiction
 
-Six months later, privacy writes: "Customers can close their account at any time for GDPR erasure." Grounding maps "close their account" to `Account.delete` through the synonym index, and the translator emits:
+Six months later, privacy writes: "Customers can close their account at any time for GDPR erasure." Grounding maps "close their account" to `Account.delete`, and the translator emits:
 
 ```yaml
 id: P31

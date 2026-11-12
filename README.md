@@ -18,13 +18,13 @@ Stele is one of three [Provasign](https://provasign.dev) tools for work done wit
 
 ## Why
 
-Spec-driven projects accumulate specs. Each is reviewed against whatever the reviewer remembers, and nothing re-reads last spring's spec when this autumn's lands. Coding agents then implement whatever they read. The case studies found this in each major spec format:
+Spec-driven projects accumulate specs. Each is reviewed against whatever the reviewer remembers, and nothing re-reads last spring's spec when this autumn's lands. Coding agents then implement whatever they read. Of 13 spec-driven open-source projects read with Stele, all 13 had requirements that contradict each other, in every major spec format:
 
-| Project | Format | What happened |
-| --- | --- | --- |
-| Project A | Spec Kit | 5 contradictions in the workspace lifecycle across four features; premature shutdowns in production |
-| Project B | OpenSpec | Delta merges kept old requirements beside new ones; a resume path skipped a required check |
-| Project C | Kiro | A new labeling spec needs a role the older user-management spec never offers, so no labeler account could be created |
+| Format | What happened |
+| --- | --- |
+| Spec Kit | Features written months apart set different rules for the same lifecycle step |
+| OpenSpec | Delta merges kept old requirements beside the ones that replaced them |
+| Kiro | A new spec needs a role an older spec never offers, so no account can have it |
 
 ## How it works
 
@@ -71,13 +71,13 @@ Stele is one file with nothing else to install: the [Z3](https://github.com/Z3Pr
 
 Measured on the case studies and held-out sets. These are single runs on small labelled sets, and a rerun can read a requirement differently.
 
-- **On the case studies,** Stele shows its owner 9 of the 10 contradictions confirmed by hand in Projects A, B and C, before anything is approved. The tenth rests on a design note, not on a requirement Stele reads. All nine were found by the review of the texts and listed as possible; the solver proved none of them in these runs.
+- **On the case studies,** Stele shows its owner 9 of the 10 contradictions confirmed by hand, before anything is approved. The tenth rests on a design note, not on a requirement Stele reads. All nine were found by the review of the texts and listed as possible; the solver proved none of them in these runs.
 - **On two independently labelled sets** of 109 and 45 requirements, an adoption showed 20 of 20 and 10 of 13 known contradictions: 17 and 7 as solver-checked conflicts put to the owner, 3 and 3 listed as possible.
 - **A conflict Stele reports as proved** is a solver-checked contradiction among the rules, with a situation in which they cannot all hold. One listed as possible comes from reading the texts and is for the owner to judge.
 - **Reading requirements into rules** is the weak stage. On a blind-graded sample of 20 statements from a held-out project, 5 rules said exactly what their statement said, none misread it, and most of the rest said less. That is why the owner approves every reading, shown clause by clause with what checks it.
 - **Settling from the code** was right in every verdict checked by hand.
 
-**Cost.** The hooks never call a model. On two real registries, a request about specified behaviour added about 400 to 600 tokens of approved requirements to the agent's context (at most about 750), an unrelated request usually none, and each lookup took under 25 ms. Model spend comes only from reading specs: about 1.5 cents a requirement for short requirements (eight requirements for $0.13, 109 for about $1.50), and more for long ones with scenarios (the first check of a 179-requirement project cost $3.96 and took about ten minutes; a 126-requirement specification with long scenarios is estimated at $12 to $14); and `stele adopt` and `stele change` take `--max-cost` to cap it.
+**Cost.** The hooks never call a model. On two real registries, a request about specified behaviour added about 400 to 600 tokens of approved requirements to the agent's context (at most about 750), an unrelated request usually none, and each lookup took under 25 ms. Model spend comes only from reading specs: about 1.5 cents a requirement for short requirements (eight requirements for $0.13, 109 for about $1.50), and several times that for long ones with scenarios (a first check of 179 requirements cost about $4 and took about ten minutes); and `stele adopt` and `stele change` take `--max-cost` to cap it.
 
 **What Stele keeps.** The approved requirements, the owner's approvals and lessons live in the registry, committed with your specs. While a change is open, Stele keeps its readings and your answers in `.stele/change/`, which is never committed and is removed when you approve. It keeps no copy of its prompts or the model's replies, except the calls of a reading that failed, until that change is approved. What it reads from the project reaches the model marked as material, never as instructions. `--max-cost` limits what a whole check may spend, and `--request-timeout` each model call.
 

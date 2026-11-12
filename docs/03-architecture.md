@@ -61,4 +61,4 @@ The owner decides in the coding agent, never by reading Stele's files ([D-058](d
 | Review | candidate contradictions | the solver confirms what it can; the code settles; the owner decides |
 | Code evidence | which statement the code follows | every verdict cites lines, which are checked to exist |
 
-By default Stele's calls run on Claude Code, the agent it is run from, with the model that agent is using; the claude CLI, the Anthropic API or any stdin/stdout command can be named instead (`internal/llm`). A run can be capped by calls or by dollars.
+By default Stele's calls run on Claude Code, the agent it is run from, with the model `translate.model` in `stele.yaml` names (`stele init` sets Sonnet 5.5; without the line, the agent's own model). The claude CLI, the Anthropic API or any stdin/stdout command can be named instead (`translate.llm`, `internal/llm`). A run can be capped by calls or by dollars.

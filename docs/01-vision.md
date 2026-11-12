@@ -25,15 +25,15 @@ AI coding agents write most specs and build from every statement in them. A stat
 
 ## What is deterministic
 
-Name resolution, type checking, conflict detection, gap detection and invariant checking are deterministic. Two steps are probabilistic, and both are gated:
+Name resolution, type checking, conflict detection and invariant checking are deterministic, and so will gap detection be (planned). Two steps are probabilistic, and both are gated:
 
 | Probabilistic step | Gate |
 | --- | --- |
-| Translating prose into IR | The owner approves each rule, read back in English with concrete examples |
-| Grounding prose terms to symbols, and inferring the model from code | Structural duplicate detection, agreement gating, the owner's review of every new symbol and synonym |
+| Translating prose into IR | Stele checks each reading's clause coverage and self-consistency; the owner approves each reading, shown clause by clause in plain words |
+| Grounding prose terms to symbols | One vocabulary proposed over the whole corpus first, duplicate-name consolidation, the owner's approval of each change with its new vocabulary |
 | Finding candidate contradictions by reviewing the whole corpus | The solver confirms what it can model; the code settles which statement holds; the owner decides ([D-045](design-decisions.md), [D-055](design-decisions.md)) |
 
-Measured on the case studies, review finds more contradictions than translation and checking alone, and the solver confirms the ones it can express, with a situation in which the rules cannot all hold, so Stele uses both: review discovers, the solver proves, the code settles, the owner decides. Grounding is the single point of failure for cross-time detection: a rule mapped to the wrong or a duplicate symbol is invisible to every later check. Most of the guardrails in [07](07-translation-and-grounding.md) exist for that reason.
+Review finds more contradictions than translation and checking alone, and the solver confirms the ones it can express, with a situation in which the rules cannot all hold, so Stele uses both: review discovers, the solver proves, the code settles, the owner decides. Grounding is the single point of failure for cross-time detection: a rule mapped to the wrong or a duplicate symbol is invisible to every later check. Most of the guardrails in [07](07-translation-and-grounding.md) exist for that reason.
 
 ## Who it is for
 
@@ -41,7 +41,7 @@ Any software project whose intended behavior is written down, changes over time,
 
 The same model covers a SaaS backend, an embedded controller, a data pipeline, an infrastructure policy set, a public API, a game server or a CLI tool. [domain-coverage.md](domain-coverage.md) shows how each kind of project maps onto it, and [examples/](examples/README.md) walks through unlike domains end to end.
 
-What varies by project is not whether the registry applies but how much of the behavior it can prove. Every statement is checked by the solver against the others, verified by a measurement (Phase 2), or reviewed by its owner when it is a judgment. A statement that is none of these yet is an obligation and counts as unchecked. A project gets the most value where rules are dense, long-lived and owned by several teams.
+What varies by project is not whether the registry applies but how much of the behavior it can prove. Every statement is checked by the solver against the others, verified by a measurement (Phase 2), or reviewed by its owner when it is a judgment. A statement that is none of these yet is an obligation and counts as unchecked. A project gets the most value where rules are dense, long-lived and written over many changes.
 
 ## Scope of v1
 

@@ -19,7 +19,7 @@ atom     := path | literal | ENUM | 'none' | call | quant | '(' expr ')'
 literal  := INT | DECIMAL | STRING | DURATION | TIME | 'true' | 'false'
 call     := 'startsWith' '(' expr ',' expr ')' | 'endsWith' '(' expr ',' expr ')'
           | 'contains' '(' expr ',' expr ')' | 'len' '(' expr ')' | 'matches' '(' expr ',' STRING ')'
-          | 'isSet' '(' expr ')' | 'has' '(' expr ',' expr ')' | 'old' '(' expr ')'
+          | 'isSet' '(' expr ')' | 'isEmpty' '(' expr ')' | 'has' '(' expr ',' expr ')' | 'old' '(' expr ')'
           | ('ran' | 'runs' | 'lastRun') '(' OPERATION ')'
           | ('seconds' | 'minutes' | 'hours' | 'days') '(' expr ')'   # a whole number of units as a duration
           | ('min' | 'max') '(' expr ',' expr ')' | 'abs' '(' expr ')'
@@ -34,12 +34,12 @@ DURATION := INT ('ms' | 's' | 'm' | 'h' | 'd' | 'w')   # milliseconds
 TIME     := YYYY-MM-DD | RFC 3339 time            # milliseconds since the Unix epoch, UTC
 ```
 
-Changes from the original grammar ([D-007](design-decisions.md), [D-050](design-decisions.md)):
+Notes on the grammar ([D-007](design-decisions.md), [D-050](design-decisions.md)):
 
 - `implies` is the lowest-precedence operator ([D-041](design-decisions.md)).
 - A root may name an entity in lower camel case, such as `config.sessionIdleTimeoutMinutes` or `chatSession.status`, for rules and decisions with no `self`. The root names that entity's single instance ([D-040](design-decisions.md)).
 - Paths traverse relations and record fields: `self.owner.tenant.tier`, `self.result.code`.
-- `all`, `any` and `count` replace `forall`, `exists` and `count(... where it ...)`; `forall` and `exists` are still read as `all` and `any`. The separator before the condition may be `:`, `|` or `,` (YAML needs quotes around `: ` in a plain value; registries Stele writes are quoted for it).
+- The quantifiers are `all`, `any` and `count`; `forall` and `exists` are read as `all` and `any`. The separator before the condition may be `:`, `|` or `,` (YAML needs quotes around `: ` in a plain value; registries Stele writes are quoted for it).
 - A quantifier's variable written alone, as in `all(t in self.tags: t = urgent)`, is the element, ahead of any enum value of the same name.
 - `now` is the clock; `old(x)`, `ran`, `runs` and `lastRun` describe the past ([D-051](design-decisions.md), [Order and history](#order-and-history)).
 - `result` is what a step produces, `instances(E)` every other instance of an entity, and `seconds`, `minutes`, `hours`, `days`, `min`, `max` and `abs` are exact arithmetic ([D-064](design-decisions.md), [What a step produces](#what-a-step-produces), [Aggregates](#aggregates)).
@@ -56,7 +56,7 @@ Changes from the original grammar ([D-007](design-decisions.md), [D-050](design-
 | `string` (also `bytes`, `text`) | `{ type: string }` | String | `=`, `!=`, `in`, `startsWith`, `endsWith`, `contains`, `len`, `+` with literals and attributes |
 | `duration` | `{ type: duration }` | Int, milliseconds | with durations: `+`, `-`, comparisons |
 | `time` (also `date`, `timestamp`) | `{ type: time }` | Int, milliseconds since the epoch, UTC | time ± duration, time − time, comparisons |
-| `list` | `{ type: list, of: string, maxLength: 5 }` or `list<string>` | a length and one variable per position, up to `maxLength` (default 3) | `contains`, `len`, `isEmpty`, `xs[i]` (unset past the end), `=` with a list or a literal `["a", "b"]`, `all`/`any`/`count` |
+| `list` | `{ type: list, of: string, maxLength: 5 }` or `list<string>` | a length and one variable per position, up to `maxLength` (default 3; 8 for a list an operation writes) | `contains`, `len`, `isEmpty`, `xs[i]` (unset past the end), `=` with a list or a literal `["a", "b"]`, `all`/`any`/`count` |
 | `set` | `{ type: set, of: enum, values: [...] }` or `set<enum[a, b]>`; `set<string>` | enum or bool elements: array to Bool, over every value; other elements: a length and one variable per position up to `maxLength` (default 3), where repeats count once | `contains`, `len`, `isEmpty`, `all`/`any`/`count`, `=` (regardless of order) |
 | `map` | `{ type: map, key: enum, keyValues: [...], of: int }` or `map<enum[gold, silver], int>` | array, plus the set of present keys | `m[k]`, `has(m, k)` |
 | optional | `optional: true` on any type, or `optional<T>` | the value plus a Bool for its presence | `isSet(x)`, `x = none` |
@@ -77,7 +77,7 @@ Semantics of the less familiar cases:
 - **Relations to many** denote `max` instances other than the single instance roots and `self` name, each with its own attributes. An operation acts on its own instance, so it never changes theirs; from an instance in the collection, the inverse relation (declared with `inverse:`) leads back to the instance that holds it. "Every other workspace on the node keeps running" is `all(w in self.node.workspaces: w.status = running)`.
 - **Strings** are decided by Z3's string solver. Equality, prefix, suffix and containment against literals and concatenation are decided; arbitrary combinations with lengths may come back `unknown`, which the checker reports as such.
 
-Enum and set values are written `{ type: enum, values: [a, b] }`. The earlier `{ type: enum[a, b] }` is not valid YAML: inside a flow mapping the comma ends the value ([D-038](design-decisions.md)).
+Enum and set values are written `{ type: enum, values: [a, b] }`. `{ type: enum[a, b] }` is not valid YAML: inside a flow mapping the comma ends the value ([D-038](design-decisions.md)).
 
 Enum attributes may be compared with `=` and `!=` when they declare exactly the same nonempty set of value names, regardless of declaration order. Equality means matching names: `a.status = b.status` expands into a disjunction of `(a.status = value and b.status = value)` for each declared value. The attributes keep separate SMT datatypes; the compiler never compares their ordinal positions or guesses synonyms. Different value sets remain a type error and require an explicit mapping ([D-048](design-decisions.md)).
 
@@ -87,15 +87,13 @@ Non-linear arithmetic (a variable times a variable, exponentials), recursion, us
 
 ### Planned extensions
 
-The trial translations show what specs state that the IR still cannot ([D-049](design-decisions.md)). Each extension gets its own decision before it is implemented, and each must keep a decision procedure:
+These cover statements specs make that the IR cannot express yet ([D-049](design-decisions.md)). Each extension gets its own decision before it is implemented, and each must keep a decision procedure:
 
 | Extension | Statements it covers | Likely check |
 | --- | --- | --- |
 | Future-time ordering over bounded traces | "eventually READY or FAILED" with no deadline, "no unbounded restart loop" | Bounded model checking over the transition system of D-042, results labelled with the trace bound; past-time order and deadlines are already expressible ([Order and history](#order-and-history)) |
 | Snapshot references | "Startup is unchanged from before this fix" | The current rules over a named behavior must be equivalent to those in an earlier snapshot; from Phase 2 also emits a snapshot test |
 | Repeated and combined operations | "`--cleanup` is idempotent", atomic staging | Running an operation twice equals running it once; a failed composite leaves the state unchanged |
-
-Multiple instances with quantifiers, strings, records and the other value types of this list are implemented ([D-050](design-decisions.md)).
 
 ## Rule kinds
 
@@ -148,7 +146,7 @@ A permission conflict is one case: an allow and a deny that both match leave no 
 
 Writes make this scale. An invariant that reads nothing an operation writes holds after that operation by the frame, so each operation is checked only against the invariants that touch its writes, together with the invariants connected to them through shared attributes, before the step. Checks split per operation and grow with what a change touches, not with the registry.
 
-The step check is one step deep: it assumes the state before can be any state the invariants allow, which over-approximates the reachable states. A conflict can therefore be reported from a state that no sequence of operations reaches. Where every instance in that state is created by an operation its entity names in `createdBy`, the checker asks whether any trace can enter the state: a creating step that leaves it behind, or a step that changes into it from a state that differs. The state includes whether each optional value is set. If no step can, under every rule, that state is unreachable. The conflict's state is one sample of the states its rules clash in, so the checker widens it to the fewest values that stay unreachable, excludes them, and looks for the same clash in another state; only when the rules clash in no state outside the unreachable ones is the conflict reported as unreachable, and it then does not fail the check (ISSUES 3). Otherwise it is reported in the reachable state found. An entity without `createdBy` may start in any state, so its values are left out of that state: if no trace reaches the states the rest describes, none reaches the conflict's. During `stele change`, a conflict in a step of an entity with no `createdBy` becomes a `creator` question for the agent when naming one of the entity's steps as its creator would set the conflict aside; the answer is recorded as `createdBy`. Bounded multi-step checking from declared initial states (reachability, [06](06-checker.md)) would remove the rest.
+The step check is one step deep: it assumes the state before can be any state the invariants allow, which over-approximates the reachable states. A conflict can therefore be reported from a state that no sequence of operations reaches. Where every instance in that state is created by an operation its entity names in `createdBy`, the checker asks whether any trace can enter the state: a creating step that leaves it behind, or a step that changes into it from a state that differs. The state includes whether each optional value is set. If no step can, under every rule, that state is unreachable. The conflict's state is one sample of the states its rules clash in, so the checker widens it to the fewest values that stay unreachable, excludes them, and looks for the same clash in another state; only when the rules clash in no state outside the unreachable ones is the conflict reported as unreachable, and it then does not fail the check. Otherwise it is reported in the reachable state found. An entity without `createdBy` may start in any state, so its values are left out of that state: if no trace reaches the states the rest describes, none reaches the conflict's. During `stele change`, a conflict in a step of an entity with no `createdBy` becomes a `creator` question for the agent when naming one of the entity's steps as its creator would set the conflict aside; the answer is recorded as `createdBy`. Bounded multi-step checking from declared initial states (reachability, [06](06-checker.md)) would remove the rest.
 
 A rule that reads nothing any operation writes cannot be made true by the system. It is read as an environment assumption, with a warning.
 
@@ -180,7 +178,7 @@ Steps 3 to 6 apply to rules with status `active` or `deprecated`.
 A **conflict** is a situation for which no response satisfies every active rule, after decisions and in-context precedence ([D-039](design-decisions.md), [situation and response](#situation-and-response)). The order above says what a running system returns; the conflict check says whether the rules can all be met. Three cases matter here:
 
 - A matching allow and a matching deny that both remain after steps 2 to 4.
-- An allow whose guard admits a state where a precondition fails. The allow says the operation runs there, the precondition says it must not. At runtime step 1 returns `error`, but the registry reports the conflict, because "users MUST be able to send follow-ups" beside a precondition that blocks them after completion is a real contradiction (FR-026 + FR-028 in the Project A registry). Many such findings share one precondition, such as authentication, and are grouped by it ([W5](08-workflows.md#w5-adopting-an-existing-spec-corpus)).
+- An allow whose guard admits a state where a precondition fails. The allow says the operation runs there, the precondition says it must not. At runtime step 1 returns `error`, but the registry reports the conflict, because "users MUST be able to send follow-ups" beside a precondition that blocks them after completion is a real contradiction. Many such findings share one precondition, such as authentication, and are grouped by it ([W5](08-workflows.md#w5-adopting-an-existing-spec-corpus)).
 - Obligations that cannot all be met, such as two effects or step invariants that disagree.
 
 Further rules:
@@ -206,9 +204,9 @@ Times and durations are integers in milliseconds, which keeps them in linear ari
 - `time` attributes hold instants (UTC); dates such as `2025-01-01` and RFC 3339 times are literals. `duration` attributes and literals such as `30s`, `15m`, `2h`, `7d` are spans: `request.at - self.createdAt <= 30d`.
 - A time plus or minus a duration is a time; the difference of two times is a duration. Durations do not compare with plain numbers: write `15m`, not `15`.
 - Grandfathering is a guard on a creation date: `allow legacyLimits when self.createdAt < 2025-01-01`.
-- Rule effective windows are half-open: `[effectiveFrom, effectiveTo)`. Two rules whose windows touch at a boundary do not overlap. The checker verifies consistency per window.
+- Planned: rule effective windows, half-open: `[effectiveFrom, effectiveTo)`. Two rules whose windows touch at a boundary will not overlap, and the checker will verify consistency per window.
 - Rule lifecycle (`active`, `deprecated`) says whether a rule is part of the registry. Effective windows say when an active rule applies in domain time. They are independent.
-- Recurring schedules and calendar arithmetic ("first working day of the month") are an `obligation` in v1.
+- Recurring schedules and calendar arithmetic ("first working day of the month") are an `obligation`.
 
 ## Precedence the text states
 
@@ -221,7 +219,7 @@ Statements about order and time are checked one step at a time, like every other
 - `now` is the clock, a time the world sets.
 - `ran(Op)` is whether the operation has happened, `runs(Op)` how often (up to 1,000,000), and `lastRun(Op)` the clock when it last ran (optional: unset until it has). Running the operation sets all three; no other operation changes them. They exist for an operation once a rule reads them.
 - `old(x)` in the `assert` of a rule `on:` an operation is `x` before the step; elsewhere it is `x`.
-- `assume: true` on an invariant `on:` an operation makes it a fact about the situation the step runs in, not a requirement: `when` and `assert` both read the state before the step and the request, and the check assumes it, as it assumes state invariants before a step. A glossary's definition of a term by request fields is one (ISSUES 62).
+- `assume: true` on an invariant `on:` an operation makes it a fact about the situation the step runs in, not a requirement: `when` and `assert` both read the state before the step and the request, and the check assumes it, as it assumes state invariants before a step. A glossary's definition of a term by request fields is one.
 
 | Statement | Rule |
 | --- | --- |

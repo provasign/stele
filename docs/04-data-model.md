@@ -1,17 +1,18 @@
 # 04. Data model
 
-Contexts group entities, entities expose operations, rules constrain operations, and decisions resolve conflicts between rules. Synonyms, open conflicts and decision tables support those five core kinds. The registry has one owner, who approves everything in it ([D-056](design-decisions.md)).
+Contexts group entities, entities expose operations, rules constrain operations, and decisions resolve conflicts between rules. Synonyms, open conflicts, lessons and decision tables support those five core kinds. The registry has one owner, who approves everything in it ([D-056](design-decisions.md)).
 
 | Kind | Purpose | Lives in |
 | --- | --- | --- |
 | Context | A namespace grouping related vocabulary; scopes in-context precedence | The registry |
 | Entity | A typed thing with attributes and an optional state machine | One context |
-| Operation | A state change with actors, a default effect, writes and coverage | The entity's context |
+| Operation | A state change with a default, writes and an effect | The entity's context |
 | Rule | A typed constraint on an operation or the state | One context |
 | Decision | A versioned precedence ruling between rules | The registry |
-| Synonym | Maps prose wording to a symbol | The registry |
+| Synonym | Maps prose wording to a symbol (planned) | The registry |
 | Open conflict | An acknowledged conflict from adopting an existing spec corpus, tolerated until resolved | The registry |
-| Decision table | A tabular authoring form lowered into rules | One context |
+| Lesson | Something the owner taught Stele about this project | The registry |
+| Decision table | A tabular authoring form lowered into rules (planned) | One context |
 
 ## Repository layout
 
@@ -46,13 +47,9 @@ A namespace for related vocabulary. Contexts keep a large registry readable and 
 context: resources
 formatVersion: 1
 owner: jane@acme          # optional label; the registry's owner approves everything
-timezone: UTC
-timeGranularity: day
-owns: [Resource, Hold]
-imports: [platform.Actor, platform.Request, identity.Tenant]
-precedence:
-  moreSpecificWins: true                # within this context only
 ```
+
+Planned: `precedence: { moreSpecificWins: true }` turns on in-context precedence ([05](05-ir-and-semantics.md#rule-semantics)).
 
 ## Entity
 
@@ -60,36 +57,29 @@ precedence:
 entity: Resource
 context: resources
 attributes:
-  status:   { type: enum, values: [active, locked, deleted], initial: active }
-  owner:    { type: ref platform.Actor }
+  status:   { type: enum, values: [active, locked, deleted] }
   region:   { type: enum, values: [US, EU, APAC] }
   createdAt: { type: date }
   classification: { type: enum, values: [public, internal, restricted] }
   retentionDays:  { type: int, range: [0, 3650], meaning: days a resource is kept after deletion }
-  activeHolds:
-    type: int
-    range: [0, 1000]
-    derived: count(self.holds where it.state = active)
+  activeHolds: { type: int, range: [0, 1000] }
 relations:
-  holds: { to: Hold, inverse: resource, bound: 1000 }
+  owner: { to: Actor }
+  holds: { to: Hold, inverse: resource, many: true, max: 3 }
 stateMachine:
   field: status
-  terminal: [deleted]
   transitions:
     - { from: active, to: locked, via: lock }
     - { from: locked, to: active, via: unlock }
     - { from: [active, locked], to: deleted, via: delete }
-anchors:
-  - { kind: table, ref: resources, file: db/migrations/0004_resources.sql }
 ```
 
 - `meaning` is optional: the fact the attribute stands for, in plain words. The translator shows it beside the attribute so prose in different words maps onto the same symbol; it has no effect on checking.
 - An attribute some operation `writes` is system-controlled; every other attribute (clocks, counters, configuration) is set by the environment ([05](05-ir-and-semantics.md#situation-and-response)).
-- `setBy: world` marks a value the world drives even though a step may reset it (minutes until shutdown: lowered by time, reset by activity). A step lists it in `writes` only with a fixed value in `effect` (`effect: { minutesLeft: 60 }`), so the step cannot choose the value to avoid a rule; before every step the world sets it (ISSUES 19).
+- `setBy: world` marks a value the world drives even though a step may reset it (minutes until shutdown: lowered by time, reset by activity). A step lists it in `writes` only with a fixed value in `effect` (`effect: { minutesLeft: 60 }`), so the step cannot choose the value to avoid a rule; before every step the world sets it.
 - Each `stateMachine` transition names an operation (`via: delete` is `Resource.delete`), which then runs only from the `from` states and leaves the field at `to`.
-- `derived` attributes are modeled by the solver as abstract bounded integers with declared constraints. The checker reasons about individual related elements only when a rule quantifies over them ([D-026](design-decisions.md)).
-- Every relation declares a `bound`. An aggregate over an unbounded relation is a compile error.
-- `terminal` states are exempt from the deadlock check ([D-016](design-decisions.md)).
+- A relation to many (`many: true`) is checked over `max` other instances, 3 by default ([05](05-ir-and-semantics.md#aggregates)). A single relation may be `optional: true`.
+- Planned: `terminal` states, exempt from the deadlock check ([D-016](design-decisions.md)); `derived` attributes; and `anchors` linking a symbol to code.
 
 ### Built-in actor and request entities
 
@@ -105,8 +95,9 @@ attributes:
 ---
 entity: Request
 context: platform
-attributes:
-  at: { type: date }
+---
+entity: Result            # what a step produces: result.x in a rule on the step
+context: platform
 ```
 
 A project extends them in a context it owns. In the running example, an `identity` context does this:
@@ -117,7 +108,8 @@ context: identity
 attributes:
   kind:   { values: [human, service] }
   role:   { values: [User, Support, Admin] }
-  tenant: { type: ref Tenant }
+relations:
+  tenant: { to: Tenant }
 ---
 extend: platform.Request
 context: identity
@@ -137,27 +129,16 @@ An embedded project would instead declare `kind: [operator, controller, sensor]`
 
 ```yaml
 operation: Resource.delete
-actors: [User, Admin]                 # values of platform.Actor.role, declared in identity
 default: deny
 writes: [Resource.status]
 effect: { status: deleted }
-conditionalEffects:
-  - when: request.kind = erasure
-    effect: { activeHolds: 0 }       # holds released to the anonymized archive
-    via: Hold.archive
-coverage:
-  required: [User, Admin]             # each role must have at least one explicit rule
-anchors:
-  - { kind: http, ref: "DELETE /resources/{id}", file: api/resources.ts, line: 88 }
-  - { kind: ui,   ref: "settings.deleteResource.button" }
 ```
 
 - `default` makes the world closed: with no matching rule, the default applies. Events the system handles (a scheduled sweep, a message from another service) are operations too, usually with `default: allow`.
 - `writes` lists every attribute the operation may change; the rest keep their value. It is required, and it is what lets checks split per operation.
 - `extend: Resource.delete` with `writes: [...]` adds writes to an operation declared elsewhere: `stele change` uses it when a change's rule asserts something about the state after an existing step ([D-060](design-decisions.md)). With `keeps: [...]` it takes writes back: the operation keeps those values, whichever file listed them. `stele change` writes it when the agent says that an approved step only reports a value it was recorded as writing (a listing that shows each tool's name); a value the operation's `effect` sets cannot be kept.
 - An entity (or an `extend` of it) may name the operations that create it: `createdBy: [Cluster.init]`. Such an operation never runs on an existing instance, so it writes every attribute of the entity that the world does not set, and nothing of an earlier state carries over ([D-059](design-decisions.md)). A clash in the creation itself still shows; one that only an existing instance could cause does not.
-- `coverage.required` declares which roles must have an explicit rule. Gap detection checks only declared coverage ([D-015](design-decisions.md)).
-- `conditionalEffects` let an operation's effect depend on the request, which is how D7 stays consistent with the deleted-resource invariant ([D-003](design-decisions.md)).
+- Planned: `actors` (the roles that may invoke it); `coverage.required`, the roles that must have an explicit rule, which gap detection will check ([D-015](design-decisions.md)); `conditionalEffects`, an effect that depends on the request ([D-003](design-decisions.md)); and `anchors` linking the operation to code.
 
 ## Rule
 
@@ -165,12 +146,9 @@ anchors:
 id: R12
 version: 3
 kind: permission          # permission | precondition | invariant | derivation | measured | obligation | informal
-effect: deny
+effect: deny              # allow | deny | possible
 operation: Resource.delete
 when: self.activeHolds > 0
-final: false              # true = no rule or decision may override it (not built yet)
-effectiveFrom: 2026-03-02 # optional; half-open [from, to)
-explanation: user         # internal | user | redacted
 status: active            # draft | proposed | active | deprecated | retired
 source:
   statementId: resources/FR-012 # current imported identity; rule ID stays stable when it moves
@@ -180,13 +158,13 @@ source:
   approvedBy: jane@acme       # the owner's approval, pinned to textHash
   approvedReading: 4be1...    # and to the rule as it read when approved
   approvedChanges: [9c0d...]  # vocabulary changes under the rule that the approval accepted
-  approvedExamples: [ex-41, ex-42, ex-43]
   textHash: sha256:9f2c...    # set by importers
   introduced: 2026-03-02      # date the text first appeared in git
-tests: [T-R12-*]
 ```
 
-Importers supply the text and introduction date; translation records them as `source.textHash` and `source.introduced`, alongside `source.statementId`. Sync compares imported statements by anchor and text hash. `sync --apply` updates `statementId`, `statementHash` and `doc` while preserving the rule ID, version and original translated text/hash. The latest imported hash distinguishes an already-applied sync from a positional ID reused by another statement, so repeating `--apply` does not shift provenance again. Later sync, review confirmation, triage and recall use the explicit statement identity; legacy rules fall back to their ID prefix. Adoption triage uses `introduced` to propose which statement supersedes which ([W5](08-workflows.md#w5-adopting-an-existing-spec-corpus)).
+Planned rule fields: `final: true` (no rule or decision may override it), `effectiveFrom`/`effectiveTo` (a half-open window in domain time), `explanation` (`user`, `internal` or `redacted`, [09](09-enforcement.md#runtime-guards)) and `tests`.
+
+Importers supply the text and introduction date; translation records them as `source.textHash` and `source.introduced`, alongside `source.statementId`. `stele sync` compares imported statements by anchor and text hash. `stele sync --apply` updates `statementId`, `statementHash` and `doc` while preserving the rule ID, version and original translated text/hash. The latest imported hash distinguishes an already-applied sync from a positional ID reused by another statement, so repeating `--apply` does not shift provenance again. Later sync, review confirmation, triage and recall use the explicit statement identity; a rule without `statementId` falls back to its ID prefix. Adoption triage uses `introduced` to propose which statement supersedes which ([W5](08-workflows.md#w5-adopting-an-existing-spec-corpus)).
 
 `subject` names the entity `self` denotes. It is needed only when the rule has no operation and more than one entity has the attributes it reads from `self`.
 
@@ -214,13 +192,16 @@ version: 1
 resolves: [R31@1, R12@3]
 supersede:
   winner: R31
-  loser: R12                         # or losers: [..] for one exception over several rules
+  loser: R12
   when: request.kind = erasure     # IR, not a string
 rationale: "Erasure is a legal obligation; holds are released to an anonymized archive first."
-approvedBy: jane@acme
 ```
 
+A decision may instead `retire: [R12@3]`, which drops the rule.
+
 ## Synonyms
+
+Not built yet: the loader does not read synonyms. An attribute's `meaning` maps prose in other words onto a symbol.
 
 ```yaml
 platform.Actor: [user, member, owner]

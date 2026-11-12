@@ -6,7 +6,7 @@ Enforcement binds the approved rules to running code through a code check on eve
 
 ## Code check on every PR
 
-The first enforcement step reuses the code verdicts of adoption ([D-055](design-decisions.md)). Each verdict cites the lines that show which statement the code follows. A code PR that changes a file holding such evidence re-runs the verdict for those rules ([D-057](design-decisions.md), proposed). If the code now does otherwise, the PR is reported: either the code regressed or the spec needs a change. This needs no per-language adapter, so it comes before test generation.
+The first enforcement step reuses the code verdicts of adoption ([D-055](design-decisions.md)). Each verdict cites the lines that show which statement the code follows. A code PR that changes a file holding such evidence re-runs the verdict for those rules (planned in [D-057](design-decisions.md)). If the code now does otherwise, the PR is reported: either the code regressed or the spec needs a change. This needs no per-language adapter, so it comes before test generation.
 
 ## Test generation
 
@@ -50,12 +50,12 @@ Each rule declares `explanation` visibility:
 ## Traceability
 
 - Code is linked to rules with annotations such as `@implements R12`.
-- CI checks every annotation against the pinned snapshot. A reference to an unknown or retired rule fails.
+- The gate checks every annotation against the pinned snapshot. A reference to an unknown or retired rule fails.
 - The coverage matrix shows active rules with no implementing code and no passing test.
 
 ## CI gate
 
-`stele gate` is the one merge condition, for spec and code changes alike. CI fails when any of these holds:
+`stele gate` is the one merge condition, for spec and code changes alike. It runs in the pre-commit hook; running it on pull requests in CI is planned. It fails when any of these holds:
 
 | Condition |
 | --- |
@@ -65,7 +65,7 @@ Each rule declares `explanation` visibility:
 | A vocabulary change alters what an approved rule means (a value's range or values, what a step writes) and the rule's approval does not name it |
 | A rule's code verdict changes from followed to contradicted (once the code check is built) |
 | An active rule has no linked passing test (once tests are generated) |
-| An `@implements` reference does not resolve |
+| An `@implements` reference does not resolve (once traceability is built) |
 
 There is no fast path, waiver or lock file ([D-056](design-decisions.md)). A refactor that changes no behaviour passes because the code verdicts and tests still hold. When code must ship ahead of its spec, the code check reports the difference on every run until the owner updates the spec or the code.
 

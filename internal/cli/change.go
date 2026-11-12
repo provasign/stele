@@ -48,7 +48,7 @@ func cmdChange(args []string, out io.Writer) int {
 	allSpecs := fs.Bool("all", false, "stele adopt: read every spec of a large project at once, without being offered a part first")
 	specFlag := fs.String("spec", "", "stele adopt: read only these specs (names separated by commas) and leave the others for a later `stele adopt --spec`")
 	noCode := fs.Bool("no-code", false, "do not ask what the code does for each conflict (D-062)")
-	graph := fs.Bool("graph", false, "also find definitions in Grove's code graph (no gain measured on 2026-10-29)")
+	graph := fs.Bool("graph", false, "also find definitions in Grove's code graph (experimental)")
 	maxCost := fs.Float64("max-cost", 0, "spend at most this many dollars on the translation's model calls (as the backend reports); a run stopped by it keeps its work for the next run; 0 is unlimited")
 	client := llmFlags(fs)
 	if len(args) > 0 && args[0] == "answer" {
