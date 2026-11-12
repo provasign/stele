@@ -7,7 +7,7 @@
       {
         "hooks": [
           {
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/stele-hook.js\"",
+            "command": "stele hook",
             "timeout": 3,
             "type": "command"
           }
@@ -27,12 +27,24 @@
       {
         "hooks": [
           {
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/stele-hook.js\"",
+            "command": "stele hook",
             "timeout": 12,
             "type": "command"
           }
         ],
         "matcher": "Write|Edit|MultiEdit|Bash"
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "stele hook",
+            "timeout": 6,
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash"
       }
     ],
     "SessionEnd": [
@@ -57,7 +69,7 @@
       {
         "hooks": [
           {
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/stele-hook.js\"",
+            "command": "stele hook",
             "timeout": 3,
             "type": "command"
           }
@@ -86,12 +98,24 @@
       {
         "hooks": [
           {
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/stele-hook.js\"",
+            "command": "stele hook",
             "timeout": 6,
             "type": "command"
           }
         ]
       }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(stele change:*)",
+      "Bash(stele adopt:*)",
+      "Bash(stele keep:*)",
+      "Bash(stele gate:*)",
+      "Bash(stele check:*)",
+      "Bash(stele sync:*)",
+      "Bash(stele rules:*)",
+      "Bash(stele touches:*)"
     ]
   }
 }

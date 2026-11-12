@@ -1,11 +1,22 @@
 # Stele settings. See docs/04-data-model.md for the registry layout.
 # translate.drafts: drafts per requirement. 1 is cheapest. Above 1, readings are
 # compared by the solver and disagreements become questions for the spec author.
+# translate.llm: agent runs Stele's calls on Claude Code, the coding agent you run it
+# from; claude (the CLI) and anthropic (an API key) name one.
+# translate.model: the model that reads the specs. stele init sets claude-sonnet-5-5:
+# Stele's times, costs and accuracy were measured on it, and a larger model reads
+# several times slower for more money. Remove the line to use the model the agent
+# is using, or name another.
+# translate.effort: the model's reasoning effort (unset: the CLI's default).
 formatVersion: 1
 registry: .stele/registry
 translate:
     llm: claude
     drafts: 1
+specs:
+    root: .
+    format: shale
+    snapshot: .stele/accepted-statements.yaml
 harnesses:
     - claude
     - codex

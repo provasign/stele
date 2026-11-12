@@ -13,7 +13,7 @@
       {
         "hooks": [
           {
-            "command": "node \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.codex/hooks/stele-hook.js\"",
+            "command": "stele hook --agent codex",
             "timeout": 12,
             "type": "command"
           }
@@ -55,7 +55,7 @@
       {
         "hooks": [
           {
-            "command": "node \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.codex/hooks/stele-hook.js\"",
+            "command": "stele hook --agent codex",
             "timeout": 6,
             "type": "command"
           }
