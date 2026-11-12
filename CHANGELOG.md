@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.22 - 2026-11-12
+
+- **Claude Code only.** Stele's instructions, help and messages name Claude Code as the one agent it supports; the agent's skill no longer points at a CI gate (the gate runs from the pre-commit hook; CI on pull requests is planned). Run `stele init` after upgrading to refresh the skill.
+- **The docs say what Stele does today.** Every page was checked against the code, and unbuilt features are marked planned.
+
 ## v0.1.21 - 2026-11-12
 
 - **Nothing to install besides Stele.** The Z3 solver is built into the release binaries, as Prism carries its engine, so `brew install z3` or `apt install z3` is no longer a step, and every user gets the Z3 Stele is tested with. `stele version --solver` says which Z3 runs; `STELE_Z3` points Stele at another z3 binary.

@@ -31,7 +31,7 @@ func cmdAudit(args []string, out io.Writer) int {
 	ranges := fs.Bool("ranges", true, "adjudicate: let the verdict call ask to read file line ranges")
 	checkEdits := fs.Bool("check-edits", true, "adjudicate: check each drafted edit clause by clause against the code")
 	fresh := fs.Bool("fresh", false, "run every step again, even when its output exists")
-	backend := fs.String("llm", "anthropic", "LLM backend: anthropic, openai (API keys), claude, codex (local CLIs), cmd")
+	backend := fs.String("llm", "anthropic", "LLM backend: anthropic (API key), claude (the CLI), cmd")
 	model := fs.String("model", "", "model for the backend")
 	effort := fs.String("effort", "", "reasoning effort")
 	command := fs.String("llm-cmd", "", "for --llm cmd: shell command that reads the prompt on stdin and prints the reply")

@@ -144,7 +144,7 @@ func (c *Config) Validate() error {
 	switch c.Translate.LLM {
 	case "agent", "anthropic", "openai", "claude", "codex", "cmd":
 	default:
-		return fmt.Errorf("translate.llm %q: use agent, anthropic, openai, claude, codex or cmd", c.Translate.LLM)
+		return fmt.Errorf("translate.llm %q: use agent, claude, anthropic or cmd", c.Translate.LLM)
 	}
 	return nil
 }

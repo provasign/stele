@@ -47,7 +47,7 @@ func cmdFormalize(args []string, out io.Writer) int {
 	codeCtx := fs.String("code-context", "", "compact mode: a file describing the code's structure (types, steps), to build the vocabulary on (D-053)")
 	selfFlag := fs.Bool("self-check", true, "after translation, check each statement's rules against each other with the solver; a statement whose rules contradict each other is read once more, and its rules are held out if they still do")
 	lessonsDir := fs.String("lessons", "", "a registry directory whose lessons (lessons/*.yaml, what the owner taught Stele, D-063) every request follows; default: the --base registry's")
-	coverFlag := fs.Bool("cover", true, "after translation, check which clause of each statement its rules cover; statements with an uncovered clause are translated once more with the clause named, and stay partial if it remains uncovered")
+	coverFlag := fs.Bool("cover", true, "after translation, check which clause of each statement its rules cover; a statement with a rule beyond its text, or with no working rule, is translated once more with the finding named; a clause left uncovered beside a working rule makes the statement partial")
 	client := llmFlags(fs)
 	_ = fs.Parse(args)
 	if *compact && *onePass {

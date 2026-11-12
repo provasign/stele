@@ -100,9 +100,9 @@ func llmFlagsEffort(fs *flag.FlagSet, effortDefault map[string]string) func() (l
 // llmFlagsDefaults is llmFlags with a model and a reasoning effort per
 // backend, used when --model and --effort are not given.
 func llmFlagsDefaults(fs *flag.FlagSet, modelDefault, effortDefault map[string]string) func() (llm.Client, error) {
-	backend := fs.String("llm", "anthropic", "LLM backend: agent (the coding agent this runs from, and its model), anthropic, openai (API keys), claude, codex (local CLIs), cmd")
-	model := fs.String("model", "", "model for the backend (agent: the one the coding agent is using; anthropic: claude-opus-5-5; claude, codex: the CLI's own default)")
-	effort := fs.String("effort", "", "reasoning effort: low, medium, high, xhigh, max (anthropic, claude); codex takes its own levels, e.g. minimal, low, medium, high")
+	backend := fs.String("llm", "anthropic", "LLM backend: agent (Claude Code, which this runs from, and its model), anthropic (API key), claude (the CLI), cmd")
+	model := fs.String("model", "", "model for the backend (agent: the one the coding agent is using; anthropic: claude-opus-5-5; claude: the CLI's own default)")
+	effort := fs.String("effort", "", "reasoning effort: low, medium, high, xhigh, max")
 	command := fs.String("llm-cmd", "", "for --llm cmd: shell command that reads the prompt on stdin and prints the reply")
 	return func() (llm.Client, error) {
 		if *command != "" && !flagSet(fs, "llm") {

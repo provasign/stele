@@ -29,10 +29,11 @@ import (
 // After translation, the model is asked once per batch to split each
 // statement into its clauses, say for each whether some rule fails whenever
 // the system breaks it, and name any rule that forbids what the text allows.
-// Statements with an uncovered clause or a broader rule are translated once
-// more with their current rules and the problem named; what stays uncovered
-// makes the statement partial, and a rule still broader is named in its
-// reason, so the owner sees where the rules and the text part.
+// Statements with a broader rule, or with an uncovered clause and no working
+// rule, are translated once more with their current rules and the problem
+// named (needsReread). A clause left uncovered beside a working rule is not
+// read again: it makes the statement partial, and a rule still broader is
+// named in its reason, so the owner sees where the rules and the text part.
 
 // Clause is one checkable part of a statement and whether its rules cover it.
 type Clause struct {

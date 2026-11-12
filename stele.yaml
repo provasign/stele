@@ -19,5 +19,3 @@ specs:
     snapshot: .stele/accepted-statements.yaml
 harnesses:
     - claude
-    - codex
-    - opencode

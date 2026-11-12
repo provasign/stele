@@ -2,7 +2,7 @@
 
 Each entry records a decision, the problem it resolves, and where it lives. An entry a later one supersedes or amends says so. A dash under Where means this table is the record.
 
-Every entry is **proposed**, pending owner review; an entry marked built is in the code.
+Every entry is **accepted** by the owner. An entry marked built is in the code; one marked planned is decided but not built; a superseded entry names the entry that replaced it.
 
 | ID | Decision | Problem resolved | Where |
 | --- | --- | --- | --- |

@@ -9,15 +9,6 @@
             "type": "command"
           }
         ]
-      },
-      {
-        "hooks": [
-          {
-            "command": "stele hook --agent codex",
-            "timeout": 12,
-            "type": "command"
-          }
-        ]
       }
     ],
     "SessionStart": [
@@ -48,15 +39,6 @@
           {
             "command": "command -v shale >/dev/null 2>&1 && shale capture codex || true",
             "commandWindows": "where shale >NUL 2>&1 && shale capture codex || ver >NUL",
-            "type": "command"
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "command": "stele hook --agent codex",
-            "timeout": 6,
             "type": "command"
           }
         ]

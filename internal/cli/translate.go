@@ -22,9 +22,9 @@ func cmdTranslate(args []string, out io.Writer) int {
 	vocab := fs.String("vocab", "", "comma-separated YAML files holding the vocabulary (entities, operations, world facts)")
 	stmtsPath := fs.String("statements", "", "YAML list of statements: id, source, prose")
 	outDir := fs.String("out", "", "directory to write the candidate registry and report.json into")
-	backend := fs.String("llm", "", "LLM backend(s), comma-separated: anthropic, openai (API keys), claude, codex (local CLIs), cmd; default from stele.yaml, else anthropic")
+	backend := fs.String("llm", "", "LLM backend(s), comma-separated: anthropic (API key), claude (the CLI), cmd; default from stele.yaml, else anthropic")
 	model := fs.String("model", "", "model for the backend (anthropic defaults to claude-opus-5-5; CLIs use their own default)")
-	effort := fs.String("effort", "", "reasoning effort: low, medium, high, xhigh, max (anthropic, claude); codex takes its own levels, e.g. minimal, low, medium, high")
+	effort := fs.String("effort", "", "reasoning effort: low, medium, high, xhigh, max")
 	command := fs.String("llm-cmd", "", "for --llm cmd: shell command that reads the prompt on stdin and prints the reply")
 	repairs := fs.Int("max-repairs", 2, "rounds of feeding compile errors back to the model")
 	batch := fs.Int("batch", 40, "statements per request (0 = all in one)")
@@ -33,7 +33,7 @@ func cmdTranslate(args []string, out io.Writer) int {
 	timeout := fs.Duration("timeout", 30*time.Minute, "limit for the whole run")
 	_ = fs.Parse(args)
 	if *vocab == "" || *stmtsPath == "" || *outDir == "" {
-		fmt.Fprint(os.Stderr, "usage: stele translate --vocab domain.yaml --statements statements.yaml --out DIR [--llm anthropic|openai|claude|codex|cmd] [--model M]\n")
+		fmt.Fprint(os.Stderr, "usage: stele translate --vocab domain.yaml --statements statements.yaml --out DIR [--llm anthropic|claude|cmd] [--model M]\n")
 		return 2
 	}
 	stmts, err := translate.LoadStatements(*stmtsPath)

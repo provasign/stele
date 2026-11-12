@@ -33,7 +33,7 @@ import (
 func cmdHook(args []string, in io.Reader, out io.Writer) int {
 	fs := flag.NewFlagSet("hook", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	agent := fs.String("agent", "claude", "the coding agent running the hook: claude or codex")
+	agent := fs.String("agent", "claude", "the coding agent running the hook (claude)")
 	if err := fs.Parse(args); err != nil {
 		return 0
 	}
