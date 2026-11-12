@@ -130,6 +130,10 @@ func TestInitSetsUpAgents(t *testing.T) {
 			t.Fatalf("%s written", p)
 		}
 	}
+	// Stele's checks run without asking each time; an approval is not among them.
+	if s := read(".claude/settings.json"); !strings.Contains(s, `"Bash(stele change:*)"`) || !strings.Contains(s, `"Bash(stele gate:*)"`) || strings.Contains(s, "stele approve") {
+		t.Fatalf("Stele's checks not allowed, or an approval is: %s", s)
+	}
 	if !strings.Contains(read(".claude/settings.json"), `"stele hook"`) || strings.Contains(read(".claude/settings.json"), "node ") {
 		t.Fatalf("hook not in settings: %s", read(".claude/settings.json"))
 	}

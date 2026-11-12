@@ -201,11 +201,25 @@ func installSteering(dir string, selected []string, hook bool, specs *config.Spe
 // which an upgrade removes.
 type agentHook struct {
 	agent, oldScript, config, entries string
+	// allow is the commands the agent runs for Stele's checks, which the
+	// project lets it run without asking each time (Claude Code's
+	// permissions.allow). Recording an approval is not among them, and
+	// the hook asks the owner for it whatever is allowed.
+	allow []string
 }
 
 var agentHooks = []agentHook{
-	{agent: "claude", oldScript: ".claude/hooks/stele-hook.js", config: ".claude/settings.json", entries: integrations.HookSettings},
+	{agent: "claude", oldScript: ".claude/hooks/stele-hook.js", config: ".claude/settings.json", entries: integrations.HookSettings, allow: steleChecks},
 	{agent: "codex", oldScript: ".codex/hooks/stele-hook.js", config: ".codex/hooks.json", entries: integrations.CodexHooks},
+}
+
+// steleChecks: a fresh project asked the owner to allow `stele change` and
+// `stele gate` each time the agent ran one (a recording, 2026-11-11). They
+// are installed with the hook, never without it: the hook is what holds an
+// approval (`stele change answer ... approve`) for the owner.
+var steleChecks = []string{
+	"Bash(stele change:*)", "Bash(stele adopt:*)", "Bash(stele keep:*)", "Bash(stele gate:*)",
+	"Bash(stele check:*)", "Bash(stele sync:*)", "Bash(stele rules:*)", "Bash(stele touches:*)",
 }
 
 func realPath(p string) string {
@@ -322,6 +336,22 @@ func installHook(dir string, h agentHook) ([]string, error) {
 			entries, edited = append(entries, ourEntry), true
 		}
 		hooks[event] = entries
+	}
+	if len(h.allow) > 0 {
+		permissions, _ := settings["permissions"].(map[string]any)
+		if permissions == nil {
+			permissions = map[string]any{}
+		}
+		allowed, _ := permissions["allow"].([]any)
+		for _, rule := range h.allow {
+			if !slices.Contains(allowed, any(rule)) {
+				allowed, edited = append(allowed, rule), true
+			}
+		}
+		permissions["allow"] = allowed
+		if edited {
+			settings["permissions"] = permissions
+		}
 	}
 	if !edited {
 		return changed, nil // already installed

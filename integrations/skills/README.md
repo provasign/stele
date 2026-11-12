@@ -13,7 +13,7 @@ stele init --yes .   # refresh what stele.yaml records
 | --- | --- |
 | A Stele section in `CLAUDE.md` (`steering.md` and the part for the project's spec format) | The loop in short: when to run the check, how to put its questions to the owner, and only what the project's own format needs (OpenSpec, Spec Kit, Kiro, a `requirements/` folder, or Shale requests) |
 | This skill in `.claude/skills/stele-change/` | The loop in full, for when the agent edits specs or a Stele message says so |
-| `stele hook` entries in `.claude/settings.json` (skip with `--hook=false`) | Gives the agent the approved requirements a request touches, tells it when saved specs drift, and has Claude Code ask the owner before an approval is recorded |
+| `stele hook` entries in `.claude/settings.json`, and rules there that let the agent run Stele's checks without asking each time (skip both with `--hook=false`) | Gives the agent the approved requirements a request touches, tells it when saved specs drift, and has Claude Code ask the owner before an approval is recorded |
 
 The section sits between `<!-- stele:begin -->` and `<!-- stele:end -->` markers, so the rest of `CLAUDE.md` is never touched, a symlinked file gets one section, and running `init` again changes nothing. Commit the files so every teammate's agent runs the same loop.
 
