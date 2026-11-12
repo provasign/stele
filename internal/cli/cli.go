@@ -100,6 +100,7 @@ commands:
   export openspec        write the kept requests as the project's first OpenSpec spec; the approved rules follow them
   rules [request]        the approved requirements a request touches (stdin or arguments), for planning
   touches                the approved requirements the current code change touches (the branch and working tree)
+  hook                   the coding agent's hook stele init installs (Claude Code; --agent codex)
   precommit              the git pre-commit check stele init installs: blocks specs and approved rules that disagree
   version                print the release
 `
@@ -125,6 +126,8 @@ func Run(args []string) int {
 		return cmdRules(args[1:], os.Stdin, os.Stdout)
 	case "touches":
 		return cmdTouches(args[1:], os.Stdout)
+	case "hook":
+		return cmdHook(args[1:], os.Stdin, os.Stdout)
 	case "adopt":
 		return cmdChange(append([]string{adoptChange}, defaultRepo(args[1:])...), os.Stdout)
 	case "precommit":

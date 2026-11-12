@@ -747,7 +747,7 @@ func approvalPrompt(repo string) bool {
 	var s struct {
 		Hooks map[string]json.RawMessage `json:"hooks"`
 	}
-	return json.Unmarshal(src, &s) == nil && strings.Contains(string(s.Hooks["PreToolUse"]), "stele-hook.js")
+	return json.Unmarshal(src, &s) == nil && steleHook(string(s.Hooks["PreToolUse"]))
 }
 
 // cmdChangeSummary prints the last check of a change as the owner reads
