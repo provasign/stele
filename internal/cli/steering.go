@@ -196,15 +196,30 @@ func installSteering(dir string, selected []string, hook bool, specs *config.Spe
 	return changed, nil
 }
 
-// agentHook is where an agent with hooks gets the hook script, and the
-// file its hook configuration is merged into.
+// agentHook is the file an agent's hook configuration is merged into, and
+// where earlier releases put the Node script that hook ran (oldScript),
+// which an upgrade removes.
 type agentHook struct {
-	agent, script, config, entries string
+	agent, oldScript, config, entries string
+	// allow is the commands the agent runs for Stele's checks, which the
+	// project lets it run without asking each time (Claude Code's
+	// permissions.allow). Recording an approval is not among them, and
+	// the hook asks the owner for it whatever is allowed.
+	allow []string
 }
 
 var agentHooks = []agentHook{
-	{agent: "claude", script: ".claude/hooks/stele-hook.js", config: ".claude/settings.json", entries: integrations.HookSettings},
-	{agent: "codex", script: ".codex/hooks/stele-hook.js", config: ".codex/hooks.json", entries: integrations.CodexHooks},
+	{agent: "claude", oldScript: ".claude/hooks/stele-hook.js", config: ".claude/settings.json", entries: integrations.HookSettings, allow: steleChecks},
+	{agent: "codex", oldScript: ".codex/hooks/stele-hook.js", config: ".codex/hooks.json", entries: integrations.CodexHooks},
+}
+
+// steleChecks: a fresh project asked the owner to allow `stele change` and
+// `stele gate` each time the agent ran one (a recording, 2026-11-11). They
+// are installed with the hook, never without it: the hook is what holds an
+// approval (`stele change answer ... approve`) for the owner.
+var steleChecks = []string{
+	"Bash(stele change:*)", "Bash(stele adopt:*)", "Bash(stele keep:*)", "Bash(stele gate:*)",
+	"Bash(stele check:*)", "Bash(stele sync:*)", "Bash(stele rules:*)", "Bash(stele touches:*)",
 }
 
 func realPath(p string) string {
@@ -268,17 +283,22 @@ func writeIfChanged(path, content string) (bool, error) {
 	return true, os.WriteFile(path, []byte(content), 0o644)
 }
 
-// installHook writes an agent's hook script and adds each of its events
-// (UserPromptSubmit: the requirements a request touches; PostToolUse:
-// saved-spec drift) to the agent's hook configuration once, keeping every
-// other setting and hook.
+// installHook adds each of Stele's hook events (UserPromptSubmit: the
+// requirements a request touches; PreToolUse: the owner's approval;
+// PostToolUse: saved-spec drift) to the agent's hook configuration once,
+// keeping every other setting and hook. A project set up by an earlier
+// release ran a Node script: its entries become `stele hook`, and the
+// script goes.
 func installHook(dir string, h agentHook) ([]string, error) {
 	var changed []string
-	script := filepath.Join(dir, h.script)
-	if ok, err := writeIfChanged(script, integrations.Hook); err != nil {
-		return changed, err
-	} else if ok {
-		changed = append(changed, script)
+	// The settings that ran it change too, and say so; the script is not
+	// listed among what was set up.
+	script := filepath.Join(dir, h.oldScript)
+	if _, err := os.Stat(script); err == nil {
+		if err := os.Remove(script); err != nil {
+			return changed, err
+		}
+		os.Remove(filepath.Dir(script)) // only when nothing else is in it
 	}
 	path := filepath.Join(dir, h.config)
 	settings := map[string]any{}
@@ -297,22 +317,43 @@ func installHook(dir string, h agentHook) ([]string, error) {
 	if hooks == nil {
 		hooks = map[string]any{}
 	}
-	added := false
+	edited := false
 	ourHooks := ours["hooks"].(map[string]any)
 	for _, event := range slices.Sorted(maps.Keys(ourHooks)) {
 		entries, _ := hooks[event].([]any)
+		ourEntry := ourHooks[event].([]any)[0]
 		installed := false
-		for _, e := range entries {
-			if js, _ := json.Marshal(e); strings.Contains(string(js), "stele-hook.js") {
+		for i, e := range entries {
+			js, _ := json.Marshal(e)
+			switch {
+			case strings.Contains(string(js), "stele-hook.js"):
+				entries[i], installed, edited = ourEntry, true, true
+			case strings.Contains(string(js), `"stele hook`):
 				installed = true
 			}
 		}
 		if !installed {
-			hooks[event] = append(entries, ourHooks[event].([]any)[0])
-			added = true
+			entries, edited = append(entries, ourEntry), true
+		}
+		hooks[event] = entries
+	}
+	if len(h.allow) > 0 {
+		permissions, _ := settings["permissions"].(map[string]any)
+		if permissions == nil {
+			permissions = map[string]any{}
+		}
+		allowed, _ := permissions["allow"].([]any)
+		for _, rule := range h.allow {
+			if !slices.Contains(allowed, any(rule)) {
+				allowed, edited = append(allowed, rule), true
+			}
+		}
+		permissions["allow"] = allowed
+		if edited {
+			settings["permissions"] = permissions
 		}
 	}
-	if !added {
+	if !edited {
 		return changed, nil // already installed
 	}
 	settings["hooks"] = hooks
@@ -328,6 +369,12 @@ func installHook(dir string, h agentHook) ([]string, error) {
 		return changed, err
 	}
 	return append(changed, path), os.WriteFile(path, js.Bytes(), 0o644)
+}
+
+// steleHook reports whether a hook configuration runs Stele's hook: `stele
+// hook`, or the Node script of earlier releases.
+func steleHook(config string) bool {
+	return strings.Contains(config, "stele-hook.js") || strings.Contains(config, `"stele hook`)
 }
 
 func harnessLabels(ids []string) string {

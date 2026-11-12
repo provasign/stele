@@ -119,23 +119,30 @@ func TestInitSetsUpAgents(t *testing.T) {
 			t.Fatalf("%s lacks Stele's section", p)
 		}
 	}
-	for _, p := range []string{".claude/skills/stele-change/SKILL.md", ".agents/skills/stele-change/SKILL.md", ".claude/hooks/stele-hook.js", ".codex/hooks/stele-hook.js"} {
+	for _, p := range []string{".claude/skills/stele-change/SKILL.md", ".agents/skills/stele-change/SKILL.md"} {
 		if read(p) == "" {
 			t.Fatalf("%s not written", p)
 		}
 	}
-	if !strings.Contains(read(".claude/settings.json"), "stele-hook.js") {
+	// The hooks are Stele's own binary: no script to write, nothing else to install.
+	for _, p := range []string{".claude/hooks/stele-hook.js", ".codex/hooks/stele-hook.js"} {
+		if read(p) != "" {
+			t.Fatalf("%s written", p)
+		}
+	}
+	// Stele's checks run without asking each time; an approval is not among them.
+	if s := read(".claude/settings.json"); !strings.Contains(s, `"Bash(stele change:*)"`) || !strings.Contains(s, `"Bash(stele gate:*)"`) || strings.Contains(s, "stele approve") {
+		t.Fatalf("Stele's checks not allowed, or an approval is: %s", s)
+	}
+	if !strings.Contains(read(".claude/settings.json"), `"stele hook"`) || strings.Contains(read(".claude/settings.json"), "node ") {
 		t.Fatalf("hook not in settings: %s", read(".claude/settings.json"))
 	}
 	codex := read(".codex/hooks.json")
-	if strings.Count(codex, ".codex/hooks/stele-hook.js") != 2 || !strings.Contains(codex, "UserPromptSubmit") || !strings.Contains(codex, "their-tool capture") {
+	if strings.Count(codex, `"stele hook --agent codex"`) != 2 || !strings.Contains(codex, "UserPromptSubmit") || !strings.Contains(codex, "their-tool capture") {
 		t.Fatalf("Codex hooks: %s", codex)
 	}
 	if !strings.Contains(read(".codex/rules/stele.rules"), `pattern = ["stele", ["change", "adopt"]]`) {
 		t.Fatalf("no Codex rule letting the change check run outside the sandbox: %q", read(".codex/rules/stele.rules"))
-	}
-	if !strings.Contains(codex, "2>/dev/null") {
-		t.Fatalf("the Codex hook command is escaped, not as written: %s", codex)
 	}
 	if !strings.Contains(out.String(), "/hooks") {
 		t.Fatalf("init does not say Codex asks to review its hooks:\n%s", out.String())
@@ -149,7 +156,7 @@ func TestInitSetsUpAgents(t *testing.T) {
 	if code := cmdInit([]string{dir, "--yes", "--hook"}, strings.NewReader(""), &out, false); code != 0 || !strings.Contains(out.String(), "already set up") {
 		t.Fatalf("refresh: %d %s", code, out.String())
 	}
-	if strings.Count(read(".claude/settings.json"), "stele-hook.js") != 5 || !strings.Contains(read(".claude/settings.json"), "UserPromptSubmit") || !strings.Contains(read(".claude/settings.json"), "PreToolUse") {
+	if strings.Count(read(".claude/settings.json"), `"stele hook"`) != 5 || !strings.Contains(read(".claude/settings.json"), "UserPromptSubmit") || !strings.Contains(read(".claude/settings.json"), "PreToolUse") {
 		t.Fatal("the hook was added twice, or not for each event")
 	}
 	if read(".codex/hooks.json") != codex || strings.Contains(out.String(), "/hooks") {
@@ -243,18 +250,18 @@ func TestInitNewSpecKitProjectOnClaude(t *testing.T) {
 	}
 }
 
-// TestInitWarnsWithoutNode: the agent hooks run with node; a machine
-// without it got hooks that fail, and nothing said why (a developer trial,
-// 2026-11-05).
-func TestInitWarnsWithoutNode(t *testing.T) {
+// TestInitWarnsWithoutStele: the agent hooks run `stele hook`; a stele
+// run by its path, not on PATH, would give hooks that fail, and nothing
+// would say why.
+func TestInitWarnsWithoutStele(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	dir := t.TempDir()
 	var out bytes.Buffer
 	if code := cmdInit([]string{dir, "--yes", "--llm", "codex", "--harness", "claude", "--git-hook=false"}, strings.NewReader(""), &out, false); code != 0 {
 		t.Fatalf("exit %d: %s", code, out.String())
 	}
-	if !strings.Contains(out.String(), "install Node.js") {
-		t.Errorf("no Node.js warning: %s", out.String())
+	if !strings.Contains(out.String(), "stele is not on PATH") || strings.Contains(out.String(), "Node.js") {
+		t.Errorf("no PATH warning: %s", out.String())
 	}
 }
 

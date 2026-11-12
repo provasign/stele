@@ -274,8 +274,10 @@ func setUpAgents(dir string, c config.Config, selected []string, hook, gitHook, 
 		fmt.Fprintln(out, "Claude Code was not found here, so nothing was set up for a coding agent. Stele works through Claude Code for now: install it, then run `stele init --harness claude` here.")
 	}
 	if hook && (slices.Contains(selected, "claude") || slices.Contains(selected, "codex")) {
-		if _, err := exec.LookPath("node"); err != nil {
-			fmt.Fprintln(out, "Stele's agent hooks run with Node.js, which is not on PATH here: install Node.js so they work.")
+		// The hooks run `stele hook`: a stele run by its path, not found
+		// on PATH, gives hooks that fail.
+		if _, err := exec.LookPath("stele"); err != nil {
+			fmt.Fprintln(out, "Stele's agent hooks run `stele hook`, and stele is not on PATH here: put it on PATH so they work.")
 		}
 	}
 	if len(selected) == 0 {

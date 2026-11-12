@@ -69,13 +69,16 @@ func TestRules(t *testing.T) {
 	}
 }
 
-// TestHookUpgrade: a project set up with only the post-edit hook gains the
-// prompt hook, and nothing is added twice.
+// TestHookUpgrade: a project set up by an earlier release, with the Node
+// script and only its post-edit hook, gets `stele hook` for every event in
+// place of the script, and nothing is added twice.
 func TestHookUpgrade(t *testing.T) {
 	dir := t.TempDir()
 	settings := filepath.Join(dir, ".claude", "settings.json")
-	os.MkdirAll(filepath.Dir(settings), 0o755)
-	old := `{"model": "x", "hooks": {"PostToolUse": [{"matcher": "Write", "hooks": [{"type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/stele-hook.js\""}]}]}}`
+	script := filepath.Join(dir, ".claude", "hooks", "stele-hook.js")
+	os.MkdirAll(filepath.Dir(script), 0o755)
+	os.WriteFile(script, []byte("// the old hook\n"), 0o644)
+	old := `{"model": "x", "permissions": {"allow": ["Bash(npm test:*)"], "deny": ["Read(.env)"]}, "hooks": {"PostToolUse": [{"matcher": "Write", "hooks": [{"type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/stele-hook.js\""}]}, {"matcher": "Bash", "hooks": [{"type": "command", "command": "their-linter"}]}]}}`
 	os.WriteFile(settings, []byte(old), 0o644)
 	for range 2 {
 		if _, err := installHook(dir, agentHooks[0]); err != nil {
@@ -90,8 +93,16 @@ func TestHookUpgrade(t *testing.T) {
 	if err := json.Unmarshal(b, &s); err != nil {
 		t.Fatal(err)
 	}
-	if s.Model != "x" || len(s.Hooks["PostToolUse"]) != 1 || len(s.Hooks["UserPromptSubmit"]) != 1 {
+	if s.Model != "x" || len(s.Hooks["PostToolUse"]) != 2 || len(s.Hooks["UserPromptSubmit"]) != 1 || len(s.Hooks["PreToolUse"]) != 1 ||
+		strings.Contains(string(b), "stele-hook.js") || !strings.Contains(string(b), "their-linter") || strings.Count(string(b), `"stele hook"`) != 5 ||
+		strings.Count(string(b), `"Bash(stele change:*)"`) != 1 || !strings.Contains(string(b), `"Bash(npm test:*)"`) || !strings.Contains(string(b), `"Read(.env)"`) || strings.Contains(string(b), "stele approve") {
 		t.Errorf("settings after upgrade: %s", b)
+	}
+	if _, err := os.Stat(script); err == nil {
+		t.Error("the old script is still there")
+	}
+	if _, err := os.Stat(filepath.Dir(script)); err == nil {
+		t.Error("the emptied hooks folder is still there")
 	}
 }
 

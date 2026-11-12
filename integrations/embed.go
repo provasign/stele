@@ -1,6 +1,6 @@
 // Package integrations embeds what `stele init` installs into a project for
 // the coding agents: the agent skill, the short steering text every agent's
-// instruction file gets, and the Claude Code and Codex hooks. The files here are the
+// instruction file gets, and the Claude Code and Codex hook settings. The files here are the
 // only copies; `stele init` writes them out.
 package integrations
 
@@ -60,20 +60,17 @@ func SteeringFor(format, root string) string {
 	return strings.NewReplacer("{{when}}", when, "{{check}}", check, "{{shale}}", shale, "{{format}}", strings.TrimSpace(part)).Replace(steering)
 }
 
-// Hook is the hook script for Claude Code and Codex, whose hook events
-// share one input and output format, and HookSettings its Claude Code
-// settings entry.
+// HookSettings is the Claude Code settings entry for Stele's hook, `stele
+// hook`: Claude Code and Codex share one hook format, and Stele's binary
+// answers both, so the hooks need nothing else installed.
 //
-//go:embed claude/stele-hook.js
-var Hook string
-
 //go:embed claude/settings.example.json
 var HookSettings string
 
-// CodexHooks is the hook script's entry in a project's .codex/hooks.json.
-// Codex sets no project-directory variable for hooks, so the command finds
-// the script from the repository root; it runs after every tool, since
-// the drift check takes milliseconds.
+// CodexHooks is the hook's entry in a project's .codex/hooks.json. Codex
+// names the session's directory in each event, and Stele finds the project
+// from there; it runs after every tool, since the drift check takes
+// milliseconds.
 //
 //go:embed codex/hooks.example.json
 var CodexHooks string
