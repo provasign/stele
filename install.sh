@@ -10,7 +10,7 @@
 #   PROJECT        a repository to set up afterwards with `stele init`
 #
 # Supported platforms: linux-amd64, linux-arm64, darwin-amd64, darwin-arm64.
-# Stele needs the Z3 solver on PATH; this script says how to install it.
+# The Z3 solver is built into the binary; nothing else needs installing.
 set -euo pipefail
 
 PRODUCT="stele"
@@ -96,20 +96,6 @@ case ":$PATH:" in
 esac
 export PATH="${INSTALL_DIR}:$PATH"
 
-# ── Z3 ───────────────────────────────────────────────────────────────────────
-if command -v z3 >/dev/null 2>&1; then
-  ok "z3 found: $(z3 --version)"
-else
-  Z3_CMD="brew install z3"
-  if [ "$OS" = "linux" ]; then
-    for pm in "apt-get:sudo apt-get install -y z3" "dnf:sudo dnf install -y z3" "pacman:sudo pacman -S --noconfirm z3" "apk:sudo apk add z3"; do
-      command -v "${pm%%:*}" >/dev/null 2>&1 && { Z3_CMD="${pm#*:}"; break; }
-    done
-  fi
-  err "Stele needs the Z3 solver, which is not on PATH. Install it with:  ${Z3_CMD}"
-  NEED_Z3="$Z3_CMD"
-fi
-
 # ── Optional project setup ───────────────────────────────────────────────────
 if [ -n "${PROJECT:-}" ]; then
   [ -d "$PROJECT" ] || die "project dir not found: $PROJECT"
@@ -121,7 +107,6 @@ fi
 n=0; step() { n=$((n+1)); printf '  %d. %s\n' "$n" "$1"; }
 printf '\n%s %s installed: requirements that hold.\n' "$PRODUCT" "$VERSION"
 printf 'Stele checks each new request or spec change against every approved requirement,\nand asks you about any contradiction before code is written.\n\nNext steps:\n'
-if [ -n "${NEED_Z3:-}" ]; then step "Install the Z3 solver:  ${NEED_Z3}"; fi
 step "cd your-repo"
 step "stele init       finds your specs (or the requests your agents declare with Shale)"
 printf '                      and your coding agents; writes their instructions and hooks\n'

@@ -35,7 +35,7 @@ Most of it runs through your coding agent: run "stele init", then work as usual.
 
 set up
   init [dir]             create stele.yaml and the registry, and set up Claude Code (the one agent supported for now)
-  version                print the release
+  version [--solver]     print the release; --solver also checks the Z3 it runs
 
 check a change (the agent runs these; the owner answers its questions)
   adopt [repo]           check a project's existing specs once: every requirement against every other
@@ -102,7 +102,7 @@ commands:
   touches                the approved requirements the current code change touches (the branch and working tree)
   hook                   the coding agent's hook stele init installs (Claude Code; --agent codex)
   precommit              the git pre-commit check stele init installs: blocks specs and approved rules that disagree
-  version                print the release
+  version [--solver]     print the release; --solver also checks the Z3 it runs
 `
 
 // Run executes the command line and returns the process exit code:
@@ -134,6 +134,9 @@ func Run(args []string) int {
 		return cmdPrecommit(args[1:], os.Stderr)
 	case "version", "--version":
 		fmt.Fprintln(os.Stdout, "stele "+version.Version)
+		if slices.Contains(args[1:], "--solver") {
+			return solverCheck(os.Stdout, os.Stderr)
+		}
 		return 0
 	case "gate":
 		return cmdGate(args[1:], os.Stdout)
@@ -218,7 +221,7 @@ func checkCmd(args []string, out, errOut io.Writer) int {
 	ignoreDecisions := fs.Bool("ignore-decisions", false, "check the rules as written, without decision records")
 	timeout := fs.Duration("timeout", 10*time.Second, "per-query solver budget; a timeout is reported as unknown")
 	assumeDefaults := fs.Bool("assume-defaults", false, "check only situations where every configured default holds (the shipped configuration)")
-	z3Path := fs.String("z3", "z3", "path to the z3 binary")
+	z3Path := fs.String("z3", "", "path to a z3 binary to run (default: Stele's own Z3, else z3 on PATH)")
 	cachePath := fs.String("cache", "", "file of per-unit results to reuse and update: units whose questions are unchanged are not solved again")
 	groups := fs.Bool("groups", false, "list conflicts grouped by the statement they share, as questions for the specs' authors")
 	// Accept `stele check <dir> --flags`: flag parsing stops at the first positional.
@@ -544,4 +547,28 @@ func defaultRepo(args []string) []string {
 		return append([]string{"."}, args...)
 	}
 	return args
+}
+
+// solverCheck runs one small script through the solver Stele uses, and says
+// which it is: the Z3 built into this binary, or a z3 binary.
+func solverCheck(out, errOut io.Writer) int {
+	z := &solver.Z3{Timeout: 5 * time.Second}
+	v, err := z.Version()
+	if err != nil {
+		fmt.Fprintln(errOut, err)
+		return 1
+	}
+	res, err := z.Run(context.Background(), "(declare-const x Int)\n(assert (> x 2))\n(check-sat)\n")
+	if err != nil || res.Status != solver.Sat {
+		fmt.Fprintf(errOut, "%s gave no correct answer: %v\n", v, err)
+		return 1
+	}
+	where := "z3 on PATH"
+	if p := os.Getenv("STELE_Z3"); p != "" {
+		where = p
+	} else if solver.Builtin() {
+		where = "built in"
+	}
+	fmt.Fprintf(out, "%s (%s)\n", v, where)
+	return 0
 }

@@ -205,7 +205,7 @@ A new requirement the owner has not approved yet gets the command that checks it
 
 - **What the server keeps:**
   - each registry, loaded and lowered, until one of its YAML files changes size or modification time;
-  - running z3 processes;
+  - idle Z3 contexts (or z3 processes);
   - every unit's result. Results also persist one file per key in the user cache directory, so a one-shot `stele check` and CI reuse them too.
 - **How the client uses it:**
   - It sends its own build identity. A server of another build refuses, and the client then checks by itself, so a stale server never answers.
@@ -214,7 +214,7 @@ A new requirement the owner has not approved yet gets the command that checks it
 - **Settings:**
   - The socket is `serve.sock` beside the cache directory. `STELE_SOCKET` overrides it.
   - `STELE_SERVE=off` makes the client check by itself.
-  - `STELE_CACHE=off` keeps no persisted results, and `STELE_WARM_Z3=off` starts a z3 process per query.
+  - `STELE_CACHE=off` keeps no persisted results, and `STELE_WARM_Z3=off` starts a z3 process per query where z3 runs as a process.
 
 ```sh
 stele serve &          # once per machine or session

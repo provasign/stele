@@ -6,7 +6,6 @@ This is the preview guide: an hour with Stele on a small project of your own, an
 
 - **git**, and a repository you can experiment in. A new one is best for a first try.
 - **[Claude Code](https://claude.com/claude-code),** signed in: the one coding agent Stele supports for now. Stele reads your specs through it, so its spend lands on that account. `stele init` names Sonnet 5.5 for Stele's own calls (`translate.model` in `stele.yaml`); on it a short requirement costs about 2 cents to read, so a feature of 5 to 15 requirements costs about $0.10 to $0.30 of Stele's calls, on top of what the agent itself spends. Long requirements with scenarios cost several times that, and a larger model about four times.
-- **[Z3](https://github.com/Z3Prover/z3)**, the solver: `brew install z3`, or your system's package (`apt install z3`).
 - **Optional:** [Spec Kit](https://github.com/github/spec-kit), [OpenSpec](https://github.com/Fission-AI/OpenSpec) or [Kiro](https://kiro.dev), if you already write specs with one. Without one, `stele init` sets up a `requirements/` folder of plain Markdown that the agent keeps; requests declared with [Shale](https://github.com/provasign/shale) work too.
 
 ## Install

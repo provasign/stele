@@ -132,7 +132,8 @@ Results are keyed by the hash of the slice: normalized IR of every member, the s
 ## Timeouts and solver portfolio
 
 - Each solver query has a hard budget, default 10 s locally and in CI.
-- The `stele` binary keeps z3 processes running and sends each query after `(reset)`, which clears every declaration and assertion, so each answer is the one a new process gives. z3's own timeout bounds each check. A z3 that does not answer within the budget plus 2 s, or whose answer is no longer needed (another way of deciding won the race), is killed, and its answer is `unknown`.
+- Stele's release binaries carry Z3, linked in from a static library, and run each query in a Z3 context inside the process. Idle contexts are kept and each query is sent after `(reset)`, which clears every declaration and assertion, so each answer is the one a new context gives. z3's own timeout bounds each check. A query not answered within the budget plus 2 s, or whose answer is no longer needed (another way of deciding won the race), is interrupted, and its answer is `unknown`.
+- A build without Z3 inside (a source build), or one told to use another solver binary (`STELE_Z3`, or `--z3` on the commands that take it), runs z3 as processes the same way, and kills a process instead of interrupting it. `stele version --solver` says which Z3 is used.
 - A timeout is `unknown`. By default `unknown` blocks merge (T-F4); the owner can downgrade it to a warning for a named slice, which is recorded.
 - Planned for Phase 3: Z3 and cvc5 race on hard queries; the first answer wins. In the nightly full run both must agree. A disagreement raises an incident and freezes that slice: merges touching it are blocked until resolved.
 

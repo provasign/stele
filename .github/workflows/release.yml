@@ -1,6 +1,7 @@
 name: Release
 # Runs only when a release tag is pushed. Stele needs cgo (tree-sitter, via
-# Grove), so every platform builds natively; Linux binaries are static so
+# Grove, and Z3, linked in from a static libz3 so users install nothing
+# else), so every platform builds natively; Linux binaries are static so
 # they run on older glibc. Adapted from Prism's release workflow.
 # It can also be started by hand for a tag already pushed, to finish a
 # release whose run failed for reasons outside the code.
@@ -18,6 +19,7 @@ permissions:
   attestations: write
 env:
   GO_VERSION: "1.26.3"
+  Z3_VERSION: "5.3.1"
   TAG: ${{ inputs.tag || github.ref_name }}
 jobs:
   # What is released is what was tested: the tag's own commit, with the
@@ -25,8 +27,6 @@ jobs:
   test:
     name: Test the tagged commit
     runs-on: ubuntu-24.04
-    env:
-      Z3_VERSION: "5.3.1"
     steps:
       - uses: actions/checkout@v7
         with:
@@ -68,15 +68,29 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version: ${{ env.GO_VERSION }}
+      - name: Cache static Z3
+        id: z3
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/z3
+          key: z3-static-${{ env.Z3_VERSION }}-linux-${{ matrix.goarch }}-${{ hashFiles('scripts/build-z3.sh') }}
+      - name: Build static Z3
+        if: steps.z3.outputs.cache-hit != 'true'
+        run: scripts/build-z3.sh "$Z3_VERSION" "$RUNNER_TEMP/z3"
       - name: Build
         env:
           GOOS: linux
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "1"
           CC: gcc
+          CGO_CFLAGS: -I${{ runner.temp }}/z3/include
+          CGO_LDFLAGS: -L${{ runner.temp }}/z3/lib
         run: |
           mkdir -p dist
-          go build -tags netgo,osusergo -ldflags="-s -w -extldflags \"-static\" -X github.com/provasign/stele/internal/version.Version=${{ env.TAG }}" -o "dist/stele-${{ env.TAG }}-linux-${{ matrix.goarch }}" ./cmd/stele
+          go test -count=1 -tags z3static ./internal/solver/
+          go build -tags netgo,osusergo,z3static -ldflags="-s -w -extldflags \"-static\" -X github.com/provasign/stele/internal/version.Version=${{ env.TAG }}" -o "dist/stele-${{ env.TAG }}-linux-${{ matrix.goarch }}" ./cmd/stele
+      - name: Check the binary runs Z3 with none on PATH
+        run: env PATH=/usr/bin:/bin "dist/stele-${TAG}-linux-${{ matrix.goarch }}" version --solver
       - uses: actions/upload-artifact@v7
         with:
           name: stele-linux-${{ matrix.goarch }}
@@ -95,15 +109,31 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version: ${{ env.GO_VERSION }}
+      - name: Cache static Z3
+        id: z3
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/z3
+          key: z3-static-${{ env.Z3_VERSION }}-darwin-${{ matrix.goarch }}-${{ hashFiles('scripts/build-z3.sh') }}
+      - name: Build static Z3
+        if: steps.z3.outputs.cache-hit != 'true'
+        run: scripts/build-z3.sh "$Z3_VERSION" "$RUNNER_TEMP/z3" ${{ matrix.goarch == 'amd64' && 'x86_64' || 'arm64' }}
       - name: Build
         env:
           GOOS: darwin
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "1"
           CC: ${{ matrix.goarch == 'amd64' && 'clang -arch x86_64' || 'clang -arch arm64' }}
+          CGO_CFLAGS: -I${{ runner.temp }}/z3/include
+          CGO_LDFLAGS: -L${{ runner.temp }}/z3/lib
+          MACOSX_DEPLOYMENT_TARGET: "13.3"
         run: |
           mkdir -p dist
-          go build -ldflags="-s -w -X github.com/provasign/stele/internal/version.Version=${{ env.TAG }}" -o "dist/stele-${{ env.TAG }}-darwin-${{ matrix.goarch }}" ./cmd/stele
+          if [ "${{ matrix.goarch }}" = arm64 ]; then go test -count=1 -tags z3static ./internal/solver/; fi
+          go build -tags z3static -ldflags="-s -w -X github.com/provasign/stele/internal/version.Version=${{ env.TAG }}" -o "dist/stele-${{ env.TAG }}-darwin-${{ matrix.goarch }}" ./cmd/stele
+      - name: Check the binary runs Z3 with none on PATH
+        if: matrix.goarch == 'arm64'
+        run: env PATH=/usr/bin:/bin "dist/stele-${TAG}-darwin-arm64" version --solver
       - uses: actions/upload-artifact@v7
         with:
           name: stele-darwin-${{ matrix.goarch }}
@@ -135,3 +165,4 @@ jobs:
           files: |
             dist/*
             install.sh
+            NOTICE

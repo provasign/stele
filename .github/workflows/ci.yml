@@ -1,6 +1,7 @@
 name: CI
-# Every push and pull request: vet, the Go tests against a pinned Z3, and the
-# agent and editor integration tests against the built binary.
+# Every push and pull request: vet, the Go tests against a pinned Z3 (on PATH,
+# and built in, as the releases carry it), and the agent and editor
+# integration tests against the built binary.
 on:
   push:
     branches: [main]
@@ -33,3 +34,39 @@ jobs:
         run: |
           go build -o bin/stele-sync ./cmd/stele
           node --test $(git ls-files 'integrations/**/*.test.js')
+
+  # The release binaries carry Z3 inside (build tag z3static). The same suite
+  # runs through it, and the static binary must answer with no z3 on PATH.
+  # z3 stays on PATH only because tests skip without one; with the tag they
+  # run the built-in Z3, except those that name a binary.
+  builtin-z3:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Cache static Z3
+        id: z3
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/z3
+          key: z3-static-${{ env.Z3_VERSION }}-linux-amd64-${{ hashFiles('scripts/build-z3.sh') }}
+      - name: Build static Z3
+        if: steps.z3.outputs.cache-hit != 'true'
+        run: scripts/build-z3.sh "$Z3_VERSION" "$RUNNER_TEMP/z3"
+      - name: Install Z3 on PATH
+        run: |
+          curl -fsSL -o z3.zip "https://github.com/Z3Prover/z3/releases/download/z3-${Z3_VERSION}/z3-${Z3_VERSION}-x64-glibc-2.39.zip"
+          unzip -q z3.zip -d "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/z3-${Z3_VERSION}-x64-glibc-2.39/bin" >> "$GITHUB_PATH"
+      - name: Test and build with Z3 inside
+        env:
+          CGO_ENABLED: "1"
+          CGO_CFLAGS: -I${{ runner.temp }}/z3/include
+          CGO_LDFLAGS: -L${{ runner.temp }}/z3/lib
+        run: |
+          go vet -tags z3static ./...
+          go test -count=1 -tags z3static ./...
+          go build -tags netgo,osusergo,z3static -ldflags="-s -w -extldflags \"-static\"" -o bin/stele ./cmd/stele
+          env PATH=/usr/bin:/bin bin/stele version --solver

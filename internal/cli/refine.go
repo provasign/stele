@@ -46,7 +46,7 @@ func cmdRefine(args []string, out io.Writer) int {
 	maxCalls := fs.Int("max-calls", 0, "retranslation calls allowed per round; 0 is unlimited")
 	requestTimeout := fs.Duration("request-timeout", 10*time.Minute, "limit per model call")
 	solverTimeout := fs.Duration("solver-timeout", 5*time.Second, "per-query solver budget")
-	z3Path := fs.String("z3", "z3", "path to the z3 binary")
+	z3Path := fs.String("z3", "", "path to a z3 binary to run (default: Stele's own Z3, else z3 on PATH)")
 	timeout := fs.Duration("timeout", 3*time.Hour, "limit for the run")
 	client := llmFlags(fs)
 	_ = fs.Parse(args)

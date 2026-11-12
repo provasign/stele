@@ -32,7 +32,7 @@ func cmdBench(args []string, out io.Writer) int {
 	var rs runs
 	fs.Var(&rs, "run", "SET=DIR: a formalize output directory to score on a set (repeatable)")
 	jsonOut := fs.Bool("json", false, "emit JSON")
-	z3Path := fs.String("z3", "z3", "path to the z3 binary")
+	z3Path := fs.String("z3", "", "path to a z3 binary to run (default: Stele's own Z3, else z3 on PATH)")
 	_ = fs.Parse(args)
 	if *setsPath == "" || len(rs) == 0 {
 		fmt.Fprint(os.Stderr, "usage: stele bench --sets FILE --run SET=DIR [--run SET=DIR ...] [--json]\n")

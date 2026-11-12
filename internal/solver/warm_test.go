@@ -29,7 +29,7 @@ func TestWarmAgrees(t *testing.T) {
 		"(declare-const x Int)\n(assert (= x 7))\n(check-sat)\n",
 		"(declare-datatypes ((C 0)) (((red) (green))))\n(declare-const c C)\n(assert (not (= c red)))\n(check-sat)\n",
 	}
-	cold, warm := &Z3{}, &Z3{Warm: true}
+	cold, warm := &Z3{Path: "z3"}, &Z3{Path: "z3", Warm: true}
 	for round := range 2 {
 		for _, sc := range scripts {
 			a, aerr := cold.Run(context.Background(), sc)
@@ -46,14 +46,14 @@ func TestWarmAgrees(t *testing.T) {
 // code review, 2026-11-04).
 func TestSolversShareWarmProcesses(t *testing.T) {
 	needZ3(t)
-	before := max(idleCount((&Z3{}).path()), 1)
+	before := max(idleCount("z3"), 1)
 	for range 3 {
-		z := &Z3{Warm: true}
+		z := &Z3{Path: "z3", Warm: true}
 		if r, err := z.Run(context.Background(), "(declare-const x Int)\n(assert (> x 0))\n(check-sat)\n"); err != nil || r.Status != Sat {
 			t.Fatalf("%+v %v", r, err)
 		}
 	}
-	if n := idleCount((&Z3{}).path()); n != before {
+	if n := idleCount("z3"); n != before {
 		t.Fatalf("%d idle z3 processes after three solvers ran one script each, want %d", n, before)
 	}
 }
@@ -62,7 +62,7 @@ func TestSolversShareWarmProcesses(t *testing.T) {
 // still runs.
 func TestWarmCancel(t *testing.T) {
 	needZ3(t)
-	z := &Z3{Warm: true}
+	z := &Z3{Path: "z3", Warm: true}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if r, err := z.Run(ctx, "(declare-const x Int)\n(assert (> x 0))\n(check-sat)\n"); err != nil || r.Status != Unknown {
@@ -77,7 +77,7 @@ func TestWarmCancel(t *testing.T) {
 // script still runs.
 func TestWarmError(t *testing.T) {
 	needZ3(t)
-	z := &Z3{Warm: true, Timeout: 2 * time.Second}
+	z := &Z3{Path: "z3", Warm: true, Timeout: 2 * time.Second}
 	if _, err := z.Run(context.Background(), "(assert undeclared)\n(check-sat)\n"); err == nil || !strings.Contains(err.Error(), "solver error") {
 		t.Fatalf("got %v, want a solver error", err)
 	}

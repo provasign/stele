@@ -1,5 +1,6 @@
-// Package solver drives an SMT-LIB 2 solver as a subprocess (D-034). A
-// timeout is reported as Unknown, never as a pass (docs/06-checker.md).
+// Package solver drives the Z3 SMT-LIB 2 solver (D-034): the one linked into
+// Stele's release binaries, or a z3 binary run as a subprocess. A timeout is
+// reported as Unknown, never as a pass (docs/06-checker.md).
 package solver
 
 import (
@@ -25,9 +26,12 @@ const (
 	Unknown Status = "unknown"
 )
 
-// Z3 runs scripts through a z3 binary.
+// Z3 runs scripts through Z3.
 type Z3 struct {
-	Path    string        // defaults to "z3" on PATH
+	// Path names a z3 binary to run. Empty means the Z3 built into this
+	// binary, or, when it has none or STELE_Z3 names a binary, that binary
+	// (default "z3" on PATH).
+	Path    string
 	Timeout time.Duration // per script; defaults to 10 s
 	// Warm keeps z3 processes running between scripts and clears each with
 	// (reset) before the next, instead of starting a process per script.
@@ -36,6 +40,21 @@ type Z3 struct {
 	nearLimit atomic.Int64
 	sessions  *pool
 	once      sync.Once
+}
+
+// builtin is the Z3 linked into this binary (embedded.go, build tag
+// z3static), or nil.
+var builtin interface {
+	Version() string
+	Eval(ctx context.Context, script string, timeout time.Duration) (out string, interrupted bool, err error)
+}
+
+// Builtin reports whether this binary carries its own Z3.
+func Builtin() bool { return builtin != nil }
+
+// useBuiltin reports whether z runs the Z3 linked into this binary.
+func (z *Z3) useBuiltin() bool {
+	return builtin != nil && z.Path == "" && os.Getenv("STELE_Z3") == ""
 }
 
 // DefaultWarm makes every solver warm. The stele binary sets it; library
@@ -57,6 +76,9 @@ func (z *Z3) NearLimit() int64 { return z.nearLimit.Load() }
 // It is remembered per binary (path, size and modification time), so a
 // long-running process asks once.
 func (z *Z3) Version() (string, error) {
+	if z.useBuiltin() {
+		return builtin.Version(), nil
+	}
 	key := ""
 	if bin, err := exec.LookPath(z.path()); err == nil {
 		if fi, err := os.Stat(bin); err == nil {
@@ -97,6 +119,9 @@ func z3Install() string {
 
 func (z *Z3) path() string {
 	if z.Path == "" {
+		if p := os.Getenv("STELE_Z3"); p != "" {
+			return p
+		}
 		return "z3"
 	}
 	return z.Path
@@ -114,6 +139,9 @@ func (z *Z3) Run(ctx context.Context, script string) (*Result, error) {
 	timeout := z.Timeout
 	if timeout == 0 {
 		timeout = 10 * time.Second
+	}
+	if z.useBuiltin() {
+		return z.runBuiltin(ctx, script, timeout)
 	}
 	if z.Warm || DefaultWarm {
 		return z.runWarm(ctx, script, timeout)
@@ -139,6 +167,28 @@ func (z *Z3) Run(ctx context.Context, script string) (*Result, error) {
 		return &Result{Status: Unknown}, nil
 	}
 	return nil, fmt.Errorf("solver gave no answer (%v): %s%s", err, stdout.String(), stderr.String())
+}
+
+// runBuiltin runs script in the Z3 linked into this binary. Z3's timeout
+// bounds each check; a run interrupted past it, or whose caller gives up,
+// answers unknown.
+func (z *Z3) runBuiltin(ctx context.Context, script string, timeout time.Duration) (*Result, error) {
+	start := time.Now()
+	out, interrupted, err := builtin.Eval(ctx, script, timeout)
+	if ctx.Err() != nil {
+		return &Result{Status: Unknown}, nil
+	}
+	res, perr := z.answer(script, out, time.Since(start), timeout)
+	if perr != nil || res != nil {
+		return res, perr
+	}
+	if interrupted {
+		return &Result{Status: Unknown}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("%v: %s\n--- script ---\n%s", err, out, script)
+	}
+	return nil, fmt.Errorf("solver gave no answer: %s", out)
 }
 
 // answer reads the solver's output for script. It returns nil and no error
